@@ -1,0 +1,111 @@
+From: PW3 Android port
+Subject: [PW3] The empty state of Files is text on white
+
+Measured on V90: the middle of an empty folder page is 11.6% grey 239, 5.3%
+grey 234 and 3.7% grey 231 -- a fifth of the page, and the last large area of
+mid-grey left in the system. Eleven other pages measured in the same round were
+92% to 100% white everywhere else.
+
+What draws it is `cabinet.xml`, an 81-line VectorDrawable whose fifteen fills
+are all #EFEFEE, #EAEAEA, #CFCFCE, #BDBDBD and one pink #E6A3A3/#E57474. On a
+16-level grey panel every one of those lands on level 13, 14 or 15, so the
+drawing arrives as a single smudge with no readable shape. `hourglass.xml` is
+the same kind of thing. Rule 1 of docs/design/eink-ui.md says those two or three
+levels cannot be used to tell one region from another; here they were not even
+doing that, they were decoration.
+
+So the three messages this holder shows pass no artwork, the ImageView goes away
+when there is none, and the message is centred instead of sitting at the foot of
+an otherwise empty screen. The two small dialog icons are untouched: they go to
+HeaderMessageDocumentHolder, which is the banner at the top of a listing, not
+this full-screen state.
+
+Nothing is removed from the layout and no resource name is added. R.id.artwork
+stays, and so does the ImageView, so a message that does want an artwork still
+gets one and the resource IDs of this package do not move.
+
+Not run on the device yet when this patch was written.
+
+--- a/src/com/android/documentsui/dirlist/Message.java
++++ b/src/com/android/documentsui/dirlist/Message.java
+@@ -153,13 +153,13 @@
+         }
+ 
+         private void updateToInflatedErrorMesage() {
+-            update(mEnv.getContext().getResources().getText(R.string.query_error), null,
+-                    mEnv.getContext().getDrawable(R.drawable.hourglass));
++            // PW3: no artwork. See InflateMessageDocumentHolder.
++            update(mEnv.getContext().getResources().getText(R.string.query_error), null, null);
+         }
+ 
+         private void updateToCantDisplayContentMessage() {
+-            update(mEnv.getContext().getResources().getText(R.string.cant_display_content), null,
+-                    mEnv.getContext().getDrawable(R.drawable.cabinet));
++            update(mEnv.getContext().getResources().getText(R.string.cant_display_content),
++                    null, null);
+         }
+ 
+         private void updateToInflatedEmptyMessage() {
+@@ -172,7 +172,7 @@
+             } else {
+                 message = mEnv.getContext().getResources().getText(R.string.empty);
+             }
+-            update(message, null, mEnv.getContext().getDrawable(R.drawable.cabinet));
++            update(message, null, null);
+         }
+     }
+ }
+--- a/src/com/android/documentsui/dirlist/InflateMessageDocumentHolder.java
++++ b/src/com/android/documentsui/dirlist/InflateMessageDocumentHolder.java
+@@ -18,6 +18,8 @@
+ 
+ import android.content.Context;
+ import android.database.Cursor;
++import android.graphics.drawable.Drawable;
++import android.view.View;
+ import android.view.ViewGroup;
+ import android.widget.ImageView;
+ import android.widget.TextView;
+@@ -48,6 +50,20 @@
+     @Override
+     public void bind(Cursor cursor, String modelId) {
+         mMsgView.setText(mMessage.getMessageString());
+-        mImageView.setImageDrawable(mMessage.getIcon());
++        // PW3: a message with no artwork leaves no empty view behind. The three
++        // messages this holder shows now pass none, because what they used to
++        // draw was `cabinet` and `hourglass`: VectorDrawables whose fifteen
++        // fills are all #EFEFEE, #EAEAEA, #CFCFCE, #BDBDBD and one pink, which
++        // on a 16-level grey panel all land on levels 13 to 15 and read as one
++        // smudge. Measured on V90: the empty folder page was 11.6% grey 239,
++        // 5.3% grey 234 and 3.7% grey 231 -- a fifth of the page, and the last
++        // large area of mid-grey left in the system, where every other page
++        // measured in the same round was 92-100% white. Rule 1 of
++        // docs/design/eink-ui.md says those two or three levels cannot be used
++        // to tell regions apart; here they were not even doing that, they were
++        // decoration.
++        final Drawable icon = mMessage.getIcon();
++        mImageView.setImageDrawable(icon);
++        mImageView.setVisibility(icon == null ? View.GONE : View.VISIBLE);
+     }
+ }
+--- a/res/layout/item_doc_inflated_message.xml
++++ b/res/layout/item_doc_inflated_message.xml
+@@ -40,12 +40,16 @@
+             android:adjustViewBounds="true"
+             android:contentDescription="@null"/>
+ 
++        <!-- PW3: centred rather than pinned to the bottom. The artwork above it
++             is gone (InflateMessageDocumentHolder), and a line of text sitting
++             at the foot of an otherwise empty screen reads as a mistake. With
++             an artwork present it still sits above this, so the two cases both
++             work. -->
+         <TextView
+             android:id="@id/message"
+             android:layout_width="wrap_content"
+             android:layout_height="wrap_content"
+-            android:layout_alignParentBottom="true"
+-            android:layout_centerHorizontal="true"
++            android:layout_centerInParent="true"
+             style="@android:style/TextAppearance.Material.Subhead"/>
+ 
+     </RelativeLayout>

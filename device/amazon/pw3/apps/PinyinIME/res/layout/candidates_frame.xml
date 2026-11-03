@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The candidates view of the input method: the row for the composing string
+     above the row of candidates. Both rows keep their height when they have
+     nothing to show, so that typing does not move the application. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+  android:orientation="vertical"
+  android:background="@drawable/candidates_frame_bg"
+  android:layout_width="match_parent"
+  android:layout_height="wrap_content">
+
+  <!-- Invisible until there is a composing string to draw. -->
+  <com.android.inputmethod.pinyin.ComposingView
+    android:id="@+id/composing_view"
+    android:visibility="invisible"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"/>
+
+  <include layout="@layout/candidates_container"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"/>
+</LinearLayout>

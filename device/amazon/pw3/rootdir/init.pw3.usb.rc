@@ -1,0 +1,165 @@
+# USB through the kernel's Android gadget (docs/design/usb-mtp.md): MTP and PTP,
+# adb through FunctionFS inside the gadget. The modules are loaded and checked at
+# post-fs (/vendor/etc/init/init.pw3.usb.modules.rc). The functions follow
+# sys.usb.config, set from persist.sys.usb.config at boot and then by
+# UsbDeviceManager; the handlers are AOSP's init.usb.rc ones for a non-configfs
+# gadget (init.pw3-main.rc does not import that file), except that the ones
+# carrying adb are in two steps -- see the comment above them. adb needs
+# authentication (ro.adb.secure=1) and has no TCP transport (adbd, system/core
+# 0002).
+#
+# What persist.sys.usb.config holds is not this port's choice: UsbDeviceManager
+# strips mtp and ptp out of it at every boot ("Previous versions can set persist
+# config to mtp/ptp but it does not get reset on OTA", UsbDeviceManager.java),
+# and getDefaultFunctions() answers "adb" alone once adb is enabled. So a device
+# that has been through one framework start comes up as the adb gadget, and MTP
+# is what UsbDeviceManager switches to when a computer is on the cable and the
+# reader allows access to the data. The product default below it (mtp) is only
+# what the very first boot sees.
+on init
+    setprop sys.usb.configfs 0
+    setprop sys.usb.ffs.ready 0
+    setprop sys.pw3.ffs_ready 0
+    setprop sys.usb.state none
+    setprop service.adb.tcp.port -1
+    mkdir /dev/usb-ffs 0770 shell shell
+    mkdir /dev/usb-ffs/adb 0770 shell shell
+
+on post-fs-data
+    mkdir /data/misc/adb 02750 system shell
+    mkdir /data/adb 0700 root root
+    restorecon_recursive /data/misc/adb
+
+# Once the gadget is verified and persistent properties are loaded: the identity
+# strings, the per-device serial (pw3-usb-check serial), adb's FunctionFS.
+on boot && property:sys.pw3.usb.phase=gadget-bound
+    exec_start pw3-usb-serial
+    write /sys/class/android_usb/android0/iManufacturer ${ro.product.manufacturer}
+    write /sys/class/android_usb/android0/iProduct ${ro.product.model}
+    write /sys/class/android_usb/android0/iSerial ${persist.pw3.usb.serial}
+    write /sys/class/android_usb/android0/f_ffs/aliases adb
+    # Old FunctionFS defaults its root to 0500. The read-only checker has
+    # supplementary shell membership; endpoint files remain owner-only 0600.
+    mount functionfs adb /dev/usb-ffs/adb uid=2000,gid=2000,rmode=0550
+    exec_start pw3-ffs-check
+    setprop sys.usb.config ${persist.sys.usb.config}
+
+on property:sys.usb.config=none && property:sys.usb.configfs=0
+    stop adbd
+    write /sys/class/android_usb/android0/enable 0
+    write /sys/class/android_usb/android0/bDeviceClass 0
+    setprop sys.usb.state ${sys.usb.config}
+
+# Vendor 18d1 with the product IDs Android uses for these functions (AOSP
+# init.usb.rc, Nexus devices): computers then know the device class at once.
+#
+# Every configuration with adb in it is enabled in two steps, because the
+# descriptors of adb's FunctionFS are adbd's to write and the gadget cannot bind
+# the function before they are there: adbd writes them and then sets
+# sys.usb.ffs.ready (system/core/adb/daemon/usb.cpp), which is what every AOSP
+# device routing adb through FunctionFS waits for (init.usb.configfs.rc,
+# device/linaro/hikey/init.common.usb.rc). AOSP's one-step handler, which this
+# file used to copy, is for the gadget's own adb function, which needs nothing
+# from user space. Enabling first and starting adbd after left the cable dead on
+# a boot that asked for adb -- with it, MTP too, there being one gadget ("插线了
+# 啊", with nothing on the bus, user, 2026-10-20).
+#
+# sys.pw3.ffs_ready is this port's own gate and stays where it belongs: adbd does
+# not start at all unless the FunctionFS mount is the real thing and adb
+# authentication is on (pw3-init-check usb).
+on property:sys.usb.config=adb && property:sys.usb.configfs=0 && property:sys.pw3.ffs_ready=1
+    start adbd
+
+on property:sys.usb.ffs.ready=1 && property:sys.usb.config=adb && property:sys.usb.configfs=0
+    write /sys/class/android_usb/android0/enable 0
+    write /sys/class/android_usb/android0/idVendor 18d1
+    write /sys/class/android_usb/android0/idProduct 4EE7
+    write /sys/class/android_usb/android0/functions ${sys.usb.config}
+    write /sys/class/android_usb/android0/enable 1
+    setprop sys.usb.state ${sys.usb.config}
+
+on property:sys.usb.config=mtp && property:sys.usb.configfs=0
+    write /sys/class/android_usb/android0/enable 0
+    write /sys/class/android_usb/android0/idVendor 18d1
+    write /sys/class/android_usb/android0/idProduct 4EE1
+    write /sys/class/android_usb/android0/functions ${sys.usb.config}
+    write /sys/class/android_usb/android0/enable 1
+    setprop sys.usb.state ${sys.usb.config}
+
+on property:sys.usb.config=mtp,adb && property:sys.usb.configfs=0 && property:sys.pw3.ffs_ready=1
+    start adbd
+
+on property:sys.usb.ffs.ready=1 && property:sys.usb.config=mtp,adb && property:sys.usb.configfs=0
+    write /sys/class/android_usb/android0/enable 0
+    write /sys/class/android_usb/android0/idVendor 18d1
+    write /sys/class/android_usb/android0/idProduct 4EE2
+    write /sys/class/android_usb/android0/functions ${sys.usb.config}
+    write /sys/class/android_usb/android0/enable 1
+    setprop sys.usb.state ${sys.usb.config}
+
+on property:sys.usb.config=ptp && property:sys.usb.configfs=0
+    write /sys/class/android_usb/android0/enable 0
+    write /sys/class/android_usb/android0/idVendor 18d1
+    write /sys/class/android_usb/android0/idProduct 4EE5
+    write /sys/class/android_usb/android0/functions ${sys.usb.config}
+    write /sys/class/android_usb/android0/enable 1
+    setprop sys.usb.state ${sys.usb.config}
+
+on property:sys.usb.config=ptp,adb && property:sys.usb.configfs=0 && property:sys.pw3.ffs_ready=1
+    start adbd
+
+on property:sys.usb.ffs.ready=1 && property:sys.usb.config=ptp,adb && property:sys.usb.configfs=0
+    write /sys/class/android_usb/android0/enable 0
+    write /sys/class/android_usb/android0/idVendor 18d1
+    write /sys/class/android_usb/android0/idProduct 4EE6
+    write /sys/class/android_usb/android0/functions ${sys.usb.config}
+    write /sys/class/android_usb/android0/enable 1
+    setprop sys.usb.state ${sys.usb.config}
+
+on property:init.svc.adbd=stopped
+    setprop sys.usb.ffs.ready 0
+
+# And the restart that is not a stop. `adb root` makes adbd exit so that init
+# starts it again as root, and a service that exits without having been disabled
+# or reset never reaches "stopped": init takes the restart branch and publishes
+# "restarting" (system/core/init/service.cpp, Service::Reap). So the handler
+# above does not fire and sys.usb.ffs.ready stays 1 while there is no adbd and no
+# descriptors -- a property saying a thing that is not true, which is the whole
+# of what this line is for. onrestart runs in Reap() before that state change,
+# which is exactly where the truth is: adbd has gone, so its descriptors have
+# gone with it. Nothing triggers on the 0, so no register is touched while there
+# may be no cable (the V44 hazard).
+#
+# It is not a fix for anything, and the reason written here until 2026-10-21 was
+# wrong. It said the new adbd's own `setprop sys.usb.ffs.ready 1` would be no
+# change for init to trigger on, so the gadget would never be taken through
+# enable 0 / enable 1 again. Init does not work that way: PropertySetImpl calls
+# property_changed() after every successful update with no comparison to the old
+# value, property_changed() queues it, and Action::CheckPropertyTriggers()
+# matches the trigger's value against the new one and never looks at the old
+# (system/core/init/property_service.cpp, init.cpp, action.cpp -- all three read
+# in the tree on 2026-10-21). Setting 1 over 1 fires the section.
+#
+# What was actually observed: on 2026-10-21, after `adb root`, `adb devices` was
+# empty for 80 seconds with the device still enumerated and Android still
+# running. The explanation is not here: this machine runs two adb servers and
+# the device moves between them (docs/known-issues.md section 3). What was
+# measured on 2026-10-29 is the framework-restart case -- the device moved from
+# port 5097 to 5038 while it stayed on the bus throughout; the `adb root` case
+# was never checked against the other port at the time, so taking it for the
+# same thing is Occam's razor, not a measurement. Whether a replug helped that
+# day is a detail two records disagree on and nobody can check now, so this
+# stops retelling it.
+#
+# Confirmed on 2026-10-29 (V93): one framework restart was watched for 100
+# seconds, and the device's entry in `ioreg -p IOUSB` never went away while the
+# device moved from adb server 5097 to 5038. Nothing here touches USB on a
+# restart; an empty `adb devices` is the server being asked, not the gadget. See
+# docs/known-issues.md section 3, which also records the wrong conclusion drawn
+# earlier that day and the bad measurement behind it.
+service adbd /system/bin/adbd --root_seclabel=u:r:su:s0
+    class core
+    socket adbd stream 660 system system
+    disabled
+    seclabel u:r:adbd:s0
+    onrestart setprop sys.usb.ffs.ready 0

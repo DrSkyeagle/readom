@@ -1,0 +1,62 @@
+From: PW3 Android port
+Subject: [PW3] Hardware bitmaps become ordinary bitmaps without a GPU
+
+Test V32, reported by the user: long-pressing an application icon makes
+Launcher3 stop, repeatedly.
+
+  java.lang.IllegalStateException: Software rendering doesn't support hardware bitmaps
+      at android.graphics.BaseCanvas.throwIfHwBitmapInSwMode
+      at com.android.launcher3.graphics.ShadowDrawable.draw
+
+Launcher3 caches the shadowed drop-target icons as Bitmap.Config.HARDWARE.
+On PW3 every window is drawn by the software canvas (0006), which cannot
+draw such a bitmap, and creating one goes through CPU-emulated GLES. Any
+application may ask for hardware bitmaps (Bitmap.copy, BitmapFactory with
+inPreferredConfig, BitmapRegionDecoder); all of these end in
+Bitmap::allocateHardwareBitmap(), which now returns an immutable copy in
+ordinary memory when the software canvas is selected.
+
+--- a/libs/hwui/hwui/Bitmap.cpp
++++ b/libs/hwui/hwui/Bitmap.cpp
+@@ -25,6 +25,7 @@
+ 
+ #include <log/log.h>
+ #include <cutils/ashmem.h>
++#include <cutils/properties.h>
+ 
+ #include <private/gui/ComposerService.h>
+ #include <binder/IServiceManager.h>
+@@ -84,7 +85,33 @@
+     return sk_sp<Bitmap>(new Bitmap(addr, size, info, rowBytes));
+ }
+ 
++// PW3: there is no GPU and every window is drawn by the software canvas (the
++// same properties as in ActivityThread). That canvas refuses hardware bitmaps
++// ("Software rendering doesn't support hardware bitmaps": Launcher3 crashed
++// on Test V32 as soon as a drag showed its drop targets), and creating one
++// would upload a texture through CPU-emulated GLES.
++static bool softwareCanvasOnly() {
++    static const bool only = property_get_bool("debug.pw3.software_canvas",
++            property_get_bool("ro.pw3.software_canvas", false));
++    return only;
++}
++
+ sk_sp<Bitmap> Bitmap::allocateHardwareBitmap(SkBitmap& bitmap) {
++    if (softwareCanvasOnly()) {
++        // An immutable copy in ordinary memory instead. It reports its real
++        // config, so callers that asked for Config.HARDWARE can draw it.
++        sk_sp<Bitmap> copy = allocateHeapBitmap(bitmap.info());
++        if (!copy) {
++            return nullptr;
++        }
++        SkBitmap pixels;
++        copy->getSkBitmap(&pixels);
++        if (!bitmap.readPixels(pixels.info(), pixels.getPixels(), pixels.rowBytes(), 0, 0)) {
++            return nullptr;
++        }
++        copy->setImmutable();
++        return copy;
++    }
+     return uirenderer::renderthread::RenderProxy::allocateHardwareBitmap(bitmap);
+ }
+ 

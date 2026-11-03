@@ -1,0 +1,89 @@
+The icon wrapper is inflated only where it is used
+
+0017 turned LEGACY_ICON_TREATMENT off and the first clean install after it
+could not reach the home screen: every start, the loader thread died with
+
+  Resources$NotFoundException: drawable/adaptive_icon_drawable_wrapper
+  Caused by: ClassNotFoundException: com.android.launcher3.graphics.FixedScaleDrawable
+    at LauncherIcons.createBadgedIconBitmap(LauncherIcons.java:110)
+    at IconCache.makeDefaultIcon -> LoaderTask.loadAllApps
+
+createBadgedIconBitmap() inflates res/drawable-v26/adaptive_icon_drawable_wrapper.xml
+for every icon the cache misses, whatever the flag says. The wrapper's
+foreground is <com.android.launcher3.graphics.FixedScaleDrawable/>, and with
+the treatment off wrapToAdaptiveIconDrawable() returns before touching it, so
+that method stopped being a reference to the class and the shrinker dropped
+it. The resource went on naming a class that was no longer in the APK, and the
+very first icon -- the default one -- threw.
+
+So the flag changed what the build keeps, not only what the code does. Nothing
+would have caught it before a device: the build succeeds, every test passes,
+and the APK is missing one class that only an XML file names.
+
+The fix is not a keep rule. The wrapper is inflated to ask it for the adaptive
+icon mask, the mask is passed to IconNormalizer only to fill outShape, and
+outShape is read only by the wrapping branch. With the treatment off the whole
+block is dead work -- an AdaptiveIconDrawable inflated and a mask built per
+cache miss, on one core, for a boolean nobody reads. Both call sites now enter
+it only when the treatment is on, and take the same path as a pre-O icon
+otherwise, which is what they already did for applications that target below
+O. FixedScaleDrawable is then legitimately unreferenced and may go.
+
+diff --git a/src/com/android/launcher3/graphics/LauncherIcons.java b/src/com/android/launcher3/graphics/LauncherIcons.java
+index d55baf0..8975b39 100644
+--- a/src/com/android/launcher3/graphics/LauncherIcons.java
++++ b/src/com/android/launcher3/graphics/LauncherIcons.java
+@@ -104,14 +104,23 @@ public class LauncherIcons {
+         float scale = 1f;
+         if (!FeatureFlags.LAUNCHER3_DISABLE_ICON_NORMALIZATION) {
+             normalizer = IconNormalizer.getInstance(context);
+-            if (Utilities.ATLEAST_OREO && iconAppTargetSdk >= Build.VERSION_CODES.O) {
++            if (Utilities.ATLEAST_OREO && iconAppTargetSdk >= Build.VERSION_CODES.O
++                    && FeatureFlags.LEGACY_ICON_TREATMENT) {
++                /* PW3: the wrapper is inflated here only to ask it for the
++                 * adaptive icon mask, and the mask is used only to fill
++                 * outShape, which only the wrapping below reads. With the
++                 * treatment off that was dead work -- and worse than dead:
++                 * wrapToAdaptiveIconDrawable() became the only Java reference
++                 * to FixedScaleDrawable, so the shrinker dropped the class
++                 * while res/drawable-v26/adaptive_icon_drawable_wrapper.xml
++                 * kept naming it, and the first icon the cache missed threw
++                 * ClassNotFoundException out of the loader thread. */
+                 boolean[] outShape = new boolean[1];
+                 AdaptiveIconDrawable dr = (AdaptiveIconDrawable)
+                         context.getDrawable(R.drawable.adaptive_icon_drawable_wrapper).mutate();
+                 dr.setBounds(0, 0, 1, 1);
+                 scale = normalizer.getScale(icon, null, dr.getIconMask(), outShape);
+-                if (FeatureFlags.LEGACY_ICON_TREATMENT &&
+-                        !outShape[0]){
++                if (!outShape[0]) {
+                     Drawable wrappedIcon = wrapToAdaptiveIconDrawable(context, icon, scale);
+                     if (wrappedIcon != icon) {
+                         icon = wrappedIcon;
+@@ -158,14 +167,23 @@ public class LauncherIcons {
+         float scale = 1f;
+         if (!FeatureFlags.LAUNCHER3_DISABLE_ICON_NORMALIZATION) {
+             normalizer = IconNormalizer.getInstance(context);
+-            if (Utilities.ATLEAST_OREO && iconAppTargetSdk >= Build.VERSION_CODES.O) {
++            if (Utilities.ATLEAST_OREO && iconAppTargetSdk >= Build.VERSION_CODES.O
++                    && FeatureFlags.LEGACY_ICON_TREATMENT) {
++                /* PW3: the wrapper is inflated here only to ask it for the
++                 * adaptive icon mask, and the mask is used only to fill
++                 * outShape, which only the wrapping below reads. With the
++                 * treatment off that was dead work -- and worse than dead:
++                 * wrapToAdaptiveIconDrawable() became the only Java reference
++                 * to FixedScaleDrawable, so the shrinker dropped the class
++                 * while res/drawable-v26/adaptive_icon_drawable_wrapper.xml
++                 * kept naming it, and the first icon the cache missed threw
++                 * ClassNotFoundException out of the loader thread. */
+                 boolean[] outShape = new boolean[1];
+                 AdaptiveIconDrawable dr = (AdaptiveIconDrawable)
+                         context.getDrawable(R.drawable.adaptive_icon_drawable_wrapper).mutate();
+                 dr.setBounds(0, 0, 1, 1);
+                 scale = normalizer.getScale(icon, iconBounds, dr.getIconMask(), outShape);
+-                if (Utilities.ATLEAST_OREO && FeatureFlags.LEGACY_ICON_TREATMENT &&
+-                        !outShape[0]) {
++                if (!outShape[0]) {
+                     Drawable wrappedIcon = wrapToAdaptiveIconDrawable(context, icon, scale);
+                     if (wrappedIcon != icon) {
+                         icon = wrappedIcon;

@@ -1,0 +1,54 @@
+# USB: the ARC controller and the kernel's Android gadget (MTP, PTP; adb through
+# FunctionFS), on every boot (docs/design/usb-mtp.md). Loaded in one action at
+# post-fs, so that it is done before the framework starts: UsbService decides when
+# it starts whether /sys/class/android_usb is there. Stages triggered by properties
+# ran only after the triggers already queued, zygote-start's included.
+# pw3-usb-check verifies each binding before the next stage; a failed check sets
+# sys.pw3.usb.phase=error, every later check then fails, and init.pw3.usb.rc sets
+# the gadget up only at "gadget-bound". Nothing is unloaded, reset or
+# power-toggled after a failure.
+on init
+    setprop sys.pw3.usb.phase none
+
+on post-fs
+    exec_start pw3-usb-prepare
+    insmod /vendor/lib/modules/fsl_otg_arc.ko
+    exec_start pw3-usb-otg-check
+    # pw3_diag=0 always: the module keeps the parameter (kernel patch 1042) but
+    # the only thing that ever turned it on was androidboot.pw3.diag, which went
+    # with the test entry on 2026-10-29. The kernel is unchanged.
+    insmod /vendor/lib/modules/arcotg_udc.ko pw3_diag=0
+    exec_start pw3-usb-udc-check
+    insmod /vendor/lib/modules/g_android.ko
+    exec_start pw3-usb-gadget-check
+
+service pw3-usb-prepare /system/bin/pw3-usb-check prepare
+    user root
+    group root
+    disabled
+    oneshot
+
+service pw3-usb-otg-check /system/bin/pw3-usb-check otg
+    user root
+    group root
+    disabled
+    oneshot
+
+service pw3-usb-udc-check /system/bin/pw3-usb-check udc
+    user root
+    group root
+    disabled
+    oneshot
+
+service pw3-usb-gadget-check /system/bin/pw3-usb-check gadget
+    user root
+    group root
+    disabled
+    oneshot
+
+# At boot, once persistent properties are loaded (init.pw3.usb.rc).
+service pw3-usb-serial /system/bin/pw3-usb-check serial
+    user root
+    group root
+    disabled
+    oneshot

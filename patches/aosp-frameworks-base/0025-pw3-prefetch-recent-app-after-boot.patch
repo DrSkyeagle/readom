@@ -1,0 +1,161 @@
+From: PW3 Android port
+Subject: [PW3] PinnerService: read the last used app's compiled code after boot
+
+On PW3 the first start of an app after boot waits on the flash: the eMMC
+reads about 27 MB/s at most (eMMC 4.5, DDR52 already), and starting WeRead
+(compiled "speed", 115 MB odex and 71 MB vdex) faults in about 200 MB in
+small pieces: 18-22 s to the reader page against 10 s with the files cached
+(measured on PW3, 2026-10-15). Read in order beforehand, the same files take
+5.6 s, and the start then takes 13-16 s.
+
+PW3 boots into Android each time it is chosen from the Kindle library, and
+the first thing opened is usually the app used last. With
+ro.pw3.prefetch_recent_app, PinnerService reads, once boot has completed and on
+a background thread, the .odex, .vdex and app image of the most recent task's
+app other than home into the page cache. Nothing is locked (PinnerService's
+pinning would hold 186 MB of a 512 MB device); the reads stop at half the
+available memory; the time is logged.
+
+Profile-guided layout (speed-profile, or speed with a profile and an app
+image) was measured as well: speed-profile reads less (118 MB) but runs the
+rest interpreted, 28 s cold and 18-22 s warm; 8.1's dexlayout does not reorder
+compiled code, so with "speed" a cold start still reads 205 MB.
+
+--- a/services/core/java/com/android/server/PinnerService.java
++++ b/services/core/java/com/android/server/PinnerService.java
+@@ -16,7 +16,9 @@
+ 
+ package com.android.server;
+ 
++import android.app.ActivityManager;
+ import android.content.BroadcastReceiver;
++import android.content.ComponentName;
+ import android.content.Context;
+ import android.content.Intent;
+ import android.content.IntentFilter;
+@@ -30,6 +32,9 @@
+ import android.os.Handler;
+ import android.os.Looper;
+ import android.os.Message;
++import android.os.Process;
++import android.os.SystemClock;
++import android.os.SystemProperties;
+ import android.os.UserHandle;
+ import android.provider.MediaStore;
+ import android.system.ErrnoException;
+@@ -46,10 +51,13 @@
+ import dalvik.system.DexFile;
+ import dalvik.system.VMRuntime;
+ 
++import java.io.File;
+ import java.io.FileDescriptor;
++import java.io.FileInputStream;
+ import java.io.IOException;
+ import java.io.PrintWriter;
+ import java.util.ArrayList;
++import java.util.List;
+ 
+ /**
+  * <p>PinnerService pins important files for key processes in memory.</p>
+@@ -70,6 +78,12 @@
+ 
+     private final long MAX_CAMERA_PIN_SIZE = 80 * (1 << 20); //80MB max
+ 
++    // PW3: after boot, the compiled code of the app used last (the first of the recent tasks
++    // that is not home) is read into the page cache, not locked: on PW3 its first start
++    // otherwise waits on the flash (about 27 MB/s) for most of it, e.g. WeRead reads 200 MB
++    // and takes 20 s instead of 15 s. Read in the background, up to half the available memory.
++    private static final String PREFETCH_RECENT_APP_PROPERTY = "ro.pw3.prefetch_recent_app";
++
+     private PinnerHandler mPinnerHandler = null;
+ 
+     private final BroadcastReceiver mBroadcastReceiver = new BroadcastReceiver() {
+@@ -114,6 +128,88 @@
+                 .sendToTarget();
+     }
+ 
++    @Override
++    public void onBootPhase(int phase) {
++        if (phase == SystemService.PHASE_BOOT_COMPLETED
++                && SystemProperties.getBoolean(PREFETCH_RECENT_APP_PROPERTY, false)) {
++            // Its own thread: the reads take seconds and must not hold up the pinner handler.
++            new Thread(this::prefetchRecentApp, "PinnerPrefetch").start();
++        }
++    }
++
++    private void prefetchRecentApp() {
++        Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
++        ApplicationInfo app = getRecentAppInfo();
++        if (app == null) {
++            return;
++        }
++        String arch = "arm";
++        String abi = app.primaryCpuAbi != null ? app.primaryCpuAbi : Build.SUPPORTED_ABIS[0];
++        if (VMRuntime.is64BitAbi(abi)) {
++            arch = arch + "64";
++        }
++        String[] outputs = null;
++        try {
++            outputs = DexFile.getDexFileOutputPaths(app.getBaseCodePath(), arch);
++        } catch (IOException e) {
++        }
++        if (outputs == null) {
++            return;
++        }
++        // The .odex and .vdex, and the app image (.art) next to them if there is one.
++        ArrayList<File> files = new ArrayList<>();
++        for (String path : outputs) {
++            files.add(new File(path));
++            if (path.endsWith(".odex")) {
++                files.add(new File(path.substring(0, path.length() - 5) + ".art"));
++            }
++        }
++        ActivityManager.MemoryInfo memory = new ActivityManager.MemoryInfo();
++        mContext.getSystemService(ActivityManager.class).getMemoryInfo(memory);
++        long budget = memory.availMem / 2;
++        long start = SystemClock.uptimeMillis();
++        long done = 0;
++        byte[] buffer = new byte[1 << 20];
++        for (File file : files) {
++            long length = file.length();
++            if (length == 0 || done + length > budget) {
++                continue;
++            }
++            try (FileInputStream in = new FileInputStream(file)) {
++                while (in.read(buffer) > 0) {
++                }
++                done += length;
++            } catch (IOException e) {
++                Slog.w(TAG, "Could not prefetch " + file + ": " + e.getMessage());
++            }
++        }
++        Slog.i(TAG, "Prefetched " + app.packageName + ": " + (done >> 20) + " MB in "
++                + (SystemClock.uptimeMillis() - start) + " ms (budget " + (budget >> 20) + " MB)");
++    }
++
++    /** The app of the most recent task other than home, or null. */
++    private ApplicationInfo getRecentAppInfo() {
++        PackageManager pm = mContext.getPackageManager();
++        ResolveInfo home = pm.resolveActivity(new Intent(Intent.ACTION_MAIN)
++                .addCategory(Intent.CATEGORY_HOME), PackageManager.MATCH_DEFAULT_ONLY);
++        String homePackage = home != null && home.activityInfo != null
++                ? home.activityInfo.packageName : null;
++        List<ActivityManager.RecentTaskInfo> tasks = mContext.getSystemService(
++                ActivityManager.class).getRecentTasks(4, ActivityManager.RECENT_IGNORE_UNAVAILABLE);
++        for (ActivityManager.RecentTaskInfo task : tasks) {
++            ComponentName component = task.realActivity != null ? task.realActivity
++                    : task.baseIntent != null ? task.baseIntent.getComponent() : null;
++            if (component == null || component.getPackageName().equals(homePackage)) {
++                continue;
++            }
++            try {
++                return pm.getApplicationInfo(component.getPackageName(), 0);
++            } catch (PackageManager.NameNotFoundException e) {
++            }
++        }
++        return null;
++    }
++
+     /**
+      * Pin camera on user switch.
+      * If more than one user is using the device

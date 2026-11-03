@@ -1,0 +1,13 @@
+--- a/arch/arm/kernel/entry-common.S
++++ b/arch/arm/kernel/entry-common.S
+@@ -434,7 +434,9 @@
+ 	stmdb	sp!, {r4, r5}			@ push fifth and sixth args
+ 
+ 
+-	tst	r10, #(_TIF_SYSCALL_TRACE | _TIF_SECCOMP)	@ tracing or filtering?
++	tst	r10, #_TIF_SYSCALL_TRACE		@ preserve the unfiltered fast path
++	bne	__sys_trace
++	tst	r10, #_TIF_SECCOMP			@ this bit needs its own ARM immediate
+ 	bne	__sys_trace
+ 
+ 	cmp	scno, #NR_syscalls		@ check upper syscall limit

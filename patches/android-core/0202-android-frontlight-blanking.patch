@@ -1,0 +1,42 @@
+--- a/drivers/video/backlight/Kconfig
++++ b/drivers/video/backlight/Kconfig
+@@ -333,6 +333,16 @@
+ 	help
+ 	  Enable the DA9052 Backlight Driver
+ 
++config LAB126_ANDROID_BACKLIGHT_BLANKING
++	bool "Honor Android power and framebuffer blanking for MAX77696"
++	depends on BACKLIGHT_MAX77696
++	default n
++	help
++	  Apply zero frontlight output while bl_power is not unblank or the
++	  backlight core reports framebuffer blank or suspend. Keep the user
++	  requested brightness cached for the next unblank/resume.
++	  Enable only for Android; leave disabled for stock Lab126 behavior.
++
+ config BACKLIGHT_MAX77696
+ 	bool "MAX77696 BACKLIGHT"
+ 	default y
+--- a/drivers/video/backlight/max77696-bl.c
++++ b/drivers/video/backlight/max77696-bl.c
+@@ -149,6 +149,12 @@
+ 
+ 	__lock(me);
+ 
++#ifdef CONFIG_LAB126_ANDROID_BACKLIGHT_BLANKING
++	/* Only the applied output changes; props.brightness remains requested. */
++	if (bd->props.power != FB_BLANK_UNBLANK ||
++	    (bd->props.state & (BL_CORE_SUSPENDED | BL_CORE_FBBLANK)))
++		brightness = MIN_BRIGHTNESS;
++#else
+ 	if (likely(brightness > 0)) {
+ 		if (unlikely((bd->props.state & BL_CORE_SUSPENDED) != 0)) {
+ 			brightness = MIN_BRIGHTNESS;
+@@ -157,6 +163,7 @@
+ 			return 0;
+ 		}
+ 	}
++#endif
+ 
+ 	rc = max77696_bl_set(me, brightness);
+ 	__unlock(me);

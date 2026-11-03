@@ -1,0 +1,94 @@
+From: PW3 Android port
+Subject: [PW3] SystemUI: plain colours instead of wallpaper gradients
+
+The scrims of the notification shade, the background of the recents screen
+and that of the power menu are gradients between two colours taken from the
+wallpaper. A display with few grey levels shows a gradient as bands (PW3 Test
+V34, e-paper with 16 levels: concentric rings behind the quick settings).
+
+All of them get their colours from SysuiColorExtractor. With
+config_gradientColors=false it hands out one plain colour instead: white
+where the extracted colours are for dark text, black where they are for
+light text. How opaque each user draws them is unchanged.
+
+--- a/packages/SystemUI/src/com/android/systemui/colorextraction/SysuiColorExtractor.java
++++ b/packages/SystemUI/src/com/android/systemui/colorextraction/SysuiColorExtractor.java
+@@ -19,6 +19,7 @@
+ import android.app.WallpaperColors;
+ import android.app.WallpaperManager;
+ import android.content.Context;
++import android.graphics.Color;
+ import android.os.Handler;
+ import android.os.RemoteException;
+ import android.os.Trace;
+@@ -35,6 +36,7 @@
+ import com.android.internal.colorextraction.types.Tonal;
+ import com.android.keyguard.KeyguardUpdateMonitor;
+ import com.android.systemui.Dumpable;
++import com.android.systemui.R;
+ 
+ import java.io.FileDescriptor;
+ import java.io.PrintWriter;
+@@ -48,6 +50,9 @@
+     private boolean mWallpaperVisible;
+     // Colors to return when the wallpaper isn't visible
+     private final GradientColors mWpHiddenColors;
++    // What is handed out instead of gradients, for use under dark and under
++    // light text; null: gradients.
++    private final GradientColors mPlainLight, mPlainDark;
+ 
+     public SysuiColorExtractor(Context context) {
+         this(context, new Tonal(context), true);
+@@ -57,6 +62,12 @@
+     public SysuiColorExtractor(Context context, ExtractionType type, boolean registerVisibility) {
+         super(context, type);
+         mWpHiddenColors = new GradientColors();
++        if (context.getResources().getBoolean(R.bool.config_gradientColors)) {
++            mPlainLight = mPlainDark = null;
++        } else {
++            mPlainLight = plain(Color.WHITE, true);
++            mPlainDark = plain(Color.BLACK, false);
++        }
+ 
+         WallpaperColors systemColors = getWallpaperColors(WallpaperManager.FLAG_SYSTEM);
+         updateDefaultGradients(systemColors);
+@@ -160,11 +171,20 @@
+         if (which == WallpaperManager.FLAG_LOCK) {
+             ignoreWallpaperVisibility = true;
+         }
+-        if (mWallpaperVisible || ignoreWallpaperVisibility) {
+-            return super.getColors(which, type);
+-        } else {
+-            return mWpHiddenColors;
+-        }
++        final GradientColors colors = (mWallpaperVisible || ignoreWallpaperVisibility)
++                ? super.getColors(which, type) : mWpHiddenColors;
++        if (mPlainLight == null) {
++            return colors;
++        }
++        return colors.supportsDarkText() ? mPlainLight : mPlainDark;
++    }
++
++    private static GradientColors plain(int color, boolean supportsDarkText) {
++        final GradientColors colors = new GradientColors();
++        colors.setMainColor(color);
++        colors.setSecondaryColor(color);
++        colors.setSupportsDarkText(supportsDarkText);
++        return colors;
+     }
+ 
+     @VisibleForTesting
+--- a/packages/SystemUI/res/values/config.xml
++++ b/packages/SystemUI/res/values/config.xml
+@@ -327,6 +327,11 @@
+     <!-- SystemUIFactory component -->
+     <string name="config_systemUIFactoryComponent" translatable="false">com.android.systemui.SystemUIFactory</string>
+ 
++    <!-- Whether scrims and other backgrounds are gradients of colours taken
++         from the wallpaper. A display with few grey levels shows a gradient
++         as bands: false makes them plain white (under dark text) or black. -->
++    <bool name="config_gradientColors">true</bool>
++
+     <!-- Nav bar button default ordering/layout -->
+     <string name="config_navBarLayout" translatable="false">left[.5W],back[1WC];home;recent[1WC],right[.5W]</string>
+ 

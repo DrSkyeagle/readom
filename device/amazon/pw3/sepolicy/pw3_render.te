@@ -1,0 +1,11 @@
+# The i.MX6SL has no GLES GPU. The selected ARM SwiftShader renderer generates
+# shader code in heap-backed memory then mprotects it RX (Common/Memory.cpp).
+# SurfaceFlinger needs this same-process permission; this grants no file
+# execution, cross-process memory access or permission to other service domains.
+allow surfaceflinger self:process execmem;
+
+# The sleep picture names the battery level (gralloc/framebuffer.cpp,
+# sleep/README.md): SurfaceFlinger, which holds the display HAL, reads the
+# battery's capacity once as the screen goes off.
+allow surfaceflinger sysfs_batteryinfo:dir search;
+allow surfaceflinger sysfs_batteryinfo:file r_file_perms;

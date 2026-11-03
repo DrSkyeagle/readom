@@ -1,0 +1,34 @@
+# Harmless hits of tools/check-private-data.py: PATH-GLOB<TAB>TEXT (TEXT is part of the hit).
+# Upstream authors' addresses in imported kernel and AOSP sources are public and stay as they are.
+patches/android-core/*	@
+patches/aosp-bionic/0002-pw3-notices-of-libdl-libm-linker.patch	@
+# Contact addresses inside public root certificates (subject emailAddress of CAs).
+patches/aosp-ca-certificates/*	@
+# The scanner's own patterns and a test fixture that is not a key.
+tools/check-private-data.py	/Users/
+tools/preinit-pack/tests/test_pack.py	BEGIN PRIVATE KEY
+# A git identity a test makes up for its own temporary repository.
+tools/tests/test_patch_series.py	test@example.com
+# Not an address: the authority half of a URL the release-URL check has to refuse,
+# because credentials written there would be published in every release.
+tools/tests/test_release_url.py	user@github.com
+# MAC addresses the launcher's tests make up, to prove the log filter catches the
+# shape in both notations. Nobody's: the filter has no device to read one from.
+boot/launcher/tests/userlog_test.c	01:23:45:67:89:
+boot/launcher/tests/userlog_test.c	12:34:56:78:9a:
+boot/launcher/tests/userlog_test.c	12-34-56-78-9a-
+# Not an address: the user-information part of a URL, which this project's
+# release addresses may not have. The validator refuses it, and the case is
+# here so that it keeps refusing it (tools/tests/test_release_url.py, added
+# after a Codex review on 2026-10-30 found that the authority was being read
+# without being settled first). Narrow on purpose: it matches this host and
+# this local part and nothing else.
+tools/tests/test_release_url.py	user@readom.app
+# The upstream OpenSSL author's address, quoted in the release checklist as the
+# record of what one entry-directory pattern hit turned out to be (2026-10-30).
+# Public, a third party's, and compiled into AOSP's own init binary. Written out
+# rather than obscured because the point of that record is to say what the hit
+# was, so the next person does not triage it again. A tracked document, so
+# unlike the entry's own bytes this text does not move with a build.
+docs/design/release-build.md	appro@openssl.org
+docs/design/release-build.en.md	appro@openssl.org

@@ -1,0 +1,34 @@
+From: PW3 Android port
+Subject: [PW3] SystemUI: the clock shows AM/PM when it is a 12-hour clock
+
+The status bar clock and the one in quick settings leave out AM/PM (Clock's
+amPmStyle defaults to gone): on the device (Test V40) at 22:42 the only clock
+on the screen read "10:42". A phone has a lock screen or a widget with the
+whole time; here it is the only one, so a 12-hour clock now shows it in full,
+"下午10:42" or "10:42 PM", in the clock's own size, 14 sp (the small style,
+0.7 of it, is below 12 sp, the smallest for a short label in
+docs/design/eink-ui.md, rule 8).
+
+Whether the clock is 12- or 24-hour is unchanged: the language's convention
+until the user sets "Use 24-hour format" in Settings. A 24-hour clock has no
+AM/PM to show.
+
+--- a/packages/SystemUI/res/layout/status_bar.xml
++++ b/packages/SystemUI/res/layout/status_bar.xml
+@@ -75,6 +75,7 @@
+                 android:paddingStart="@dimen/status_bar_clock_starting_padding"
+                 android:paddingEnd="@dimen/status_bar_clock_end_padding"
+                 android:gravity="center_vertical|start"
++                systemui:amPmStyle="normal"
+                 />
+         </com.android.keyguard.AlphaOptimizedLinearLayout>
+     </LinearLayout>
+--- a/packages/SystemUI/res/layout/quick_status_bar_header_system_icons.xml
++++ b/packages/SystemUI/res/layout/quick_status_bar_header_system_icons.xml
+@@ -55,5 +55,6 @@
+         android:paddingEnd="@dimen/status_bar_clock_end_padding"
+         android:gravity="center_vertical|start"
+         systemui:showDark="false"
++        systemui:amPmStyle="normal"
+         />
+ </LinearLayout>

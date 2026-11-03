@@ -1,0 +1,42 @@
+From: PW3 Android port
+Subject: [PW3] PackageInstaller: an application somebody installs gets an icon
+
+An application installed by opening its package in the file manager did not
+appear on the home screen. It was installed, and it was in the list of all
+applications, and until Launcher3 0014 nothing on the screen said that list was
+there ("为什么微信读书还是不在首屏呢？", user, 2026-10-22, about the same
+behaviour).
+
+Launcher3 adds the icon for a session that says a person asked for the install:
+SessionCommitReceiver.onReceive returns without queueing anything unless
+SessionInfo.getInstallReason() is INSTALL_REASON_USER. AOSP's installer never
+sets one, so every session it commits reports INSTALL_REASON_UNKNOWN, and no
+application installed through it has ever been added to a home screen.
+WeReadInstaller sets it (Installer.install), which is where this was found.
+
+InstallInstalling is reached one way -- a person opened a package and confirmed
+the dialog PackageInstallerActivity put up -- so the reason is not a guess
+about the caller. An install that is not a person's goes through
+PackageInstaller's own session API and sets its own reason; this activity is
+not on that path.
+
+diff --git a/src/com/android/packageinstaller/InstallInstalling.java b/src/com/android/packageinstaller/InstallInstalling.java
+--- a/src/com/android/packageinstaller/InstallInstalling.java
++++ b/src/com/android/packageinstaller/InstallInstalling.java
+@@ -125,6 +125,16 @@
+             } else {
+                 PackageInstaller.SessionParams params = new PackageInstaller.SessionParams(
+                         PackageInstaller.SessionParams.MODE_FULL_INSTALL);
++                // PW3: who the install is for. This activity is reached one way -- a
++                // person opened a package and confirmed the dialog -- which is what
++                // INSTALL_REASON_USER names, and AOSP leaves it unset here
++                // (INSTALL_REASON_UNKNOWN). Launcher3 puts an icon on the home screen
++                // only for a session that says a person asked for it
++                // (SessionCommitReceiver.onReceive returns on any other reason), so an
++                // application installed from the file manager was reachable only
++                // through the list of all applications, with nothing saying that list
++                // is there (Launcher3 0014).
++                params.setInstallReason(PackageManager.INSTALL_REASON_USER);
+                 params.referrerUri = getIntent().getParcelableExtra(Intent.EXTRA_REFERRER);
+                 params.originatingUri = getIntent()
+                         .getParcelableExtra(Intent.EXTRA_ORIGINATING_URI);

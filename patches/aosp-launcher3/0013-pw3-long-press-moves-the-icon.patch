@@ -1,0 +1,58 @@
+From: PW3 Android port
+Subject: [PW3] Launcher3: a long press on an icon moves it, and nothing else
+
+Two gestures were on one press and they got in each other's way, which is what
+it feels like on the device ("很容易和长按移动冲突", 2026-10-20, V60). AOSP's
+beginDragShared opens the shortcut popup and then arms the drag behind it, with
+the popup's pre-drag condition: the drag does not begin until the popup is up
+and the finger has moved past a threshold. On a panel where every frame of that
+popup is an update, the first thing a long press does is spend several of them
+drawing a menu the reader did not ask for.
+
+And the menu is empty here. It holds an application's own shortcuts, which none
+of the applications on this device declare; its notifications, which nothing
+listens for; and widgets, which Launcher3Go turns off (GO_DISABLE_WIDGETS). So
+what is left is one entry, and it is reachable anyway: a drag raises 移除,
+应用信息 and 卸载 at the top of the screen (drop_target_bar_horz.xml), by the
+gesture the reader has already started.
+
+So the popup is not shown from here, and a long press drags at once. The popup
+itself stays where AOSP put it: LauncherAccessibilityDelegate opens it too, and
+that caller has no drag to fall back on.
+
+diff --git a/src/com/android/launcher3/Workspace.java b/src/com/android/launcher3/Workspace.java
+index 37ee6d7..20c77df 100644
+--- a/src/com/android/launcher3/Workspace.java
++++ b/src/com/android/launcher3/Workspace.java
+@@ -2179,15 +2179,22 @@ public class Workspace extends PagedView
+             mDragSourceInternal = (ShortcutAndWidgetContainer) child.getParent();
+         }
+ 
+-        if (child instanceof BubbleTextView && !dragOptions.isAccessibleDrag) {
+-            PopupContainerWithArrow popupContainer = PopupContainerWithArrow
+-                    .showForIcon((BubbleTextView) child);
+-            if (popupContainer != null) {
+-                dragOptions.preDragCondition = popupContainer.createPreDragCondition();
+-
+-                mLauncher.getUserEventDispatcher().resetElapsedContainerMillis();
+-            }
+-        }
++        // PW3: a long press moves the icon, and nothing else. AOSP opens the
++        // shortcut popup here and arms the drag behind it, so the drag only
++        // begins once the popup is up and the finger has moved past the
++        // pre-drag threshold -- two gestures on one press, and on e-paper the
++        // popup is several panel updates before the first one answers.
++        //
++        // What the popup would offer is empty on this device: the applications
++        // here declare no shortcuts, widgets are off (GO_DISABLE_WIDGETS), and
++        // notifications are not listened for. Nothing is lost by not showing
++        // it: a drag raises 移除 / 应用信息 / 卸载 at the top of the screen
++        // (drop_target_bar_horz.xml), which is the same three things, reached
++        // by the gesture already under way.
++        //
++        // The popup itself is left where AOSP put it; accessibility still
++        // opens it (LauncherAccessibilityDelegate), which is the one caller
++        // that has no drag to fall back on.
+ 
+         DragView dv = mDragController.startDrag(b, dragLayerX, dragLayerY, source,
+                 dragObject, dragVisualizeOffset, dragRect, scale, dragOptions);

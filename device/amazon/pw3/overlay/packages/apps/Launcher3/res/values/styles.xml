@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- PW3: the home screen is opaque white of its own instead of showing the wallpaper, which
+     is a white picture no app on the device can change (nothing handles SET_WALLPAPER).
+     Shown through the window, it was a second full-screen layer under every frame of the
+     home screen and kept a 6 MiB buffer; with no window showing it, it is not drawn
+     (frameworks/base 0034). The style is AOSP's with windowBackground and
+     windowShowWallpaper changed; an overlay replaces a style whole, so the other items are
+     copied unchanged. -->
+<resources>
+    <style name="BaseLauncherTheme" parent="@android:style/Theme.DeviceDefault.Light.NoActionBar">
+        <item name="android:windowBackground">@android:color/white</item>
+        <item name="android:colorBackgroundCacheHint">@null</item>
+        <item name="android:windowShowWallpaper">false</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:colorEdgeEffect">#FF757575</item>
+        <item name="android:keyboardLayout">@layout/search_container_all_apps</item>
+    </style>
+</resources>

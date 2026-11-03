@@ -1,0 +1,108 @@
+From: PW3 Android port
+Subject: [PW3] a focus change that asks for a layout has to get one
+
+Leaving a dialog that was in immersive mode leaves both system bars hidden for
+good. The policy already knows they should be back; nobody ever acts on it.
+
+Measured on V82 with WeRead's 用户协议 dialog, which is its own window
+(TYPE_APPLICATION, FLAG_FULLSCREEN, vsysui=0x1706 = IMMERSIVE_STICKY |
+HIDE_NAVIGATION | FULLSCREEN). Dismissing it leaves:
+
+    mLastSystemUiFlags=0xa708            no HIDE_NAVIGATION, no FULLSCREEN
+    BarController.StatusBar       mState=WINDOW_STATE_HIDDEN
+    BarController.NavigationBar   mState=WINDOW_STATE_HIDDEN
+    mDock=(0,0)-(1072,1448)              the bar's 90 px are not reserved
+    mTopIsFullscreen=true                stale: set while the dialog was up
+    mLayoutNeeded=true                   recorded, never performed
+
+and it stays that way -- checked to 14 s, and in practice until something else
+moves the focus. One traversal that changes nothing repairs all of it:
+
+    adb shell wm overscan 0,0,0,0        the value it already had
+    mDock=(0,45)-(1072,1358), both bars WINDOW_STATE_SHOWING
+
+What the reader sees meanwhile is not an empty strip. WeRead's window carries
+FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS and is still told the stable inset is 90 px,
+so its own decor paints the navigation bar's background colour there: a solid
+#212832 band where Back, Home and Recents were, and nothing on this device
+answers a tap in it. screencap confirms which window paints it -- the band is
+in the captured frame while the NavigationBar surface reads shown=false. PW3
+has no navigation keys, so until the app is switched the only way out of the
+application is a swipe from the bottom edge that nothing on screen mentions.
+
+The sequence. WindowState.removeIfPossible() takes the dialog's window away,
+and inside removeImmediately() the cleanup runs a surface placement there and
+then:
+
+    if (dc != null && !mWindowPlacerLocked.isInLayout()) {
+        dc.assignWindowLayers(true /* setLayoutNeeded */);
+        mWindowPlacerLocked.performSurfacePlacement();
+
+That is the last placement of the transition, and it runs while mCurrentFocus
+is still the window being removed, so PhoneWindowManager.beginLayoutLw() lays
+the screen out from the dialog's flags: bars hidden, mDock the whole display.
+Only afterwards does removeIfPossible() reach
+
+    mService.updateFocusedWindowLocked(UPDATE_FOCUS_NORMAL, true);
+
+where focusChangedLw() recomputes mLastSystemUiFlags from the window
+underneath and returns FINISH_LAYOUT_REDO_LAYOUT, which says a layout owes to
+be done with the new flags. Here that answer is written down and dropped:
+
+    if ((focusChanged & FINISH_LAYOUT_REDO_LAYOUT) != 0) {
+        displayContent.setLayoutNeeded();
+        if (mode == UPDATE_FOCUS_PLACING_SURFACES) {
+            displayContent.performLayout(true, updateInputWindows);
+        }
+    }
+
+setLayoutNeeded() records a debt. It schedules nothing. In the one mode that
+does the layout here we are already inside a placement; in the other three --
+and UPDATE_FOCUS_NORMAL is the one the removal uses -- the debt stays on the
+books, and whether it is ever paid depends on some later, unrelated event
+causing a traversal.
+
+Whether other devices are saved by such an event, and by which, is not
+something this port has measured. What is measured is that on this one nothing
+follows: the dialog's window is gone, its activity does not lay out again, and
+the two candidates that would be easy to blame are both ruled out.
+
+  - Not the animations. All three scales are 0 here (0002-global-animation-
+    defaults), so a removal is never deferred for an exit animation and no
+    animation frame brings a traversal with it. Setting all three to 1.0 and
+    repeating the dismissal reproduces it unchanged.
+  - Not the policy's own reckoning. Driving the same flags through
+    PolicyControl instead (settings put global policy_control
+    immersive.full=...) hides the bars and brings them back correctly, with
+    mLayoutNeeded=false throughout -- no window is added or removed there and
+    the focus never moves, so the placement that follows is the one that reads
+    the new flags.
+
+So the fix is to ask for the traversal in the modes where this method does not
+perform the layout itself. requestTraversal() posts once; performSurfacePlacement()
+clears mTraversalScheduled and removes the posted callback before it runs, so a
+caller that places surfaces of its own absorbs the request rather than adding a
+second pass to it.
+
+--- a/services/core/java/com/android/server/wm/WindowManagerService.java
++++ b/services/core/java/com/android/server/wm/WindowManagerService.java
+@@ -6041,6 +6041,19 @@
+                 displayContent.setLayoutNeeded();
+                 if (mode == UPDATE_FOCUS_PLACING_SURFACES) {
+                     displayContent.performLayout(true /*initial*/, updateInputWindows);
++                } else {
++                    // PW3: setLayoutNeeded() records that a layout is owed and
++                    // schedules nothing. The other three modes leave it to the
++                    // caller, and the caller is not always coming back: the
++                    // removal path (WindowState.removeIfPossible) has already
++                    // placed surfaces by the time it changes the focus here, so
++                    // without this the debt stands and the screen keeps the
++                    // system bars of the window that has just gone away.
++                    // requestTraversal() posts once, and a placement that was
++                    // going to happen anyway removes that post before it runs,
++                    // so a caller that does its own absorbs this instead of
++                    // paying for a second pass.
++                    mWindowPlacerLocked.requestTraversal();
+                 }
+             }
+ 

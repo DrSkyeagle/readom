@@ -1,0 +1,7 @@
+# Initial RAM boot has no approved persistent store. This always observes only.
+# post-fs-data may run before the gauge is ready; EAGAIN is a reported result.
+service pw3-fg-observe /vendor/bin/pw3-fg-state --observe
+    class late_start
+    user root
+    group root
+    oneshot

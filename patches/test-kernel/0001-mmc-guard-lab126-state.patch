@@ -1,0 +1,48 @@
+From: PW3 Android port
+Subject: [PATCH] test kernel: guard Lab126-only MMC rescan bookkeeping
+
+The Amazon tree declares mmc_host.rescan_on only with CONFIG_LAB126 but
+writes it unconditionally. Keep non-Lab126 VExpress MMC compilation valid.
+This patch is applied only to the separate virtual runtime-test kernel.
+
+--- a/drivers/mmc/core/core.c
++++ b/drivers/mmc/core/core.c
+@@ -1912,7 +1912,9 @@
+ 	pr_info("%s: %s: trying to init card at %u Hz\n",
+ 		mmc_hostname(host), __func__, host->f_init);
+ #endif
++#ifdef CONFIG_LAB126
+ 	host->rescan_on = TRUE;
++#endif
+ 	mmc_power_up(host);
+ 
+ 	/*
+@@ -1927,20 +1929,28 @@
+ 
+ 	/* Order's important: probe SDIO, then SD, then MMC */
+ 	if (!mmc_attach_sdio(host)) {
++#ifdef CONFIG_LAB126
+ 		host->rescan_on = FALSE;
++#endif
+ 		return 0;
+ 	}
+ 	if (!mmc_attach_sd(host)) {
++#ifdef CONFIG_LAB126
+ 		host->rescan_on = FALSE;
++#endif
+ 		return 0;
+ 	}
+ 	if (!mmc_attach_mmc(host)) {
++#ifdef CONFIG_LAB126
+ 		host->rescan_on = FALSE;
++#endif
+ 		return 0;
+ 	}
+ 
+ 	mmc_power_off(host);
++#ifdef CONFIG_LAB126
+ 	host->rescan_on = FALSE;
++#endif
+ 	return -EIO;
+ }
+ 

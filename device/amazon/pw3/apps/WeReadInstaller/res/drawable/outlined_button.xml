@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A button on a white page: a black outline instead of a raised surface.
+     1dp is 2 px here, which is the thinnest line that does not come out as
+     grey anti-aliasing; the radius is this port's 4dp
+     (docs/design/eink-ui.md, rule 3).
+
+     No pressed state. Filling it black and clearing it again is a large dark
+     area appearing and disappearing, which is what leaves a ghost (rule 9),
+     and it would cost a repaint of the whole button before the screen the
+     press leads to. The press is answered by that screen. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#FFFFFF" />
+    <stroke android:width="1dp" android:color="#000000" />
+    <corners android:radius="4dp" />
+</shape>

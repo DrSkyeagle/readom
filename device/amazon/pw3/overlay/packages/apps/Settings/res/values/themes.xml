@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- PW3: FallbackHome, the home screen Android shows at every start until the user is
+     unlocked (about 7 s on Test V45), is opaque white of its own instead of showing the
+     wallpaper, as the home screen and Recents are (Launcher3 and SystemUI overlays,
+     frameworks/base 0034). Showing it, it was the one window that had ImageWallpaper draw
+     its white picture into a buffer the size of the screen (6,063.5 KiB), which
+     SurfaceFlinger then kept until the next start (Test V45). The style is AOSP's with
+     windowBackground and windowShowWallpaper changed; an overlay replaces a style whole, so
+     the other items are copied unchanged. -->
+<resources>
+    <style name="FallbackHome" parent="@android:style/Theme.DeviceDefault.NoActionBar">
+        <item name="android:windowBackground">@android:color/white</item>
+        <item name="android:colorBackgroundCacheHint">@null</item>
+        <item name="android:windowShowWallpaper">false</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowTranslucentStatus">false</item>
+        <item name="android:windowTranslucentNavigation">false</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:statusBarColor">#00000000</item>
+        <item name="android:navigationBarColor">#00000000</item>
+    </style>
+</resources>

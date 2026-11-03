@@ -1,0 +1,69 @@
+From: PW3 Android port
+Subject: [PW3] Launcher3 edit mode: outlined white pages, no grey scrim
+
+A long press on the home screen opens the edit mode (wallpapers, widgets,
+settings). On the device (Test V40) it greyed the whole screen: a 30 % scrim
+over the workspace (210 of 255) and pages of 25 % white on it (221). A large
+grey area that comes and goes takes 16-level updates of the whole screen and
+leaves ghosts (docs/design/eink-ui.md, rules 1 and 9).
+
+Without the scrim the pages are white cards with the e-paper outline, the one a
+drop would go to with an outline twice as wide (rule 3; Launcher3's values in
+res/values/pw3_eink.xml).
+
+--- a/res/values/config.xml
++++ b/res/values/config.xml
+@@ -48,7 +48,9 @@
+ 
+ <!-- AllApps & Launcher transitions -->
+     <!-- The alpha of the AppsCustomize bg in spring loaded mode -->
+-    <integer name="config_workspaceScrimAlpha">30</integer>
++    <!-- PW3: no scrim: it greyed the whole screen (210 of 255, Test V40) in the edit mode
++         that a long press opens; the pages show as outlined cards instead (bg_celllayout). -->
++    <integer name="config_workspaceScrimAlpha">0</integer>
+     <integer name="config_allAppsTransitionTime">100</integer>
+     <integer name="config_overviewTransitionTime">250</integer>
+ 
+--- a/res/drawable/bg_celllayout.xml
++++ b/res/drawable/bg_celllayout.xml
+@@ -18,18 +18,26 @@
+ */
+ -->
+ 
++<!-- PW3: in the edit mode a page is a white card with the e-paper outline
++     (docs/design/eink-ui.md, rule 3), the page a drop would go to with a double one, in
++     place of 25 % white on a grey scrim with a white edge. -->
+ <selector xmlns:android="http://schemas.android.com/apk/res/android">
+     <item android:state_active="true" >
+         <shape android:shape="rectangle" >
+             <stroke
+-                android:width="@dimen/spring_loaded_panel_border"
+-                android:color="@color/spring_loaded_highlighted_panel_border_color" />
+-            <solid android:color="@color/spring_loaded_panel_color" />
++                android:width="@dimen/pw3_outline_width_double"
++                android:color="@color/pw3_outline" />
++            <solid android:color="@android:color/white" />
++            <corners android:radius="@dimen/pw3_corner_radius" />
+         </shape>
+     </item>
+     <item>
+         <shape android:shape="rectangle" >
+-            <solid android:color="@color/spring_loaded_panel_color" />
++            <stroke
++                android:width="@dimen/pw3_outline_width"
++                android:color="@color/pw3_outline" />
++            <solid android:color="@android:color/white" />
++            <corners android:radius="@dimen/pw3_corner_radius" />
+         </shape>
+     </item>
+ </selector>
+--- a/res/values/pw3_eink.xml
++++ b/res/values/pw3_eink.xml
+@@ -6,5 +6,7 @@
+     <color name="pw3_outline">#ff000000</color>
+     <!-- 2 px on PW3 (density 1.875, rounded to whole pixels). -->
+     <dimen name="pw3_outline_width">1dp</dimen>
++    <!-- The selected one of several outlined things (a page a drop would go to). -->
++    <dimen name="pw3_outline_width_double">2dp</dimen>
+     <dimen name="pw3_corner_radius">4dp</dimen>
+ </resources>

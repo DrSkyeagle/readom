@@ -1,0 +1,313 @@
+From: PW3 Android port
+Subject: [PW3] A deadline does not take away the last thing on the screen
+
+Patch 0067 moved the application transition's deadline from AOSP's 5 s to 45 s
+and left what happens at the deadline alone. The owner said what that is worth
+(2026-11-03): "你这个方案也是一个临时方案啊。你没有解决最终 45 秒到期以后到底
+怎么办？你还是提供一个空白页面，那有什么用呢？" He is right. Expiry still hides
+the application on its way out while the one coming in has drawn nothing, and
+what is composed then is the status bar and the navigation bar over nothing --
+the original defect, forty seconds later.
+
+What the deadline is actually for. It is not a decision about the screen. While
+a transition is pending, the window manager defers committed visibility, window
+removal, the IME target and the priority boost (the readers of
+isTransitionSet(), in DisplayContent, AppWindowContainerController,
+WindowStateAnimator, AppWindowToken, WindowState and StackWindowController), so
+something has to let go if an application really is wedged. Leaving the screen
+empty is a side effect of letting go, not its purpose. So this patch changes the
+side effect and keeps the deadline: the transition still runs, everything it
+defers is still released, and the one thing that does not happen is taking away
+the last picture the reader has.
+
+Where. handleClosingApps() in WindowSurfacePlacer is the single place the
+outgoing application is hidden, and therefore the only place that can know it is
+about to leave the screen with nothing on it. The condition is asked once per
+transition, and only after the deadline has passed: a transition that is good to
+go on its own merits has, by definition, something to show. It holds when there
+is at least one application opening and not one of them has either drawn
+(allDrawn) or had its starting window put up (startingDisplayed).
+
+Letting go. The hold is released -- the held applications hidden for real -- on
+the first surface placement in which every application that was opening has
+something on screen of its own. A first frame is one of the things that causes a
+surface placement, so this is the pass that runs when the application finally
+draws. If instead those applications lost their windows -- killed, or the reader
+pressed Back -- the hold is dropped without hiding anything, because the
+activity manager owns that screen's visibility again and hiding it here would be
+this patch producing the blank screen it exists to prevent. If they neither draw
+nor go away, nothing happens and the previous screen stays, which is the point;
+nothing here is on a timer.
+
+What it costs, named rather than left to be found:
+
+  * A surface that would have been freed is kept until the release: 1072 x 1448
+    x 4 = 6.2 MB, on a device with 511 MB. One at a time in the ordinary case,
+    because one transition times out at a time.
+  * Between the deadline and the release, the activity manager believes the
+    outgoing activity is invisible while it is in fact still on the screen. It
+    is not told otherwise, so it does not stop it and does not re-show it. The
+    two agree again at the release, which calls updateReportedVisibilityLocked()
+    as the transition would have.
+  * setVisibility() is called with performLayout false. It is called from the
+    top of a surface placement which is about to lay out anyway, and asking for
+    another one from in there calls performSurfacePlacement() before mInLayout
+    is set, which is a recursive traversal. setLayoutNeeded() is set instead.
+
+What it does not change:
+
+  * The deadline. 45 s for a non-keyguard transition, AOSP's 5 s for a keyguard
+    one, exactly as patch 0067 left them.
+  * Any transition that has not timed out. wouldLeaveTheScreenEmpty() returns
+    false before it looks at anything else, so the ordinary path does not read a
+    property, walk a list, or behave differently in any way.
+  * A transition with nothing opening. What a closing application uncovers is
+    whatever was behind it, and that is not this question.
+  * Who can take input, and the not-responding deadlines. Unchanged, so a tap
+    during the wait can still raise "not responding" at 5 s x 4 = 20 s (patch
+    0012) -- and a screen that still shows something is more inviting to tap
+    than a blank one was.
+
+ro.pw3.hold_screen_past_deadline, with debug.pw3.hold_screen_past_deadline over
+it, both default true. The debug one is writable by adb on the release image, so
+the two behaviours can be compared on one device without rebuilding -- the same
+arrangement as patch 0068.
+
+How exposed this is today: not at all, which is why it is worth doing now rather
+than being forced. On 2026-11-03 all four installed entries -- Settings, the
+browser, Files and WeRead -- were found to get a starting window (the
+`Splash Screen <package>` window in `dumpsys window windows`; Files was checked
+separately with `aapt dump --values resources`, where windowDisablePreview,
+0x01010267, appears 0 times in the package). An application with a starting
+window satisfies the transition at about 0.7 s and never reaches the deadline.
+Only an application that turns the preview off itself, or one whose starting
+window type comes out NONE, can get there.
+
+Which is also the problem with this patch, and the reason AppTransition is
+touched a second time here. Nothing installed can reach the branch being added,
+so nothing would run it, and a branch nobody has run is how patch 0008 carried a
+false premise for twelve days. debug.pw3.app_transition_timeout_ms shortens the
+non-keyguard deadline from the device; with the starting window also turned off,
+a cold start walks into the branch on purpose:
+
+    adb shell setprop debug.pw3.disable_starting_window true
+    adb shell setprop debug.pw3.app_transition_timeout_ms 2000
+    adb shell setprop debug.pw3.hold_screen_past_deadline false   # the old way
+    adb shell setprop debug.pw3.hold_screen_past_deadline true    # this patch
+
+Both ways on one device, one image, no rebuild -- so what is claimed here can be
+compared against what it replaced rather than argued. The property is not set by
+pw3.mk and nothing reads it unless somebody sets it.
+
+Not run on the device yet when this patch was written.
+
+--- a/services/core/java/com/android/server/wm/WindowSurfacePlacer.java
++++ b/services/core/java/com/android/server/wm/WindowSurfacePlacer.java
+@@ -44,6 +44,7 @@
+ import android.graphics.Rect;
+ import android.os.Binder;
+ import android.os.Debug;
++import android.os.SystemProperties;
+ import android.os.Trace;
+ import android.util.ArraySet;
+ import android.util.Slog;
+@@ -171,6 +172,8 @@
+             return;
+         }
+ 
++        releaseHeldOverClosingApps();
++
+         Trace.traceBegin(Trace.TRACE_TAG_WINDOW_MANAGER, "wmLayout");
+         mInLayout = true;
+ 
+@@ -442,6 +445,7 @@
+             LayerAndToken layerAndToken) {
+         final int appsCount;
+         appsCount = mService.mClosingApps.size();
++        final boolean holdOver = wouldLeaveTheScreenEmpty();
+         for (int i = 0; i < appsCount; i++) {
+             AppWindowToken wtoken = mService.mClosingApps.valueAt(i);
+ 
+@@ -458,8 +462,14 @@
+             appAnimator.setNullAnimation();
+             // TODO: Do we need to add to mNoAnimationNotifyOnTransitionFinished like above if not
+             //       animating?
+-            wtoken.setVisibility(animLp, false, transit, false, voiceInteraction);
+-            wtoken.updateReportedVisibilityLocked();
++            if (holdOver) {
++                // Kept where it is, and let go of in releaseHeldOverClosingApps().
++                mService.mHeldOverClosingApps.add(wtoken);
++                mService.mHeldOverOpeningApps.addAll(mService.mOpeningApps);
++            } else {
++                wtoken.setVisibility(animLp, false, transit, false, voiceInteraction);
++                wtoken.updateReportedVisibilityLocked();
++            }
+             // Force the allDrawn flag, because we want to start
+             // this guy's animations regardless of whether it's
+             // gotten drawn.
+@@ -506,6 +516,100 @@
+         }
+     }
+ 
++    /* Would running this transition now leave the screen with nothing on it?
++     *
++     * A transition that has run out of time runs anyway, and running it hides
++     * the applications on their way out (handleClosingApps below). That is the
++     * right thing when something else is going to be there -- the incoming
++     * application has drawn, or at least its starting window has. It is the
++     * wrong thing when neither is true: what is composed afterwards is the two
++     * system bars over nothing, which on e-paper is a black screen the reader
++     * is left in front of until the application finally draws. That is the
++     * defect of 2026-11-02, and raising the deadline to 45 s (patch 0067) only
++     * moved it later -- "you did not solve what happens when the 45 seconds run
++     * out; a blank page is no use" (the owner, 2026-11-03).
++     *
++     * Asked only after the deadline: a transition that is good to go on its own
++     * merits has, by definition, something to show.
++     *
++     * The deadline itself is kept. It is not a decision about the screen: while
++     * a transition is pending, committed visibility, window removal, the IME
++     * target and the priority boost are all deferred, and something has to let
++     * go if an application really is wedged. Leaving the screen empty is a side
++     * effect of letting go, not its purpose, so what changes here is the side
++     * effect and not the deadline. */
++    private boolean wouldLeaveTheScreenEmpty() {
++        if (!mService.mAppTransition.isTimeout()) {
++            return false;
++        }
++        if (!SystemProperties.getBoolean("debug.pw3.hold_screen_past_deadline",
++                SystemProperties.getBoolean("ro.pw3.hold_screen_past_deadline", true))) {
++            return false;
++        }
++        final int openingCount = mService.mOpeningApps.size();
++        if (openingCount == 0) {
++            // Nothing is opening. What the closing application uncovers is
++            // whatever was behind it, which is not this question.
++            return false;
++        }
++        for (int i = 0; i < openingCount; i++) {
++            if (hasSomethingOnScreen(mService.mOpeningApps.valueAt(i))) {
++                return false;
++            }
++        }
++        return true;
++    }
++
++    private static boolean hasSomethingOnScreen(AppWindowToken wtoken) {
++        return wtoken.allDrawn || wtoken.startingDisplayed;
++    }
++
++    /* Let go of the applications held on the screen past a deadline.
++     *
++     * Released -- hidden for real -- on the first surface placement in which
++     * every application that was opening has something on the screen of its
++     * own. What the reader is looking at by then is that application, so the
++     * screen underneath it can go.
++     *
++     * Dropped without hiding anything when those applications have lost their
++     * windows instead: killed, or the reader pressed Back. The activity manager
++     * owns that screen's visibility again, and hiding it here would be this
++     * method producing the blank screen the hold exists to prevent.
++     *
++     * If they neither draw nor go away, nothing happens and the previous screen
++     * stays. That is the point, and it is why nothing here is on a timer. */
++    private void releaseHeldOverClosingApps() {
++        if (mService.mHeldOverClosingApps.isEmpty()) {
++            return;
++        }
++        final int waitingCount = mService.mHeldOverOpeningApps.size();
++        boolean drawn = waitingCount > 0;
++        boolean gone = waitingCount > 0;
++        for (int i = 0; i < waitingCount; i++) {
++            final AppWindowToken wtoken = mService.mHeldOverOpeningApps.valueAt(i);
++            drawn &= hasSomethingOnScreen(wtoken);
++            gone &= wtoken.findMainWindow() == null;
++        }
++        if (!drawn && !gone) {
++            return;
++        }
++        if (drawn) {
++            for (int i = mService.mHeldOverClosingApps.size() - 1; i >= 0; i--) {
++                final AppWindowToken wtoken = mService.mHeldOverClosingApps.valueAt(i);
++                // performLayout false: this runs at the top of a surface
++                // placement that is about to lay out anyway, and asking for
++                // another one from in here calls performSurfacePlacement()
++                // before mInLayout is set, which is a recursive traversal.
++                wtoken.setVisibility(null, false, AppTransition.TRANSIT_UNSET,
++                        false /* performLayout */, wtoken.mVoiceInteraction);
++                wtoken.updateReportedVisibilityLocked();
++            }
++            mService.getDefaultDisplayContentLocked().setLayoutNeeded();
++        }
++        mService.mHeldOverClosingApps.clear();
++        mService.mHeldOverOpeningApps.clear();
++    }
++
+     private boolean transitionGoodToGo(int appsCount, SparseIntArray outReasons) {
+         if (DEBUG_APP_TRANSITIONS) Slog.v(TAG,
+                 "Checking " + appsCount + " opening apps (frozen="
+--- a/services/core/java/com/android/server/wm/WindowManagerService.java
++++ b/services/core/java/com/android/server/wm/WindowManagerService.java
+@@ -616,6 +616,14 @@
+     final ArraySet<AppWindowToken> mOpeningApps = new ArraySet<>();
+     final ArraySet<AppWindowToken> mClosingApps = new ArraySet<>();
+ 
++    /* Applications kept on the screen past an application transition's
++     * deadline, and the ones whose first frame lets them go. Both are written
++     * and read only by WindowSurfacePlacer, under mWindowMap; what they are
++     * for is written down there, at wouldLeaveTheScreenEmpty(). Empty at every
++     * other moment, which is what the dump below is for. */
++    final ArraySet<AppWindowToken> mHeldOverClosingApps = new ArraySet<>();
++    final ArraySet<AppWindowToken> mHeldOverOpeningApps = new ArraySet<>();
++
+     final UnknownAppVisibilityController mUnknownAppVisibilityController =
+             new UnknownAppVisibilityController(this);
+     final TaskSnapshotController mTaskSnapshotController;
+@@ -6767,6 +6775,10 @@
+             pw.print("  mSkipAppTransitionAnimation=");pw.println(mSkipAppTransitionAnimation);
+             pw.println("  mLayoutToAnim:");
+             mAppTransition.dump(pw, "    ");
++            if (!mHeldOverClosingApps.isEmpty()) {
++                pw.print("  mHeldOverClosingApps="); pw.println(mHeldOverClosingApps);
++                pw.print("  mHeldOverOpeningApps="); pw.println(mHeldOverOpeningApps);
++            }
+         }
+     }
+ 
+--- a/services/core/java/com/android/server/wm/AppTransition.java
++++ b/services/core/java/com/android/server/wm/AppTransition.java
+@@ -188,6 +188,25 @@
+     // previous screen stays until there is something to replace it with:
+     private static final long PW3_APP_TRANSITION_TIMEOUT_MS = 45000;
+ 
++    /* The non-keyguard deadline, shortened from the device when asked.
++     *
++     * What happens once this deadline passes is the subject of the rest of this
++     * patch, and on a release image there is no way to get there: every
++     * application installed on this device puts up a starting window and
++     * satisfies the transition in about 0.7 s. A branch that cannot be reached
++     * is a branch nobody has run, which is how patch 0008 carried a false
++     * premise for twelve days. So the deadline can be shortened by hand --
++     * debug.* is writable by adb on a user image, sys.* and ro.* are not -- and
++     * with the starting window also turned off
++     * (debug.pw3.disable_starting_window) a cold start walks straight into it.
++     *
++     * Not a product setting: pw3.mk does not set it, nothing reads it unless
++     * somebody sets it, and absent or 0 means the 45 s above. */
++    private static long pw3TimeoutMs() {
++        final int ms = SystemProperties.getInt("debug.pw3.app_transition_timeout_ms", 0);
++        return ms > 0 ? ms : PW3_APP_TRANSITION_TIMEOUT_MS;
++    }
++
+     private final Context mContext;
+     private final WindowManagerService mService;
+ 
+@@ -2088,7 +2107,7 @@
+             // as it is.
+             mService.mH.sendEmptyMessageDelayed(H.APP_TRANSITION_TIMEOUT,
+                     isKeyguardTransit(mNextAppTransition)
+-                            ? APP_TRANSITION_TIMEOUT_MS : PW3_APP_TRANSITION_TIMEOUT_MS);
++                            ? APP_TRANSITION_TIMEOUT_MS : pw3TimeoutMs());
+         }
+         return prepared;
+     }

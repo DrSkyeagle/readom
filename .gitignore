@@ -1,0 +1,56 @@
+__pycache__/
+*.pyc
+.DS_Store
+
+# Per-device material and local build output are never part of the source repo.
+# HANDOVER.md is one session's note to the next -- where the work stands, which
+# port the device is on, what to build next. It names this machine's paths and
+# addresses, so check-private-data.py reports it, and rightly: an untracked file
+# that nothing ignores is a file `git add -A` would publish.
+/HANDOVER.md
+/RELEASE-PLAN.md
+/private/
+/vendor-private/
+/device-assets/
+/backups/
+/work/
+/out/
+/build-share/
+# wrangler, run for the site from this directory, caches the Cloudflare account
+# it is signed in to -- .wrangler/cache/wrangler-account.json holds the account
+# id and name. Untracked and unignored, it is a file `git add -A` would publish,
+# and the first commit of the open-source folder is exactly such an add
+# (found 2026-10-30 while checking that export).
+# Unanchored on purpose: `/.wrangler/` only matches the one at the repo root,
+# and wrangler writes one wherever it is run from. Kept after the site moved out
+# of this tree on 2026-10-31 (it is its own project now), because the cost is a
+# line and what it prevents is publishing the account it is signed in to --
+# anyone who runs wrangler from inside this tree once would otherwise leave that
+# file untracked and unignored. Checked with `git check-ignore -v` rather than
+# by reading the pattern.
+.wrangler/
+# Nothing in this tree has one today, and the site that did is no longer in it --
+# but 193 MB of somebody else's code is the one mistake a first `git add -A`
+# must not be able to make.
+node_modules/
+emmc-*.bin
+*.wbf
+*.wbf.gz
+*.pem
+*.jks
+adbkey*
+system.img
+userdata.img
+*.raw.img
+*.img
+*.bin
+*.ko
+*.odex
+*.vdex
+*.oat
+*.art
+
+# Other projects' releases the image carries unmodified are fetched, not kept:
+# tools/fetch-prebuilts.py (list: device/amazon/pw3/apps/prebuilts.json).
+*.apk
+.fetch-*

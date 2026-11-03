@@ -1,0 +1,20 @@
+# Per-device firmware must already be installed under /firmware/image with root-only DAC and its dedicated label.
+# Generated candidate: module insertion is not hardware readiness.
+on post-fs-data
+    insmod /vendor/lib/modules/cyttsp4_core.ko recovery_mode=0
+    insmod /vendor/lib/modules/cyttsp4_i2c.ko
+    insmod /vendor/lib/modules/cyttsp4_mt_b.ko
+    insmod /vendor/lib/modules/cfg80211.ko
+    chown system system /sys/class/backlight/max77696-bl/brightness
+    chmod 0660 /sys/class/backlight/max77696-bl/brightness
+    chown system system /sys/class/backlight/max77696-bl/bl_power
+    chmod 0660 /sys/class/backlight/max77696-bl/bl_power
+
+# The Wi-Fi stack must request these states; no automatic radio-on at boot.
+on property:vendor.pw3.wifi.modules=load
+    insmod /vendor/lib/modules/ath6kl_sdio.ko board_data_file=ath6k/AR6003/hw2.1.1/board.bin suspend_mode=1 wow_mode=0 recovery_enable=1
+
+# init's own rmmod (system/core 0004): an exec'd rmmod runs in the toolbox
+# domain, which SELinux does not allow to unload modules.
+on property:vendor.pw3.wifi.modules=unload
+    rmmod ath6kl_sdio

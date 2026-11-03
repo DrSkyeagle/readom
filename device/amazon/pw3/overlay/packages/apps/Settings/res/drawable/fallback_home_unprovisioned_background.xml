@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- PW3: white instead of AOSP's black. FallbackHome uses it at the first start after an
+     installation or a factory reset, until Provision marks the device set up; black was
+     there not to show the wallpaper before the setup wizard, which this device does not
+     have. On the panel a black screen at the first start would be a full black refresh
+     and then a full white one (the device's screens are white, docs/design/eink-ui.md). -->
+<color xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="#ffffff" />

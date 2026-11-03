@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A toggle key which is on: black, to be used with a white label. It has the
+     outline of normal_key_bg. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:left="2px" android:top="2px" android:right="2px"
+        android:bottom="2px" android:drawable="@color/black" />
+</layer-list>

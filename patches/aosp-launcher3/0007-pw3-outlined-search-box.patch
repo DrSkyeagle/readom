@@ -1,0 +1,48 @@
+From: PW3 Android port
+Subject: [PW3] Launcher3: the home screen's search box outlined
+
+The search box on the home screen (0004) was light grey with a 2dp elevation.
+On PW3 the grey is one panel level below the white around it and the shadow is
+not drawn (software rendering), so the box had no visible edge. As every
+surface that stands out from the page (docs/design/eink-ui.md), it is white
+with a black outline of 1dp (2 px) and corners of 4dp; Launcher3's copy of the
+values is res/values/pw3_eink.xml.
+
+--- /dev/null
++++ b/res/values/pw3_eink.xml
+@@ -0,0 +1,10 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- PW3: the e-paper interface rules (docs/design/eink-ui.md) as Launcher3 uses them.
++     Launcher3 is built against the public SDK and cannot use the framework's private
++     resources; the framework, SystemUI and Settings write the same values. -->
++<resources>
++    <color name="pw3_outline">#ff000000</color>
++    <!-- 2 px on PW3 (density 1.875, rounded to whole pixels). -->
++    <dimen name="pw3_outline_width">1dp</dimen>
++    <dimen name="pw3_corner_radius">4dp</dimen>
++</resources>
+--- /dev/null
++++ b/res/drawable/pw3_search_box.xml
+@@ -0,0 +1,10 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- PW3: a search box is white with an outline (docs/design/eink-ui.md). A light grey
++     fill is one panel level below the white around it, and its shadow is not drawn
++     (software rendering): it had no visible edge. -->
++<shape xmlns:android="http://schemas.android.com/apk/res/android"
++       android:shape="rectangle">
++    <solid android:color="@android:color/white" />
++    <stroke android:width="@dimen/pw3_outline_width" android:color="@color/pw3_outline" />
++    <corners android:radius="@dimen/pw3_corner_radius" />
++</shape>
+--- a/res/layout/qsb_default_view.xml
++++ b/res/layout/qsb_default_view.xml
+@@ -23,8 +23,7 @@
+         android:layout_height="48dp"
+         android:layout_margin="8dp"
+         android:layout_gravity="center_vertical"
+-        android:background="@drawable/round_rect_primary"
+-        android:elevation="2dp"
++        android:background="@drawable/pw3_search_box"
+         android:focusableInTouchMode="true"
+         android:orientation="horizontal">
+ 

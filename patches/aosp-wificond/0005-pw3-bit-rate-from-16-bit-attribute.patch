@@ -1,0 +1,35 @@
+From: PW3 Android port
+Subject: [PW3] wificond: bit rate from the 16-bit attribute of older kernels
+
+Test V35: with 0004 the signal poll no longer stops at the missing count of
+failed transmissions, and stops one attribute later:
+
+  wificond: Failed to get NL80211_RATE_INFO_BITRATE32
+  WificondControl: Invalid signal poll result from wificond
+
+so the framework still has "RSSI: -127, Link speed: -1Mbps". The 32-bit bit
+rate exists since Linux 3.8; before that (PW3: 3.0) cfg80211 reports the rate
+as NL80211_RATE_INFO_BITRATE, 16 bits, in the same unit of 100 kbit/s. That
+one is read when the 32-bit one is missing. These two and 0004's were the only
+attributes of the reply the 3.0 kernel does not send; signal strength and the
+count of sent packets it does.
+
+--- a/net/netlink_utils.cpp
++++ b/net/netlink_utils.cpp
+@@ -388,8 +388,14 @@
+   uint32_t tx_bitrate;
+   if (!tx_bitrate_attr.GetAttributeValue(NL80211_RATE_INFO_BITRATE32,
+                                          &tx_bitrate)) {
+-    LOG(ERROR) << "Failed to get NL80211_RATE_INFO_BITRATE32";
+-    return false;
++    // Linux before 3.8 reports the rate in 16 bits only, in the same unit.
++    uint16_t tx_bitrate16;
++    if (!tx_bitrate_attr.GetAttributeValue(NL80211_RATE_INFO_BITRATE,
++                                           &tx_bitrate16)) {
++      LOG(ERROR) << "Failed to get NL80211_RATE_INFO_BITRATE";
++      return false;
++    }
++    tx_bitrate = tx_bitrate16;
+   }
+ 
+   *out_station_info = StationInfo(tx_good, tx_bad, tx_bitrate, current_rssi);

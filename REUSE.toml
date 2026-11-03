@@ -1,0 +1,180 @@
+# Licences of the files that carry no SPDX header of their own (https://reuse.software/).
+# A header in a file wins over this list; of the entries below, the last one that
+# matches a file applies. Check: reuse lint.
+version = 1
+SPDX-PackageName = "Readom"
+SPDX-PackageDownloadLocation = "NOASSERTION"
+
+# Written for this project: code and documents under Apache-2.0 (README.md, "许可").
+[[annotations]]
+path = "**"
+precedence = "closest"
+SPDX-FileCopyrightText = "2026 The PW3 port authors"
+SPDX-License-Identifier = "Apache-2.0"
+
+# The boot chain around the handoff kernel module, and the kernel configuration.
+[[annotations]]
+path = ["boot/**", "config/android-core.config"]
+precedence = "closest"
+SPDX-FileCopyrightText = "2026 The PW3 port authors"
+SPDX-License-Identifier = "GPL-2.0-only"
+
+[[annotations]]
+path = "boot/handoff/cache-ops.S"
+precedence = "closest"
+SPDX-FileCopyrightText = ["2001 Deep Blue Solutions Ltd.", "2005 ARM Ltd.", "2026 The PW3 port authors"]
+SPDX-License-Identifier = "GPL-2.0-only"
+
+[[annotations]]
+path = ["boot/handoff/sha256.c", "boot/handoff/sha256.h"]
+precedence = "closest"
+SPDX-FileCopyrightText = "Brad Conte"
+SPDX-License-Identifier = "LicenseRef-BradConte-PublicDomain"
+
+# Code from AOSP, kept or changed here, keeps its licence.
+[[annotations]]
+path = ["device/amazon/pw3/gralloc/**", "device/amazon/pw3/rootdir/init.pw3-main.rc",
+        "tools/kernel-hardware/adb-contract/sources/**", "tools/kernel-hardware/userspace-patch/patched-source/**",
+        "device/amazon/pw3/apps/PinyinIME/**",
+        # frameworks/base/data/fonts/fonts.xml with 101 fallback families deleted
+        # and the emoji family pointed at the monochrome font. Google's file,
+        # changed here, so Google's copyright stays on it.
+        "device/amazon/pw3/fonts/fonts.xml"]
+precedence = "closest"
+SPDX-FileCopyrightText = ["The Android Open Source Project", "2026 The PW3 port authors"]
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = "tools/kernel-hardware/COPYING.kernel"
+precedence = "closest"
+SPDX-FileCopyrightText = "1989, 1991 Free Software Foundation, Inc."
+SPDX-License-Identifier = "GPL-2.0-only"
+
+# The pinyin dictionary: AOSP's word list with entries of rime-ice (GPL-3.0),
+# apps/PinyinIME/PW3-SOURCE.md.
+[[annotations]]
+path = "device/amazon/pw3/apps/PinyinIME/res/raw/dict_pinyin.dat"
+precedence = "closest"
+SPDX-FileCopyrightText = ["The Android Open Source Project", "rime-ice contributors (https://github.com/iDvel/rime-ice)"]
+SPDX-License-Identifier = "GPL-3.0-only"
+
+# NOTICE files of the applications in the image: the licences they reproduce.
+[[annotations]]
+path = "device/amazon/pw3/apps/PinyinIME/NOTICE"
+precedence = "closest"
+SPDX-FileCopyrightText = ["The Android Open Source Project", "rime-ice contributors (https://github.com/iDvel/rime-ice)"]
+SPDX-License-Identifier = "Apache-2.0 AND GPL-3.0-only"
+
+[[annotations]]
+path = "device/amazon/pw3/apps/EinkBro/NOTICE"
+precedence = "closest"
+SPDX-FileCopyrightText = "EinkBro authors (https://github.com/plateaukao/einkbro)"
+SPDX-License-Identifier = "GPL-3.0-or-later"
+
+[[annotations]]
+path = "device/amazon/pw3/apps/SystemWebView/NOTICE"
+precedence = "closest"
+SPDX-FileCopyrightText = "The Chromium Authors"
+SPDX-License-Identifier = "BSD-3-Clause AND LGPL-2.1-only"
+
+[[annotations]]
+path = "device/amazon/pw3/emoji/NOTICE"
+precedence = "closest"
+SPDX-FileCopyrightText = "2013, 2022 Google Inc."
+SPDX-License-Identifier = "OFL-1.1"
+
+# The AOSP manifest with the revision of every project, as synchronised (tools/sync-aosp.sh).
+[[annotations]]
+path = "config/aosp-8.1.0_r81-resolved.xml"
+precedence = "closest"
+SPDX-FileCopyrightText = "The Android Open Source Project"
+SPDX-License-Identifier = "Apache-2.0"
+
+# Patches take the licence of the files they change.
+[[annotations]]
+path = "patches/aosp-*/**"
+precedence = "closest"
+SPDX-FileCopyrightText = ["The Android Open Source Project", "2026 The PW3 port authors"]
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = ["patches/android-core/**", "patches/test-kernel/**"]
+precedence = "closest"
+SPDX-FileCopyrightText = ["The Linux kernel authors", "2026 The PW3 port authors"]
+SPDX-License-Identifier = "GPL-2.0-only"
+
+[[annotations]]
+path = "patches/aosp-bionic/0001-*.patch"
+precedence = "closest"
+SPDX-FileCopyrightText = ["2013 The Android Open Source Project", "2026 The PW3 port authors"]
+SPDX-License-Identifier = "BSD-2-Clause"
+
+# bionic's own NOTICE texts for libdl, libm and the linker.
+[[annotations]]
+path = "patches/aosp-bionic/0002-*.patch"
+precedence = "closest"
+SPDX-FileCopyrightText = ["The Android Open Source Project", "The Regents of the University of California", "Sun Microsystems, Inc.", "Intel Corporation", "The Linux Foundation"]
+SPDX-License-Identifier = "BSD-2-Clause AND BSD-3-Clause AND BSD-4-Clause-UC AND SunPro AND Apache-2.0"
+
+[[annotations]]
+path = "patches/aosp-wpa-supplicant/**"
+precedence = "closest"
+SPDX-FileCopyrightText = ["2004-2016 Jouni Malinen and contributors", "2026 The PW3 port authors"]
+SPDX-License-Identifier = "BSD-3-Clause"
+
+[[annotations]]
+path = "patches/aosp-swiftshader/0001-*.patch"
+precedence = "closest"
+SPDX-FileCopyrightText = ["The SwiftShader Authors", "The Subzero authors (University of Illinois/NCSA)", "2026 The PW3 port authors"]
+SPDX-License-Identifier = "Apache-2.0 AND NCSA"
+
+# Material Symbols' four icons, unmodified, and the resources made from them.
+# The path data in each generated file is Google's drawing; the tile around it
+# and the file around that are ours
+# (device/amazon/pw3/launcher-icons/PW3-SOURCE.md).
+[[annotations]]
+path = "device/amazon/pw3/launcher-icons/material-symbols/**"
+precedence = "closest"
+SPDX-FileCopyrightText = "Google LLC"
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = ["device/amazon/pw3/overlay/packages/apps/DocumentsUI/res/mipmap-anydpi/ic_app_icon.xml",
+        "device/amazon/pw3/overlay/packages/apps/Settings/res/drawable/ic_launcher_settings.xml",
+        "device/amazon/pw3/apps/BrowserName/res/mipmap-anydpi-v26/**",
+        "patches/aosp-launcher3/0014-*.patch"]
+precedence = "closest"
+SPDX-FileCopyrightText = ["Google LLC", "The Android Open Source Project", "2026 The PW3 port authors"]
+SPDX-License-Identifier = "Apache-2.0 AND ISC"
+
+# The code of conduct is the Contributor Covenant 3.0 (its own Chinese translation
+# for CODE_OF_CONDUCT.md) with the means of reporting filled in, so it stays under
+# the licence the Covenant is published under.
+[[annotations]]
+path = ["CODE_OF_CONDUCT.md", "CODE_OF_CONDUCT.en.md"]
+precedence = "closest"
+SPDX-FileCopyrightText = ["Organization for Ethical Source", "2026 The PW3 port authors"]
+SPDX-License-Identifier = "CC-BY-SA-4.0"
+
+# A byte-for-byte copy of LICENSES/Apache-2.0.txt, kept at the root for one
+# reason: GitHub works out a repository's licence from a root LICENSE, COPYING
+# or LICENSE.md and does not read LICENSES/, so without this the repository
+# page shows no licence at all -- which is the first thing many people look at
+# to decide whether they may use a project. It is the licence of this project's
+# own code and documents; the boot chain under boot/ and the kernel
+# configuration are GPL-2.0-only, and every file's own SPDX tag is what
+# actually governs it (README.md, "许可").
+#
+# What this entry is and is not for, because the two tools disagree (a Codex
+# review, 2026-10-30). REUSE 3.3 leaves a root LICENSE copy out of Covered
+# Files, so `reuse lint` never asks who holds the copyright in it and ignores
+# this entry entirely. tools/tests/test_reuse.py has no such exemption: it
+# covers every file the repository would publish, and without this entry the
+# catch-all at the top would record the Apache Software Foundation's text as
+# "2026 The PW3 port authors". Recording somebody else's licence text as ours
+# is the whole of what this entry prevents.
+[[annotations]]
+path = "LICENSE"
+precedence = "closest"
+SPDX-FileCopyrightText = "2004 The Apache Software Foundation"
+SPDX-License-Identifier = "Apache-2.0"

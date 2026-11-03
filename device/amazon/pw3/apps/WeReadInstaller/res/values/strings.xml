@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">WeRead installer</string>
+    <string name="channel_name">WeRead installation</string>
+    <string name="downloading">Downloading WeRead</string>
+    <string name="downloading_progress"><xliff:g id="percent" xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">%1$d</xliff:g>%% of <xliff:g id="size" xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">%2$s</xliff:g></string>
+    <string name="installing">Installing WeRead</string>
+    <string name="installing_detail">Preparing its code for this device; a minute or two.</string>
+    <string name="installed">WeRead is installed</string>
+    <string name="retry_later">WeRead could not be downloaded. It will try again later.</string>
+    <string name="not_genuine">The downloaded file was not Tencent\'s WeRead and has been deleted. It will try again later.</string>
+    <string name="not_genuine_final">The download was not Tencent\'s WeRead three times; WeRead will not be installed automatically. Install it by hand.</string>
+    <string name="install_failed">WeRead could not be installed. It will try again later.</string>
+    <string name="megabytes"><xliff:g id="size" xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">%1$d</xliff:g> MB</string>
+    <!-- The home screen entry (StatusActivity). -->
+    <string name="entry_name">WeRead</string>
+    <string name="entry_title">Install WeRead</string>
+    <string name="entry_ready">WeRead is not installed yet.</string>
+    <string name="entry_ready_detail">It is about 127 MB. It downloads by itself when this Kindle is on Wi-Fi; the file is checked to be Tencent\'s before it is installed.</string>
+    <string name="entry_download_now">Download now</string>
+    <string name="entry_no_network">Wi-Fi is needed to download WeRead.</string>
+    <string name="entry_no_network_detail">Connect to Wi-Fi and the download starts by itself. It is about 127 MB.</string>
+    <string name="entry_open_wifi">Open Wi-Fi settings</string>
+    <string name="entry_downloading_percent">Downloading WeRead: <xliff:g id="percent" xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">%1$d</xliff:g>%%</string>
+    <string name="entry_downloading_detail">You can leave this screen; it carries on.</string>
+    <string name="entry_downloading_stalled_detail">It has not moved for a while. It keeps trying on its own; tap below to try now.</string>
+    <string name="entry_installing">Installing WeRead.</string>
+    <string name="entry_installed">WeRead is installed.</string>
+    <string name="entry_open">Open WeRead</string>
+    <string name="entry_refused">WeRead will not be installed automatically.</string>
+    <string name="entry_refused_detail">Three downloads were not Tencent\'s WeRead and were deleted. Install it by hand from a file on the Kindle drive.</string>
+</resources>

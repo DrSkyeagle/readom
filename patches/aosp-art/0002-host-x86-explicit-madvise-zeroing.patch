@@ -1,0 +1,23 @@
+From: PW3 Android port
+Subject: [PATCH] ART: explicitly zero discarded memory in x86 host tools
+
+Actual QEMU 6.2 linux-user returns success for MADV_DONTNEED while all
+65536 patterned anonymous bytes remain nonzero; the same native ARM64
+probe clears them. Select ART's existing kMadviseZeroes=false paths for
+x86 hosts so reused heap objects are zeroed. Keep Baker/read-barrier
+checks, GC and the Android target-runtime branch unchanged.
+
+--- a/runtime/mem_map.h
++++ b/runtime/mem_map.h
+@@ -41,7 +41,10 @@
+ #define USE_ART_LOW_4G_ALLOCATOR 0
+ #endif
+ 
+-#ifdef __linux__
++// QEMU 6.2 linux-user acknowledges MADV_DONTNEED without discarding or
++// zeroing anonymous pages. Host x86 ART must use its existing explicit
++// zeroing paths; Android target runtimes keep native Linux semantics.
++#if defined(__linux__) && (defined(__ANDROID__) || (!defined(__x86_64__) && !defined(__i386__)))
+ static constexpr bool kMadviseZeroes = true;
+ #else
+ static constexpr bool kMadviseZeroes = false;

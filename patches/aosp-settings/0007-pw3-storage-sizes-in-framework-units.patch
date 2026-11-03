@@ -1,0 +1,63 @@
+From: PW3 Android port
+Subject: [PW3] Settings: storage sizes with the framework's unit strings
+
+The storage page gave each category's size as "0.63吉字节" in Chinese
+(Test V45): Settings' own FileSizeFormatter takes the unit from ICU's short
+unit names, which are words in some languages. The page's total, formatted
+by android.text.format.Formatter, already read "2.89 GB": on this device
+that class takes its units from the framework's strings (kilobyteShort,
+megabyteShort, gigabyteShort...), as in Android 9. FileSizeFormatter now
+does the same; Android 9's version of it takes the suffix string as well.
+
+--- a/src/com/android/settings/utils/FileSizeFormatter.java
++++ b/src/com/android/settings/utils/FileSizeFormatter.java
+@@ -21,9 +21,7 @@
+ import android.content.Context;
+ import android.content.res.Resources;
+ import android.icu.text.DecimalFormat;
+-import android.icu.text.MeasureFormat;
+ import android.icu.text.NumberFormat;
+-import android.icu.util.Measure;
+ import android.icu.util.MeasureUnit;
+ import android.text.BidiFormatter;
+ import android.text.TextUtils;
+@@ -83,18 +81,33 @@
+         return numberFormatter;
+     }
+ 
+-    private static String formatMeasureShort(Locale locale, NumberFormat numberFormatter,
+-            float value, MeasureUnit units) {
+-        final MeasureFormat measureFormatter = MeasureFormat.getInstance(
+-                locale, MeasureFormat.FormatWidth.SHORT, numberFormatter);
+-        return measureFormatter.format(new Measure(value, units));
++    // PW3: the unit from the framework's strings, as android.text.format.Formatter does on this
++    // device (frameworks/base) and this class does in Android 9: ICU's short names are words in
++    // some languages (Chinese "吉字节" for GB, on the storage page).
++    private static String getSuffix(@NonNull Resources res, MeasureUnit unit) {
++        final int suffix;
++        if (unit == MeasureUnit.BYTE) {
++            suffix = com.android.internal.R.string.byteShort;
++        } else if (unit == MeasureUnit.KILOBYTE) {
++            suffix = com.android.internal.R.string.kilobyteShort;
++        } else if (unit == MeasureUnit.MEGABYTE) {
++            suffix = com.android.internal.R.string.megabyteShort;
++        } else if (unit == MeasureUnit.GIGABYTE) {
++            suffix = com.android.internal.R.string.gigabyteShort;
++        } else if (unit == MeasureUnit.TERABYTE) {
++            suffix = com.android.internal.R.string.terabyteShort;
++        } else { // unit == PETABYTE
++            suffix = com.android.internal.R.string.petabyteShort;
++        }
++        return res.getString(suffix);
+     }
+ 
+     private static String formatRoundedBytesResult(
+             @NonNull Context context, @NonNull RoundedBytesResult input) {
+         final Locale locale = localeFromContext(context);
+         final NumberFormat numberFormatter = getNumberFormatter(locale, input.fractionDigits);
+-        return formatMeasureShort(locale, numberFormatter, input.value, input.units);
++        return context.getString(com.android.internal.R.string.fileSizeSuffix,
++                numberFormatter.format(input.value), getSuffix(context.getResources(), input.units));
+     }
+ 
+     /**

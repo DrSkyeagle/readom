@@ -1,0 +1,33 @@
+From: PW3 Android port
+Subject: [PW3] wificond: leave the radio alone at start
+
+wificond restarts with zygote. After a framework restart the radio module was
+still loaded, and CleanUpSystemState() (0001) waited for its unload, up to
+15 s, before wificond registered its service. The new system_server tried to
+start Wi-Fi meanwhile, found no wificond ("Failed to get reference to
+wificond") and left Wi-Fi off until it was switched off and on by hand (Test
+V39, 2026-10-15; the unload itself failed too, see system/core 0004).
+
+At start wificond now only does AOSP's clean-up (supplicant stopped,
+interfaces down). The framework tears the interfaces down itself when it
+starts (tearDownInterfaces(), which unloads the module and waits for it) and
+sets them up again if Wi-Fi is on. Asking for the unload here without waiting
+instead would race the framework's load request.
+
+--- a/server.cpp
++++ b/server.cpp
+@@ -242,9 +242,11 @@
+   supplicant_manager_->StopSupplicant();
+   hostapd_manager_->StopHostapd();
+   MarkDownAllInterfaces();
+-#ifdef PW3_WIFI_MODULE_CONTROL
+-  Pw3SetRadioEnabled(false);
+-#endif
++  // PW3: the radio is not touched here. wificond restarts with zygote, and
++  // waiting for an unload at this point delayed the service's registration:
++  // the new framework found no wificond and left Wi-Fi off. The framework
++  // tears the interfaces down itself when it starts (tearDownInterfaces(),
++  // which unloads the radio module), and sets them up again if Wi-Fi is on.
+ }
+ 
+ bool Server::SetupInterface(InterfaceInfo* interface) {

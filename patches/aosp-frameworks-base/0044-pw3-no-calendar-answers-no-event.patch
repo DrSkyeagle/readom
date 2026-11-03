@@ -1,0 +1,67 @@
+From: PW3 Android port
+Subject: [PW3] notifications: ask the calendar in the one place that has an
+ answer to give
+
+Patch 0042 skipped creating the calendar trackers when no calendar provider is
+installed. evaluateSubscriptionsW() then had no tracker to ask, kept the
+CheckEventResult it starts at null, and read a field of it: system_server threw
+NullPointerException at EventConditionProvider.java:256 every time the event
+rule was evaluated, which on PW3 Android Test V50 restarted the framework every
+14 seconds and never reached the launcher.
+
+The check moves into CalendarTracker.checkEvent(), which still has to return an
+answer and now returns one: no event, recheck a day later. The trackers exist as
+they do on any device, nothing queries a provider that is not installed, and the
+error lines 0042 set out to remove stay away.
+
+--- a/services/core/java/com/android/server/notification/CalendarTracker.java
++++ b/services/core/java/com/android/server/notification/CalendarTracker.java
+@@ -23,6 +23,7 @@
+ import android.database.Cursor;
+ import android.net.Uri;
+ import android.provider.BaseColumns;
++import android.provider.CalendarContract;
+ import android.provider.CalendarContract.Attendees;
+ import android.provider.CalendarContract.Calendars;
+ import android.provider.CalendarContract.Events;
+@@ -112,6 +113,15 @@
+     }
+ 
+     public CheckEventResult checkEvent(EventInfo filter, long time) {
++        if (mUserContext.getPackageManager().resolveContentProvider(
++                CalendarContract.AUTHORITY, 0) == null) {
++            // A device with no calendar provider has no events, and every query
++            // of a provider that is not installed logs an error of its own. The
++            // answer still has to be an answer: the caller reads its fields.
++            final CheckEventResult noCalendar = new CheckEventResult();
++            noCalendar.recheckAt = time + EVENT_CHECK_LOOKAHEAD;
++            return noCalendar;
++        }
+         final Uri.Builder uriBuilder = Instances.CONTENT_URI.buildUpon();
+         ContentUris.appendId(uriBuilder, time);
+         ContentUris.appendId(uriBuilder, time + EVENT_CHECK_LOOKAHEAD);
+--- a/services/core/java/com/android/server/notification/EventConditionProvider.java
++++ b/services/core/java/com/android/server/notification/EventConditionProvider.java
+@@ -31,7 +31,6 @@
+ import android.os.Process;
+ import android.os.UserHandle;
+ import android.os.UserManager;
+-import android.provider.CalendarContract;
+ import android.service.notification.Condition;
+ import android.service.notification.IConditionProvider;
+ import android.service.notification.ZenModeConfig;
+@@ -183,14 +182,6 @@
+             mTrackers.valueAt(i).setCallback(null);
+         }
+         mTrackers.clear();
+-        if (mContext.getPackageManager().resolveContentProvider(
+-                CalendarContract.AUTHORITY, 0) == null) {
+-            // A device with no calendar has no events to watch for. Each query
+-            // of a provider that is not installed logs an error of its own.
+-            if (DEBUG) Slog.d(TAG, "no calendar provider");
+-            evaluateSubscriptions();
+-            return;
+-        }
+         for (UserHandle user : UserManager.get(mContext).getUserProfiles()) {
+             final Context context = user.isSystem() ? mContext : getContextForUser(mContext, user);
+             if (context == null) {

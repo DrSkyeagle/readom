@@ -1,0 +1,71 @@
+From: PW3 Android port
+Subject: [PATCH] Reject incomplete PMIC I2C transfers in Android profile
+
+The stock helpers return zero after a zero-message transfer. A positive short
+read may also be treated as success by callers testing rc < 0. Require exactly
+the requested message count before exposing read data or logging a write.
+Keep the stock profile behaviour unchanged when the new option is disabled.
+
+Local adaptation of the supplied Amazon 5.16.2.1.1 source; no hardware register
+addresses or request payloads change. Host actual-helper tests cover all three
+helpers with success, negative failures and nonnegative incomplete results.
+---
+--- a/drivers/mfd/Kconfig
++++ b/drivers/mfd/Kconfig
+@@ -360,6 +360,16 @@
+ 	  additional drivers must be enabled in order to use the functionality
+ 	  of the device.
+ 
++config LAB126_ANDROID_PMIC_I2C_STRICT
++	bool "Reject short MAX77696 I2C transfers in the Android profile"
++	depends on MFD_MAX77696
++	default n
++	help
++	  Report success only when every requested I2C message completed.
++	  Preserve bus errors, return -EIO for nonnegative short transfers,
++	  and log only confirmed register data. This is required by the
++	  Android temperature and display-power error handling.
++
+ config MFD_WM8400
+ 	tristate "Support Wolfson Microelectronics WM8400"
+ 	select MFD_CORE
+--- a/drivers/mfd/max77696-i2c.c
++++ b/drivers/mfd/max77696-i2c.c
+@@ -137,6 +137,10 @@
+     msg[1].buf    = (char*)dst;
+ 
+     rc = i2c_transfer(adap, msg, 2);
++#ifdef CONFIG_LAB126_ANDROID_PMIC_I2C_STRICT
++    if (rc != 2)
++        return rc < 0 ? rc : -EIO;
++#endif
+ 
+     for (i=0;i<len;i++) {
+         log_i2c(LOG_READ, client->addr, addr+i, dst[i]);
+@@ -167,6 +171,10 @@
+     msg[0].buf   = (char*)buf;
+ 
+     rc = i2c_transfer(adap, msg, 1);
++#ifdef CONFIG_LAB126_ANDROID_PMIC_I2C_STRICT
++    if (rc != 1)
++        return rc < 0 ? rc : -EIO;
++#endif
+ 
+     for (i=0;i<len;i++) {
+         log_i2c(LOG_WRITE, client->addr, addr+i, src[i]);
+@@ -200,8 +208,15 @@
+     msg[0].len   = 2;
+     msg[0].buf   = (char*)buf;
+ 
++#ifndef CONFIG_LAB126_ANDROID_PMIC_I2C_STRICT
+     log_i2c(LOG_WRITE, client->addr, addr, val);
++#endif
+     rc = i2c_transfer(adap, msg, 1);
++#ifdef CONFIG_LAB126_ANDROID_PMIC_I2C_STRICT
++    if (rc != 1)
++        return rc < 0 ? rc : -EIO;
++    log_i2c(LOG_WRITE, client->addr, addr, val);
++#endif
+ 
+     /* If everything went ok (i.e. 1 msg transmitted), return 0,
+        else error code. */

@@ -1,0 +1,83 @@
+From: PW3 Android port
+Subject: [PW3] Mark dim surfaces for the CPU composer instead of skipping them
+
+A dim surface (behind dialogs, black frames) has no buffer, so the HWC1
+path flags it HWC_SKIP_LAYER and the whole frame is composed by GLES. On
+PW3 GLES is emulated on the CPU: V29 measured up to 4.4 s for such a frame,
+and every recorded GLES fallback was a dim surface. Replace the skip flag
+with a private flag (0x40000000) that the PW3 composer understands; it
+darkens the frame itself. A composer that leaves the layer as
+HWC_FRAMEBUFFER still gets the normal GLES drawing.
+
+diff --git a/services/surfaceflinger/DisplayHardware/HWComposer_hwc1.cpp b/services/surfaceflinger/DisplayHardware/HWComposer_hwc1.cpp
+index dcb2913..f6cff4a 100644
+--- a/services/surfaceflinger/DisplayHardware/HWComposer_hwc1.cpp
++++ b/services/surfaceflinger/DisplayHardware/HWComposer_hwc1.cpp
+@@ -1092,6 +1092,15 @@ public:
+             getLayer()->handle = buffer->handle;
+         }
+     }
++    // PW3: a dim surface is black weighted by the plane alpha. The PW3
++    // composer blends it on the CPU; with HWC_SKIP_LAYER every frame that
++    // shows a dialog would be composed by the CPU-emulated GLES instead.
++    // The private flag tells the composer that the missing buffer is intended.
++    // A composer that leaves the layer as HWC_FRAMEBUFFER gets the usual
++    // GLES drawing.
++    virtual void setDimSurface() {
++        getLayer()->flags = (getLayer()->flags & ~HWC_SKIP_LAYER) | 0x40000000;
++    }
+     virtual void onDisplayed() {
+         getLayer()->acquireFenceFd = -1;
+     }
+diff --git a/services/surfaceflinger/DisplayHardware/HWComposer_hwc1.h b/services/surfaceflinger/DisplayHardware/HWComposer_hwc1.h
+index 4bc63bb..6a5599f 100644
+--- a/services/surfaceflinger/DisplayHardware/HWComposer_hwc1.h
++++ b/services/surfaceflinger/DisplayHardware/HWComposer_hwc1.h
+@@ -175,6 +175,8 @@ public:
+         virtual void setSurfaceDamage(const Region& reg) = 0;
+         virtual void setSidebandStream(const sp<NativeHandle>& stream) = 0;
+         virtual void setBuffer(const sp<GraphicBuffer>& buffer) = 0;
++        // PW3: a dim surface has no buffer; see HWComposer_hwc1.cpp.
++        virtual void setDimSurface() = 0;
+         virtual void setAcquireFenceFd(int fenceFd) = 0;
+         virtual void setPlaneAlpha(uint8_t alpha) = 0;
+         virtual void onDisplayed() = 0;
+diff --git a/services/surfaceflinger/Layer.cpp b/services/surfaceflinger/Layer.cpp
+index 038ece2..ba55514 100755
+--- a/services/surfaceflinger/Layer.cpp
++++ b/services/surfaceflinger/Layer.cpp
+@@ -972,6 +972,9 @@ void Layer::setPerFrameData(const sp<const DisplayDevice>& hw,
+         // NOTE: buffer can be NULL if the client never drew into this
+         // layer yet, or if we ran out of memory
+         layer.setBuffer(mActiveBuffer);
++        if (isDimSurface()) {
++            layer.setDimSurface();
++        }
+     }
+ }
+ #endif
+diff --git a/services/surfaceflinger/Layer.h b/services/surfaceflinger/Layer.h
+index c34d8a0..39b56df 100644
+--- a/services/surfaceflinger/Layer.h
++++ b/services/surfaceflinger/Layer.h
+@@ -266,6 +266,8 @@ public:
+     // Virtuals
+ 
+     virtual const char* getTypeId() const { return "Layer"; }
++    // PW3: true for the buffer-less black surface used to dim what is below.
++    virtual bool isDimSurface() const { return false; }
+ 
+     /*
+      * isOpaque - true if this surface is opaque
+diff --git a/services/surfaceflinger/LayerDim.h b/services/surfaceflinger/LayerDim.h
+index a0cfca9..869d68c 100644
+--- a/services/surfaceflinger/LayerDim.h
++++ b/services/surfaceflinger/LayerDim.h
+@@ -34,6 +34,7 @@ public:
+         virtual ~LayerDim();
+ 
+     virtual const char* getTypeId() const { return "LayerDim"; }
++    virtual bool isDimSurface() const { return true; }
+     virtual void onDraw(const sp<const DisplayDevice>& hw, const Region& clip,
+             bool useIdentityTransform) const;
+     virtual bool isOpaque(const Layer::State&) const { return false; }

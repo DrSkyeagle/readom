@@ -1,0 +1,37 @@
+/system/bin/pw3-init-check u:object_r:pw3_init_check_exec:s0
+
+/(vendor|system/vendor)/bin/pw3-fg-state u:object_r:pw3_fg_state_exec:s0
+
+/system/bin/pw3-boot-report u:object_r:pw3_boot_report_exec:s0
+
+# Per-device calibration/firmware is never an app-readable system file.
+/(vendor|system/vendor)/firmware/(ath6k|epdc)(/.*)? u:object_r:pw3_private_firmware_file:s0
+
+/firmware(/.*)? u:object_r:pw3_private_firmware_file:s0
+
+# Label the standard legacy storage link before init creates it on /mnt tmpfs.
+/mnt/sdcard u:object_r:storage_file:s0
+
+# The user store this port boots from. Never label every MMC partition:
+# p4 alone, which is where the system and data images live.
+/dev/block/mmcblk0p4 u:object_r:userdata_block_device:s0
+/pw3-preinit\.conf u:object_r:pw3_data_config_file:s0
+/pw3-testdata\.conf u:object_r:pw3_data_config_file:s0
+
+/pw3-testmap\.bin u:object_r:pw3_data_config_file:s0
+
+# The record of the last complete check of the system image. The start makes
+# it before any policy is loaded, so init relabels it (init.pw3.rc); only
+# pw3-system-verify may delete it. What the start leaves beside it in the RAM
+# root keeps that root's own label: it is there on some starts and not on
+# others, and a restorecon of a path that is not there is an error at every
+# other start.
+/data/pw3(/.*)? u:object_r:pw3_system_stamp_file:s0
+/system/bin/pw3-system-verify u:object_r:pw3_system_verify_exec:s0
+/dev/block/dm-2 u:object_r:userdata_block_device:s0
+# The report area (device/amazon/pw3/report), when this start mapped one.
+/dev/block/dm-3 u:object_r:pw3_report_block_device:s0
+
+# AOSP labels zram devices ram_device; fs_mgr's mkswap and swapon need the
+# swap type on the one that is used as swap.
+/dev/block/zram0 u:object_r:swap_block_device:s0

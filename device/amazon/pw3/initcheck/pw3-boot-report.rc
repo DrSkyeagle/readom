@@ -1,0 +1,73 @@
+# Bounded, read-only sampling of the start. It writes what it finds to the one
+# sink there is: the report area, which every release the installer could make
+# room for has, and which is the only thing a reader of a release can send.
+# Without it the program exits at once, which is what it did on every release
+# before the area existed. A second channel wrote the whole report to the
+# kernel log on a boot that asked for it with androidboot.pw3.diag; that key
+# went with the test entry on 2026-10-29 and nothing sets it any more.
+#
+# Started here rather than at boot_completed, and on the earliest property that
+# means the storage is up: a boot that never completes is the boot whose report
+# is worth having. It samples four times over two minutes and says the uptime
+# of each, so "it stopped here" is in the report as plainly as "it finished".
+on property:sys.pw3.storage_ready=1
+    start pw3-boot-report
+
+# A boot whose storage check failed cannot continue, and nothing on the screen
+# or on USB says so (Test V31 stayed on the start card for 20 min). Go back to
+# the stock system; the reason stays in the kernel log, which the stock-side
+# log collector saves as the previous boot's buffer. There is one storage
+# arrangement now, so this no longer asks which one it was.
+on property:sys.pw3.init_error=storage
+    setprop sys.powerctl reboot,
+
+# The same for the interface check, and for the same reason (a Codex review,
+# 2026-10-30). `pw3-init-check interfaces` failing leaves sys.pw3.hardware_ready
+# unset, and the framework waits on exactly that property (init.pw3-main.rc), so
+# zygote never starts. Nothing crashes either, so RescueParty -- which counts
+# crashes -- never fires. Before this line the device sat on the start card for
+# as long as the reader was willing to wait, with the only way out being the
+# power button held for forty seconds: the one outcome this project treats as
+# unacceptable, and the one the storage line above already existed to prevent.
+#
+# A failure here does not fix itself on a retry: CheckInterfaces() already waits
+# a hundred rounds for the nodes to appear, and an EPDC contract mismatch does
+# not wait at all -- it is a kernel and a system that disagree about the panel,
+# which is the same at every attempt.
+#
+# Restarting cannot loop: it lands in the stock Kindle, and nothing starts
+# Android again but a tap in the library (boot/build_entry.py).
+#
+# What this costs is this start's sampling report. BootReport holds its lines in
+# memory and writes the area once, at the end -- after its four rounds, or
+# earlier if a round hits the five-second snapshot deadline, but once -- so a
+# restart before that single write leaves the area holding the start before this
+# one (a Codex review, 2026-10-30). That report is still that start's, numbered
+# as that start's -- SaveArea numbers from the report it finds -- so nothing
+# claims it is this one's; what the area cannot say is that a start happened
+# after it and left nothing, so the kernel log is the only place this failure
+# appears at all. The reason is kept there:
+# InitCheck writes a `pw3-init-check:` line to the kernel log before it sets
+# this property, and the stock side saves the previous start's kernel buffer.
+# For an interface failure that line is the diagnosis -- a missing node or a
+# panel the kernel and the system disagree about -- and the rounds would add
+# timing to a fault that does not change with time. Letting the sampling finish
+# first would mean keeping the reader on this screen for those two minutes to
+# collect it, and a second writer to the area on a path that has never run on a
+# device is the wrong thing to add before a release.
+#
+# `usb` is deliberately not here. It leaves sys.pw3.ffs_ready unset, so adbd
+# does not start; the framework does not wait on that property, so the device
+# starts and is usable without a cable. It is not only adb that goes: the
+# `mtp,adb` configuration in init.pw3.usb.rc needs adbd to write its half of
+# the descriptors, so plugging in offers nothing until the reader picks plain
+# MTP. Restarting a device that works, to recover a cable, would be the wrong
+# trade.
+on property:sys.pw3.init_error=interfaces
+    setprop sys.powerctl reboot,
+
+service pw3-boot-report /system/bin/pw3-boot-report
+    user root
+    group root graphics log
+    disabled
+    oneshot

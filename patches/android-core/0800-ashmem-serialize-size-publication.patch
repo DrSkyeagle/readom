@@ -1,0 +1,22 @@
+--- a/mm/ashmem.c
++++ b/mm/ashmem.c
+@@ -644,14 +644,19 @@
+ 		ret = get_name(asma, (void __user *) arg);
+ 		break;
+ 	case ASHMEM_SET_SIZE:
++		/* Freeze size atomically with ashmem_mmap's backing publication. */
++		mutex_lock(&ashmem_mutex);
+ 		ret = -EINVAL;
+ 		if (!asma->file) {
+ 			ret = 0;
+ 			asma->size = (size_t) arg;
+ 		}
++		mutex_unlock(&ashmem_mutex);
+ 		break;
+ 	case ASHMEM_GET_SIZE:
++		mutex_lock(&ashmem_mutex);
+ 		ret = asma->size;
++		mutex_unlock(&ashmem_mutex);
+ 		break;
+ 	case ASHMEM_SET_PROT_MASK:
+ 		ret = set_prot_mask(asma, arg);

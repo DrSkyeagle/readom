@@ -1,0 +1,108 @@
+--- a/service/java/com/android/server/wifi/WifiServiceImpl.java
++++ b/service/java/com/android/server/wifi/WifiServiceImpl.java
+@@ -194,6 +194,7 @@
+     private AsyncChannel mWifiStateMachineChannel;
+ 
+     private final boolean mPermissionReviewRequired;
++    private final boolean mSoftApSupported;
+     private final FrameworkFacade mFrameworkFacade;
+ 
+     private WifiPermissionsUtil mWifiPermissionsUtil;
+@@ -447,6 +448,8 @@
+                 wifiServiceHandlerThread.getLooper(), asyncChannel);
+         mWifiController = mWifiInjector.getWifiController();
+         mWifiBackupRestore = mWifiInjector.getWifiBackupRestore();
++        mSoftApSupported = context.getResources().getBoolean(
++                com.android.internal.R.bool.config_wifi_softap_supported);
+         mPermissionReviewRequired = Build.PERMISSIONS_REVIEW_REQUIRED
+                 || context.getResources().getBoolean(
+                 com.android.internal.R.bool.config_permissionReviewRequired);
+@@ -984,6 +987,11 @@
+         // NETWORK_STACK is a signature only permission.
+         enforceNetworkStackPermission();
+ 
++        if (!mSoftApSupported) {
++            mLog.warn("Soft AP is disabled by product configuration").flush();
++            return false;
++        }
++
+         mLog.info("startSoftAp uid=%").c(Binder.getCallingUid()).flush();
+ 
+         synchronized (mLocalOnlyHotspotRequests) {
+@@ -1002,6 +1010,7 @@
+      * proper permissions beyond the NetworkStack permission.
+      */
+     private boolean startSoftApInternal(WifiConfiguration wifiConfig, int mode) {
++        if (!mSoftApSupported) return false;
+         mLog.trace("startSoftApInternal uid=% mode=%")
+                 .c(Binder.getCallingUid()).c(mode).flush();
+ 
+@@ -1219,6 +1228,13 @@
+         } catch (RemoteException e) {
+             mLog.warn("RemoteException during isAppForeground when calling startLOHS");
+             return LocalOnlyHotspotCallback.ERROR_INCOMPATIBLE_MODE;
++        }
++
++        // Keep permission, location and foreground checks above; do not register
++        // a request or send a controller mode-change command on STA-only products.
++        if (!mSoftApSupported) {
++            mLog.warn("LocalOnlyHotspot is disabled by product configuration").flush();
++            return LocalOnlyHotspotCallback.ERROR_GENERIC;
+         }
+ 
+         mLog.info("startLocalOnlyHotspot uid=% pid=%").c(uid).c(pid).flush();
+--- a/tests/wifitests/src/com/android/server/wifi/WifiServiceImplTest.java
++++ b/tests/wifitests/src/com/android/server/wifi/WifiServiceImplTest.java
+@@ -243,6 +243,8 @@
+         when(mWifiInjector.getWifiServiceHandlerThread()).thenReturn(mHandlerThread);
+         when(mHandlerThread.getLooper()).thenReturn(mLooper.getLooper());
+         when(mContext.getResources()).thenReturn(mResources);
++        when(mResources.getBoolean(com.android.internal.R.bool.config_wifi_softap_supported))
++                .thenReturn(true);
+         when(mContext.getContentResolver()).thenReturn(mContentResolver);
+         when(mContext.getPackageManager()).thenReturn(mPackageManager);
+         doNothing().when(mFrameworkFacade).registerContentObserver(eq(mContext), any(),
+@@ -685,6 +687,43 @@
+         assertNull(mSoftApModeConfigCaptor.getValue().getWifiConfiguration());
+     }
+ 
++    private void configureStaOnlyProduct() {
++        when(mResources.getBoolean(com.android.internal.R.bool.config_wifi_softap_supported))
++                .thenReturn(false);
++        mWifiServiceImpl = new WifiServiceImpl(mContext, mWifiInjector, mAsyncChannel);
++        mWifiServiceImpl.setWifiHandlerLogForTest(mLog);
++    }
++
++    @Test
++    public void testStartSoftApOnStaOnlyProductDoesNotSwitchMode() {
++        configureStaOnlyProduct();
++        assertFalse(mWifiServiceImpl.startSoftAp(null));
++        verifyZeroInteractions(mWifiController);
++    }
++
++    @Test(expected = SecurityException.class)
++    public void testStartSoftApOnStaOnlyProductStillChecksPermission() {
++        configureStaOnlyProduct();
++        doThrow(new SecurityException()).when(mContext)
++                .enforceCallingOrSelfPermission(eq(android.Manifest.permission.NETWORK_STACK),
++                        eq("WifiService"));
++        mWifiServiceImpl.startSoftAp(null);
++    }
++
++    @Test
++    public void testLocalOnlyHotspotOnStaOnlyProductDoesNotRegisterOrSwitch() throws Exception {
++        configureStaOnlyProduct();
++        when(mSettingsStore.getLocationModeSetting(mContext))
++                .thenReturn(LOCATION_MODE_HIGH_ACCURACY);
++        when(mFrameworkFacade.isAppForeground(anyInt())).thenReturn(true);
++        for (int attempt = 0; attempt < 2; ++attempt) {
++            assertEquals(LocalOnlyHotspotCallback.ERROR_GENERIC,
++                    mWifiServiceImpl.startLocalOnlyHotspot(
++                            mAppMessenger, mAppBinder, TEST_PACKAGE_NAME));
++        }
++        verifyZeroInteractions(mWifiController, mAppBinder);
++    }
++
+     /**
+      * Verify caller with proper permissions but an invalid config does not start softap.
+      */

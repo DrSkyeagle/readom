@@ -1,0 +1,40 @@
+From: PW3 Android port
+Subject: [PW3] SystemUI recents: the window keeps its opaque white background
+
+RecentsActivity replaces its window background with a scrim, the wallpaper's
+colours at 45 % (no tasks) to 70 % (three or more), and 0 at first on the way
+in from home. The scrim is meant to lie over the wallpaper, which Recents no
+longer shows: the device overlay makes RecentsTheme.Wallpaper opaque white
+and not show the wallpaper, so that ImageWallpaper keeps no buffer
+(frameworks/base 0034). With the scrim over nothing, Recents became a
+translucent full-screen layer (isOpaque=0): screenshots of it were grey 178
+(Test V45). On the panel it stayed white only because the device composer
+puts white paper behind the bottom layer (composer/LumaCompose.cpp); every
+frame of Recents was still blended over the whole screen instead of copied.
+
+The window now keeps its theme's background. The scrims and their alpha
+animations stay, drawn nowhere. Multi-window, where Recents used a second
+scrim, is off on a low-RAM device.
+
+--- a/packages/SystemUI/src/com/android/systemui/recents/views/RecentsView.java
++++ b/packages/SystemUI/src/com/android/systemui/recents/views/RecentsView.java
+@@ -310,13 +310,12 @@
+      * Returns the window background scrim.
+      */
+     public void updateBackgroundScrim(Window window, boolean isInMultiWindow) {
+-        if (isInMultiWindow) {
+-            mBackgroundScrim.setCallback(null);
+-            window.setBackgroundDrawable(mMultiWindowBackgroundScrim);
+-        } else {
+-            mMultiWindowBackgroundScrim.setCallback(null);
+-            window.setBackgroundDrawable(mBackgroundScrim);
+-        }
++        // PW3: the window keeps the opaque white background of its theme (device overlay,
++        // RecentsTheme.Wallpaper) instead of a scrim. The scrims are the wallpaper's colours at
++        // 45 to 70 % (0 at first on the way in from home), meant to lie over the wallpaper,
++        // which Recents no longer shows (frameworks/base 0034): over nothing, Recents was a
++        // translucent full-screen layer, grey in screenshots (Test V45). Multi-window, the
++        // other case, is off on a low-RAM device.
+     }
+ 
+     /**

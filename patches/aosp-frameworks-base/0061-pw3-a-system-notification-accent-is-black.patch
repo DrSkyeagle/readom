@@ -1,0 +1,34 @@
+From: PW3 Android port
+Subject: [PW3] framework: a system notification's accent is black
+
+Measured on V86 (2026-10-27) from a screenshot of the shade: the app name, the
+secondary line and the action text of every system notification are grey 115
+to 121, centred on 117. `system_notification_accent_color` is #ff607D8B (Blue
+Grey 500), and its luma is 0.299*96 + 0.587*125 + 0.114*139 = 117.9. The panel
+renders luma, so on this device that colour is grey 117; the measurement and
+the arithmetic agree to within the text's antialiasing.
+
+Rule 2 of docs/design/eink-ui.md: the accent is black, and a state is told
+apart by shape and fill rather than by colour. Every system notification takes
+its colour from this one entry, so one value settles all of them:
+GlobalScreenshot.java:202 (the screenshot notice), PowerNotificationWarnings
+.java:167, NotificationController.java:191 (print), BugreportProgressService
+.java:1068, CarrierActionUtils.java:218 and GpsNetInitiatedHandler.java:395.
+
+Only the value changes. Nothing is added, and nothing is written above the
+entry: AOSP gives it no comment of its own and it keeps none, so
+com.android.internal.R, framework.jar and the 45 ART boot files stay as they
+are. Patch 0060's header records, with the hashes, what happens when a comment
+is put above an entry in this file.
+
+--- a/core/res/res/values/colors.xml
++++ b/core/res/res/values/colors.xml
+@@ -152,7 +152,7 @@
+     <color name="accessibility_focus_highlight">#bf39b500</color>
+     <color name="autofilled_highlight">#4dffeb3b</color>
+ 
+-    <color name="system_notification_accent_color">#ff607D8B</color>
++    <color name="system_notification_accent_color">#ff000000</color>
+ 
+     <!-- Default user icon colors -->
+     <color name="user_icon_1">#ff00bcd4</color><!-- cyan 500 -->

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- An open book. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+        android:width="24dp" android:height="24dp"
+        android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#FFFFFFFF"
+            android:pathData="M12,6C10.5,4.8 8.3,4.2 6,4.2C4.6,4.2 3.2,4.4 2,4.9V19.5C3.2,19 4.6,18.8 6,18.8C8.3,18.8 10.5,19.4 12,20.6C13.5,19.4 15.7,18.8 18,18.8C19.4,18.8 20.8,19 22,19.5V4.9C20.8,4.4 19.4,4.2 18,4.2C15.7,4.2 13.5,4.8 12,6ZM11,18.3C9.6,17.6 7.8,17.2 6,17.2C5.3,17.2 4.6,17.3 4,17.4V6.2C4.6,6.1 5.3,6 6,6C7.8,6 9.6,6.5 11,7.4ZM20,17.4C19.4,17.3 18.7,17.2 18,17.2C16.2,17.2 14.4,17.6 13,18.3V7.4C14.4,6.5 16.2,6 18,6C18.7,6 19.4,6.1 20,6.2Z" />
+</vector>

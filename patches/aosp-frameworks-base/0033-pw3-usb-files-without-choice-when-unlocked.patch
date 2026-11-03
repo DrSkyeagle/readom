@@ -1,0 +1,91 @@
+From: PW3 Android port
+Subject: [PW3] USB: files without a choice in the notification when there is no lock
+
+With a computer on the cable, Android 8.1 starts with data locked: the device
+shows "Charging this device via USB", and the computer sees no files until
+"File transfer" is chosen in that notification, again at every new cable.
+The Kindle's own system shows its drive as soon as the cable is in, and
+someone who only knows to plug the cable in will not look for a notification.
+
+When the device has no secure lock screen (no PIN, pattern or password), and
+no user restriction forbids file transfer, the state set while no cable is in
+(after a disconnect, and after boot) is now MTP with data unlocked, as if
+"File transfer" had been chosen; whoever holds such a device sees its files on
+the screen anyway. With a secure lock screen nothing changes. If one was set
+while no cable was in, the next connection locks again.
+
+Set beforehand, not when the cable comes: switching functions restarts the
+gadget, and with adb (FunctionFS, adbd restarts) that can outlast the 1 s
+disconnect debounce, which restores the defaults and would lock it again.
+
+--- a/services/usb/java/com/android/server/usb/UsbDeviceManager.java
++++ b/services/usb/java/com/android/server/usb/UsbDeviceManager.java
+@@ -16,6 +16,8 @@
+ 
+ package com.android.server.usb;
+ 
++import android.app.ActivityManager;
++import android.app.KeyguardManager;
+ import android.app.Notification;
+ import android.app.NotificationChannel;
+ import android.app.NotificationManager;
+@@ -719,6 +721,28 @@
+             return !userManager.hasUserRestriction(UserManager.DISALLOW_USB_FILE_TRANSFER);
+         }
+ 
++        /**
++         * PW3: whether a computer on the cable gets the files without "File transfer" being
++         * chosen in the notification first: when the device has no secure lock screen, as
++         * the Kindle's own system shows its drive at once. Whoever holds such a device sees
++         * its files on the screen anyway. With a PIN, pattern or password, data stays locked
++         * until chosen, as in AOSP. Applied as the state set while no cable is in, so that a
++         * cable finds it ready: switching at connection restarts the gadget, and with adb
++         * the restart can outlast the disconnect debounce, which would lock it again.
++         */
++        private boolean dataUnlockedByDefault() {
++            if (!isUsbTransferAllowed()) return false;
++            final KeyguardManager keyguard = mContext.getSystemService(KeyguardManager.class);
++            return keyguard != null && !keyguard.isDeviceSecure(ActivityManager.getCurrentUser());
++        }
++
++        /** PW3: the default functions and data state (dataUnlockedByDefault()). */
++        private void setDefaultFunctions(boolean forceRestart) {
++            final boolean unlocked = dataUnlockedByDefault();
++            setEnabledFunctions(unlocked ? UsbManager.USB_FUNCTION_MTP : null, forceRestart,
++                    unlocked);
++        }
++
+         private void updateCurrentAccessory() {
+             // We are entering accessory mode if we have received a request from the host
+             // and the request has not timed out yet.
+@@ -879,6 +903,7 @@
+         public void handleMessage(Message msg) {
+             switch (msg.what) {
+                 case MSG_UPDATE_STATE:
++                    final boolean wasConnected = mConnected;
+                     mConnected = (msg.arg1 == 1);
+                     mConfigured = (msg.arg2 == 1);
+ 
+@@ -894,7 +919,12 @@
+                     if (mBootCompleted) {
+                         if (!mConnected) {
+                             // restore defaults when USB is disconnected
+-                            setEnabledFunctions(null, !mAdbEnabled, false);
++                            setDefaultFunctions(!mAdbEnabled);
++                        } else if (!wasConnected && mUsbDataUnlocked
++                                && !dataUnlockedByDefault()) {
++                            // PW3: a lock screen was set or a restriction came while no
++                            // cable was in: unlocked was the default, locked is now.
++                            setEnabledFunctions(null, true, false);
+                         }
+                         updateUsbFunctions();
+                     } else {
+@@ -1000,7 +1030,7 @@
+                         updateUsbStateBroadcastIfNeeded(false);
+                         mPendingBootBroadcast = false;
+                     }
+-                    setEnabledFunctions(null, false, false);
++                    setDefaultFunctions(false);
+                     if (mCurrentAccessory != null) {
+                         getCurrentSettings().accessoryAttached(mCurrentAccessory);
+                     }

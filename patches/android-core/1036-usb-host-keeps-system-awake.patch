@@ -1,0 +1,120 @@
+--- a/arch/arm/mach-mx6/usb_dr.c
++++ b/arch/arm/mach-mx6/usb_dr.c
+@@ -35,6 +35,7 @@
+ #include <boardid.h>
+ #include <linux/delay.h>
+ #include <linux/workqueue.h>
++#include <linux/pm_wakeup.h>
+ 
+ static struct delayed_work otg_enum_check;
+ static struct delayed_work otg_recovery_work;
+@@ -135,6 +136,13 @@
+ DEFINE_MUTEX(udc_phy_force_mutex);
+ static bool detect_forced = false;
+ 
++/* PW3 Android: a cable just plugged in keeps the system awake long enough for a
++ * USB host to reset the bus (then arcotg_udc holds "usb_host" for as long as
++ * the host uses the device); a wall charger never resets it, and the system may
++ * sleep again. */
++#define USB_ATTACH_HOLD_MS	3000
++static struct wakeup_source *usb_attach_ws;
++
+ static bool usbmode_is_host = 0; 
+ 
+ extern int max77696_charger_set_otg(int enable);
+@@ -285,6 +293,7 @@
+ 		struct regulator *phyreg = regulator_get(NULL, "USB_GADGET_PHY");
+ 		if (!IS_ERR(phyreg)) {
+ 			if (detect) {
++				__pm_wakeup_event(usb_attach_ws, USB_ATTACH_HOLD_MS);
+ 				regulator_enable(phyreg);
+ 				usbotg_force_bsession(true);
+ 			} else {
+@@ -1185,6 +1194,8 @@
+ 	struct imx_fsl_usb2_otg_data __maybe_unused imx6q_fsl_usb2_otg_data  =
+ 		imx_fsl_usb2_otg_data_entry_single(MX6Q);
+ 
++	usb_attach_ws = wakeup_source_register("usb_attach");
++
+ 	/* Some phy and power's special controls for otg
+ 	 * 1. The external charger detector needs to be disabled
+ 	 * or the signal at DP will be poor
+--- a/drivers/usb/gadget/arcotg_udc.c
++++ b/drivers/usb/gadget/arcotg_udc.c
+@@ -40,6 +40,7 @@
+ #include <linux/fsl_devices.h>
+ #include <linux/dmapool.h>
+ #include <linux/io.h>
++#include <linux/pm_wakeup.h>
+ 
+ #include <asm/processor.h>
+ #include <asm/byteorder.h>
+@@ -88,6 +89,12 @@
+ static bool pw3_diag;
+ static bool pw3_keep_awake;
+ static bool pw3_clock_held;
++/* PW3 Android: no system suspend under a USB host that is using the device (adb,
++ * file transfer). Lab126's kernel lets the system suspend while connected (see
++ * fsl_udc_suspend) and leaves that to its own user space. A host shows itself by
++ * resetting the bus; it is gone when the session ends or it suspends the bus
++ * (it went to sleep or let the port go). */
++static struct wakeup_source *pw3_host_ws;
+ module_param(pw3_keep_awake, bool, 0400);
+ MODULE_PARM_DESC(pw3_keep_awake, "Explicit debug-only active USB PHY and retained clock reference");
+ module_param(pw3_diag, bool, 0400);
+@@ -2154,6 +2161,7 @@
+ 
+ 	udc->resume_state = udc->usb_state;
+ 	udc->usb_state = USB_STATE_SUSPENDED;
++	__pm_relax(pw3_host_ws);
+ 
+ 	spin_unlock(&udc->lock);
+ 	/* report suspend to the driver, serial.c does not support this */
+@@ -2168,6 +2176,7 @@
+ {
+ 	udc->usb_state = udc->resume_state;
+ 	udc->resume_state = 0;
++	__pm_stay_awake(pw3_host_ws);
+ 	/* report resume to the driver, serial.c does not support this */
+ 	if (udc->driver && udc->driver->resume)
+ 		udc->driver->resume(&udc->gadget);
+@@ -2227,6 +2236,7 @@
+ 	 * head and TR Queue */
+ 	reset_queues(udc);
+ 	udc->usb_state = USB_STATE_DEFAULT;
++	__pm_stay_awake(pw3_host_ws);
+ }
+ 
+ #define FSL_DP_CHANGE_TIMEOUT (msecs_to_jiffies(1000)) /* 1000 ms */
+@@ -2350,6 +2360,7 @@
+ 			pr_debug( "%s: udc out low power mode\n", __func__);
+ 		} else {
+ 			udc->vbus_active = false;
++			__pm_relax(pw3_host_ws);
+ 			fsl_pullup(&udc_controller->gadget, false); /* usbcmd.rs=0 */
+ 			/* here we need disable B_SESSION_IRQ, after
+ 			 * schedule_work finished, it need to be enabled again.
+@@ -3362,6 +3373,10 @@
+ 	udc_controller->charger.enable = false;
+ #endif
+ 
++	/* The controller runs only once a gadget driver binds: no bus event
++	 * can come before this point. */
++	pw3_host_ws = wakeup_source_register("usb_host");
++
+ 	/* No failure exits remain below this point. Retain one owned clock
+ 	 * reference until removal; all pre-existing clock pairs stay intact. */
+ 	if (pw3_keep_awake) {
+@@ -3433,6 +3448,12 @@
+ 
+ 	cancel_work_sync(&udc_controller->gadget_disconnect_schedule);
+ 
++	if (pw3_host_ws) {
++		__pm_relax(pw3_host_ws);
++		wakeup_source_unregister(pw3_host_ws);
++		pw3_host_ws = NULL;
++	}
++
+ 	/* Keep the owned reference until IRQ and disconnect work have drained. */
+ 	if (pw3_clock_held) {
+ 		dr_clk_gate(false);

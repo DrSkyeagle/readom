@@ -1,0 +1,31 @@
+From: PW3 Android port
+Subject: [PATCH] cortex-a9: use STR for a single-register store in Thumb mode
+
+The no-writeback STMIA form assembles as T32 with one register, which is
+architecturally UNPREDICTABLE. QEMU Cortex-A9 raises SIGILL at this exact
+instruction during app_process startup. A normal STR preserves the
+intended four-byte write, unchanged base register, and condition flags.
+The shared implementation covers strcpy/stpcpy; strcat has the same tail.
+
+--- a/libc/arch-arm/cortex-a9/bionic/string_copy.S
++++ b/libc/arch-arm/cortex-a9/bionic/string_copy.S
+@@ -530,7 +530,7 @@
+     m_ret   inst=pop
+ 
+ .Lstringcopy_unalign_copy4bytes:
+-    stmia   r0, {r2}
++    str     r2, [r0]
+ #if defined(STPCPY)
+     add     r0, r0, #3
+ #endif
+--- a/libc/arch-arm/cortex-a9/bionic/strcat.S
++++ b/libc/arch-arm/cortex-a9/bionic/strcat.S
+@@ -520,7 +520,7 @@
+     m_ret   inst=pop
+ 
+ .Lstrcpy_unalign_copy4bytes:
+-    stmia   r0, {r2}
++    str     r2, [r0]
+     m_ret   inst=pop
+ 
+ .Lstrcat_align_src:

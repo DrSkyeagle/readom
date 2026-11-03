@@ -1,0 +1,5 @@
+type sysfs_pw3_fl_lot, fs_type, sysfs_type;
+
+# The Lights HAL reads, once, the PMIC input by which the stock software tells
+# the two frontlight LED lots (and their step tables) apart.
+allow hal_light sysfs_pw3_fl_lot:file r_file_perms;

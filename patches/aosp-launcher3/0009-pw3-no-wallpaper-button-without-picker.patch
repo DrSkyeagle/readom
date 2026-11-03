@@ -1,0 +1,60 @@
+From: PW3 Android port
+Subject: [PW3] Launcher3: no wallpaper button when no app picks wallpapers
+
+The home screen's edit mode (a long press on the home screen) offers
+"Wallpapers", "Widgets" and "Home settings". Nothing on the device handles
+ACTION_SET_WALLPAPER (no wallpaper picker; the wallpaper is the built-in white
+picture, which no window shows, frameworks/base 0034): tapping the button
+opened nothing (Test V45); the code then shows a toast, "app not found".
+
+The button, and its action for accessibility services, are shown only when an
+app resolves the button's intent: a picker installed later brings them back
+once the home screen is created again. Edit mode keeps its two other buttons.
+
+--- a/src/com/android/launcher3/Utilities.java
++++ b/src/com/android/launcher3/Utilities.java
+@@ -560,6 +560,20 @@
+     public static boolean isPowerSaverOn(Context context) {
+         PowerManager powerManager = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
+         return powerManager.isPowerSaveMode();
++    }
++
++    /**
++     * PW3: whether an app handles the intent of the wallpaper button
++     * (Launcher#onClickWallpaperPicker). The device has none: the button did nothing when
++     * tapped (Test V45), so it is not shown.
++     */
++    public static boolean hasWallpaperPicker(Context context) {
++        Intent intent = new Intent(Intent.ACTION_SET_WALLPAPER);
++        String pickerPackage = context.getString(R.string.wallpaper_picker_package);
++        if (!TextUtils.isEmpty(pickerPackage)) {
++            intent.setPackage(pickerPackage);
++        }
++        return context.getPackageManager().resolveActivity(intent, 0) != null;
+     }
+ 
+     public static boolean isWallpaperAllowed(Context context) {
+--- a/src/com/android/launcher3/Launcher.java
++++ b/src/com/android/launcher3/Launcher.java
+@@ -1325,6 +1325,10 @@
+ 
+         // Bind wallpaper button actions
+         View wallpaperButton = findViewById(R.id.wallpaper_button);
++        // PW3: hidden when no app can pick a wallpaper (Utilities.hasWallpaperPicker()).
++        if (!Utilities.hasWallpaperPicker(this)) {
++            wallpaperButton.setVisibility(View.GONE);
++        }
+         new OverviewButtonClickListener(ControlType.WALLPAPER_BUTTON) {
+             @Override
+             public void handleViewClick(View view) {
+--- a/src/com/android/launcher3/accessibility/OverviewAccessibilityDelegate.java
++++ b/src/com/android/launcher3/accessibility/OverviewAccessibilityDelegate.java
+@@ -44,7 +44,7 @@
+         Context context = host.getContext();
+         info.addAction(new AccessibilityAction(OVERVIEW, context.getText(OVERVIEW)));
+ 
+-        if (Utilities.isWallpaperAllowed(context)) {
++        if (Utilities.isWallpaperAllowed(context) && Utilities.hasWallpaperPicker(context)) {
+             info.addAction(new AccessibilityAction(WALLPAPERS, context.getText(WALLPAPERS)));
+         }
+         info.addAction(new AccessibilityAction(WIDGETS, context.getText(WIDGETS)));

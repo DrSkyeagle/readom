@@ -1,0 +1,209 @@
+--- a/server.cpp
++++ b/server.cpp
+@@ -24,6 +24,10 @@
+ #include <binder/IPCThreadState.h>
+ #include <binder/PermissionCache.h>
+ 
++#ifdef PW3_WIFI_MODULE_CONTROL
++#include "wificond/pw3_radio.h"
++#endif
++
+ #include "wificond/logging_utils.h"
+ #include "wificond/net/netlink_utils.h"
+ #include "wificond/scanning/scan_utils.h"
+@@ -95,6 +99,11 @@
+ }
+ 
+ Status Server::createApInterface(sp<IApInterface>* created_interface) {
++#ifdef PW3_WIFI_MODULE_CONTROL
++  // This board integration implements STA only; do not advertise a fake AP.
++  *created_interface = nullptr;
++  return Status::ok();
++#endif
+   InterfaceInfo interface;
+   if (!SetupInterface(&interface)) {
+     return Status::ok();  // Logging was done internally
+@@ -116,6 +125,11 @@
+ Status Server::createClientInterface(sp<IClientInterface>* created_interface) {
+   InterfaceInfo interface;
+   if (!SetupInterface(&interface)) {
++#ifdef PW3_WIFI_MODULE_CONTROL
++    // Setup may fail after module load; leave no powered unused radio.
++    if (client_interfaces_.empty() && ap_interfaces_.empty())
++      Pw3SetRadioEnabled(false);
++#endif
+     return Status::ok();  // Logging was done internally
+   }
+ 
+@@ -149,6 +163,10 @@
+   MarkDownAllInterfaces();
+ 
+   netlink_utils_->UnsubscribeRegDomainChange(wiphy_index_);
++#ifdef PW3_WIFI_MODULE_CONTROL
++  if (!Pw3SetRadioEnabled(false))
++    return Status::fromExceptionCode(Status::EX_ILLEGAL_STATE);
++#endif
+ 
+   return Status::ok();
+ }
+@@ -218,6 +236,9 @@
+   supplicant_manager_->StopSupplicant();
+   hostapd_manager_->StopHostapd();
+   MarkDownAllInterfaces();
++#ifdef PW3_WIFI_MODULE_CONTROL
++  Pw3SetRadioEnabled(false);
++#endif
+ }
+ 
+ bool Server::SetupInterface(InterfaceInfo* interface) {
+@@ -228,6 +249,9 @@
+     return false;
+   }
+ 
++#ifdef PW3_WIFI_MODULE_CONTROL
++  if (!Pw3SetRadioEnabled(true)) return false;
++#endif
+   if (!RefreshWiphyIndex()) {
+     return false;
+   }
+@@ -250,6 +274,9 @@
+     // p2p interface from station interfaces.
+     // Currently NAN interfaces also use station type.
+     // We should blacklist NAN interfaces as well.
++#ifdef PW3_WIFI_MODULE_CONTROL
++    if (iface.name != "wlan0") continue;
++#endif
+     if (iface.name != "p2p0" &&
+         !android::base::StartsWith(iface.name, "aware_data")) {
+       *interface = iface;
+--- a/Android.mk
++++ b/Android.mk
+@@ -14,6 +14,9 @@
+ 
+ LOCAL_PATH := $(call my-dir)
+ wificond_cpp_flags := -Wall -Werror -Wno-unused-parameter
++ifeq ($(BOARD_PW3_WIFI_MODULE_CONTROL),true)
++wificond_cpp_flags += -DPW3_WIFI_MODULE_CONTROL
++endif
+ wificond_parent_dir := $(LOCAL_PATH)/../
+ wificond_includes := \
+     $(wificond_parent_dir)
+@@ -74,7 +77,11 @@
+     scanning/offload/offload_service_utils.cpp \
+     scanning/offload/offload_scan_utils.cpp \
+     server.cpp
+-LOCAL_SHARED_LIBRARIES := \
++ifeq ($(BOARD_PW3_WIFI_MODULE_CONTROL),true)
++LOCAL_SRC_FILES += pw3_radio.cpp
++endif
++LOCAL_SHARED_LIBRARIES := \
++    libcutils \
+     android.hardware.wifi.offload@1.0 \
+     libbase \
+     libutils \
+--- /dev/null
++++ b/pw3_radio.h
+@@ -0,0 +1,8 @@
++#pragma once
++
++namespace android {
++namespace wificond {
++// Synchronous request to init. Success requires actual module/interface state.
++bool Pw3SetRadioEnabled(bool enabled);
++}  // namespace wificond
++}  // namespace android
+--- /dev/null
++++ b/pw3_radio.cpp
+@@ -0,0 +1,92 @@
++#include "wificond/pw3_radio.h"
++
++#include <cerrno>
++#include <cstring>
++#include <net/if.h>
++#include <sys/stat.h>
++#include <unistd.h>
++
++#include <android-base/logging.h>
++#include <cutils/properties.h>
++
++namespace android {
++namespace wificond {
++namespace {
++constexpr const char* kModule = "/sys/module/ath6kl_sdio";
++constexpr const char* kDriver = "/sys/class/net/wlan0/phy80211/device/driver";
++constexpr const char* kModuleProperty = "vendor.pw3.wifi.modules";
++constexpr const char* kExpectedDriver = "ath6kl_sdio";
++
++bool ReadModuleState(bool* exists) {
++  struct stat st {};
++  if (stat(kModule, &st) == 0) {
++    if (!S_ISDIR(st.st_mode)) return false;
++    *exists = true;
++    return true;
++  }
++  if (errno != ENOENT) return false;
++  *exists = false;
++  return true;
++}
++
++bool ReadInterfaceState(bool* exists) {
++  // AOSP 8.1 Bionic preserves socket/ioctl errno. On this kernel SIOCGIFINDEX
++  // reports ENODEV for an absent name; other failures are not absence.
++  errno = 0;
++  const unsigned index = if_nametoindex("wlan0");
++  if (index != 0) {
++    *exists = true;
++    return true;
++  }
++  if (errno != ENODEV) return false;
++  *exists = false;
++  return true;
++}
++
++bool InterfaceMatches() {
++  char target[256] = {};
++  const ssize_t count = readlink(kDriver, target, sizeof(target) - 1);
++  if (count <= 0 || static_cast<size_t>(count) >= sizeof(target) - 1) return false;
++  target[count] = '\0';
++  const char* name = strrchr(target, '/');
++  return name && strcmp(name + 1, kExpectedDriver) == 0;
++}
++
++bool ReachedState(bool enabled) {
++  bool module_exists = false;
++  bool interface_exists = false;
++  if (!ReadModuleState(&module_exists) || !ReadInterfaceState(&interface_exists))
++    return false;
++  if (enabled) return module_exists && interface_exists && InterfaceMatches();
++  return !module_exists && !interface_exists;
++}
++
++bool WaitForState(bool enabled) {
++  // At most 300 sleeps (about 15 seconds); interrupted sleeps only shorten
++  // this deadline and never turn an unverified transition into success.
++  for (unsigned retry = 0; retry < 300; ++retry) {
++    if (ReachedState(enabled)) return true;
++    usleep(50000);
++  }
++  return ReachedState(enabled);
++}
++}  // namespace
++
++bool Pw3SetRadioEnabled(bool enabled) {
++  if (ReachedState(enabled)) return true;
++  if (property_set(kModuleProperty, enabled ? "load" : "unload") != 0) {
++    LOG(ERROR) << "PW3 radio module request rejected";
++    return false;
++  }
++  if (WaitForState(enabled)) return true;
++  LOG(ERROR) << "PW3 radio module transition did not reach verified state";
++  // A failed load can leave a bound-but-unusable module. Ask init to remove it;
++  // failed cleanup remains visible, and this function still returns false.
++  if (enabled) {
++    if (property_set(kModuleProperty, "unload") != 0 || !WaitForState(false))
++      LOG(ERROR) << "PW3 radio failed-load cleanup also failed";
++  }
++  return false;
++}
++}  // namespace wificond
++}  // namespace android

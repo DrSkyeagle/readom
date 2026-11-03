@@ -1,0 +1,44 @@
+From: PW3 Android port
+Subject: [PW3] init: an rmmod builtin
+
+PW3 loads and unloads its Wi-Fi driver (ath6kl_sdio) on demand: wificond
+asks init through a property, init runs insmod (a builtin, 0003) or rmmod.
+rmmod ran as "exec -- /system/bin/rmmod", in the toolbox domain, which has no
+CAP_SYS_MODULE: SELinux denied delete_module every time, so the radio was
+never unloaded when Wi-Fi was turned off, and wificond, which waits up to
+15 s for the unload at its start, registered late after a framework restart
+and Wi-Fi did not come back (Test V39, 2026-10-15).
+
+rmmod MODULE unloads the module from init, which already holds
+CAP_SYS_MODULE for insmod. O_NONBLOCK: a module still in use fails at once
+(EWOULDBLOCK) rather than holding up init.
+
+--- a/init/builtins.cpp
++++ b/init/builtins.cpp
+@@ -230,6 +230,18 @@
+     return __ifupdown(args[1].c_str(), 1);
+ }
+ 
++// rmmod <module>: unload a kernel module from init, which holds CAP_SYS_MODULE.
++// A program run with exec runs in another domain (toolbox for rmmod) without it,
++// so delete_module failed there. O_NONBLOCK: a module in use is an error at once
++// (EWOULDBLOCK) instead of init waiting for it to be released.
++static int do_rmmod(const std::vector<std::string>& args) {
++    if (syscall(__NR_delete_module, args[1].c_str(), O_NONBLOCK) == -1) {
++        PLOG(ERROR) << "rmmod \"" << args[1] << "\" failed";
++        return -1;
++    }
++    return 0;
++}
++
+ static int do_insmod(const std::vector<std::string>& args) {
+     int flags = 0;
+     auto it = args.begin() + 1;
+@@ -965,6 +977,7 @@
+         {"restorecon_recursive",    {1,     kMax, do_restorecon_recursive}},
+         {"rm",                      {1,     1,    do_rm}},
+         {"rmdir",                   {1,     1,    do_rmdir}},
++        {"rmmod",                   {1,     1,    do_rmmod}},
+         {"setprop",                 {2,     2,    do_setprop}},
+         {"setrlimit",               {3,     3,    do_setrlimit}},
+         {"start",                   {1,     1,    do_start}},

@@ -1,0 +1,154 @@
+--- a/drivers/char/wario_hall.c
++++ b/drivers/char/wario_hall.c
+@@ -28,6 +28,7 @@
+ #include <linux/platform_device.h>
+ #include <linux/miscdevice.h>
+ #include <linux/input.h>
++#include <linux/pm_wakeup.h>
+ #include <linux/sysfs.h>
+ #include <linux/sysdev.h>
+ #include <linux/workqueue.h>
+@@ -45,6 +46,9 @@
+ #define HALL_INIT_DELAY	    1000
+ #define HALL_EVENT_DELAY    3000
+ #define HALL_EVENT_DEB      250
++/* How long the system stays awake after an event is reported, for user space
++ * (Android's EventHub) to read it before the next suspend. */
++#define HALL_WAKE_HOLD      500
+ /* Hall Sensor States */
+ #define STATE_OPENED        0
+ #define STATE_CLOSED        1
+@@ -75,6 +79,9 @@
+ static int current_state = 0;		/* OPEN=0, CLOSE=1 */
+ static int hall_enabled = HALL_CTRL_ENABLE;	/* Enable Hall control by default */
+ static bool hall_irq_wake_enabled;
++/* The wakeup source: an edge, its debounce and its report are one wakeup event,
++ * so that the system cannot suspend before the lid state reaches user space. */
++static struct device *hall_dev;
+ #ifdef CONFIG_WARIO_HALL_INPUT
+ static struct input_dev *hall_input;
+ #endif
+@@ -392,9 +399,11 @@
+ 				 *	defer current close event when previous open event occured immiediately after close  
+ 				 */
+ 				schedule_delayed_work(&hall_close_event_work, msecs_to_jiffies(HALL_EVENT_DELAY));
++				pm_wakeup_event(hall_dev, HALL_EVENT_DELAY + HALL_WAKE_HOLD);
+ 			} else { 
+ 				/* Hall debounce on a normal (cover close) scenario */
+ 				schedule_delayed_work(&hall_close_event_work, msecs_to_jiffies(HALL_EVENT_DEB));
++				pm_wakeup_event(hall_dev, HALL_EVENT_DEB + HALL_WAKE_HOLD);
+ 			}
+ 			if (hall_dbg) 
+ 				printk(KERN_INFO "KERNEL: I hall:close event::current_state=%d\n",current_state);
+@@ -413,6 +422,7 @@
+ 			}
+ 			/* Also resync an open during the delayed boot initialization. */
+ 			hall_report_lid(0);
++			pm_wakeup_event(hall_dev, HALL_WAKE_HOLD);
+ 			hall_close_delay = 1;
+ 			schedule_delayed_work(&hall_open_event_work, msecs_to_jiffies(HALL_EVENT_DELAY));
+ 		}
+@@ -425,6 +435,8 @@
+ 
+ static irqreturn_t hall_isr(int irq, void *dev_id)
+ {
++	/* Until hall_detwq_handler has run and set the debounce's own time. */
++	pm_wakeup_event(hall_dev, HALL_WAKE_HOLD);
+ 	disable_irq_nosync(irq);
+ 	schedule_work(&hall_detwq);
+ 
+@@ -510,6 +522,10 @@
+ 		goto fail_input;
+ 	}
+ 
++	/* Wakeup capable, its wakeup source in place before the IRQ can fire. */
++	hall_dev = &pdev->dev;
++	device_init_wakeup(hall_dev, true);
++
+ 	irq = pdata->hall_irq;
+ 	error = request_irq(irq, hall_isr, (IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING | IRQF_EARLY_RESUME), 
+ 							HALL_DRIVER_NAME, pdata);
+@@ -518,9 +534,6 @@
+ 		goto fail3;
+ 	} 
+ 
+-	/* Configure wakeup capable */
+-	device_set_wakeup_capable(&pdev->dev, true); 
+-
+ 	error = hall_sysfs_register();
+ 	if (error)
+ 		goto fail_irq;
+@@ -531,8 +544,9 @@
+ 
+ fail_irq:
+ 	hall_stop_work(pdata);
+-	device_set_wakeup_capable(&pdev->dev, false);
+ fail3:
++	device_init_wakeup(&pdev->dev, false);
++	hall_dev = NULL;
+ 	misc_deregister(&hall_misc_device);
+ fail_input:
+ 	hall_input_unregister();
+@@ -552,7 +566,8 @@
+ 	hall_stop_work(pdata);
+ 	misc_deregister(&hall_misc_device);
+ 	hall_input_unregister();
+-	device_set_wakeup_capable(&pdev->dev, false);
++	device_init_wakeup(&pdev->dev, false);
++	hall_dev = NULL;
+ 	platform_set_drvdata(pdev, NULL);
+ 	kfree(ddata);
+ 	return 0;
+--- a/drivers/input/misc/max77696-onkey.c
++++ b/drivers/input/misc/max77696-onkey.c
+@@ -29,6 +29,7 @@
+ #include <linux/semaphore.h>
+ 
+ #include <linux/input.h>
++#include <linux/pm_wakeup.h>
+ #include <linux/mfd/max77696.h>
+ #include <linux/mfd/max77696-events.h>
+ 
+@@ -70,6 +71,10 @@
+ 	container_of(work_ptr, struct max77696_onkey, down_work.work)
+ 
+ #define ONKEY_SKIP_INTERVAL 		500	/* in milli-seconds */
++/* A press or release, from its interrupt until user space (Android's EventHub)
++ * has read the key, is one wakeup event: the system must not suspend between
++ * the interrupt and the work that reports the key. */
++#define ONKEY_WAKE_HOLD			500	/* in milli-seconds */
+ #define ONKEY_LED_BLINK_INTERVAL	2000	/* in milli-seconds */
+ #define ONKEY_LONGPRESS_INTERVAL	4000	/* in milli-seconds */
+ static pmic_event_callback_t onkey_down;
+@@ -394,6 +399,7 @@
+ {
+ 	struct max77696_onkey *me = data;
+ 
++	pm_wakeup_event(me->dev, ONKEY_WAKE_HOLD);
+ 	schedule_delayed_work(&(me->down_work), 0);
+ 
+ 	return IRQ_HANDLED;
+@@ -452,6 +458,7 @@
+ {
+ 	struct max77696_onkey *me = data;
+ 
++	pm_wakeup_event(me->dev, ONKEY_WAKE_HOLD);
+ 	schedule_delayed_work(&(me->up_work), 0);
+ 
+ 	return IRQ_HANDLED;
+@@ -499,6 +506,7 @@
+ 
+ 	INIT_DELAYED_WORK(&(me->down_work), max77696_onkey_down_work);
+ 	INIT_DELAYED_WORK(&(me->up_work), max77696_onkey_up_work);
++	device_init_wakeup(me->dev, true);
+ 
+ 	me->input = input_allocate_device();
+ 	if (unlikely(!me->input)) {
+@@ -642,6 +650,7 @@
+ out_err_reg_input:
+ 	input_free_device(me->input);
+ out_err_alloc_input:
++	device_init_wakeup(&pdev->dev, false);
+ 	platform_set_drvdata(pdev, NULL);
+ 	kfree(me);
+ 	return rc;

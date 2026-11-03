@@ -1,0 +1,57 @@
+From: PW3 Android port
+Subject: [PW3] notifications: no calendar or contacts query where there is no
+ provider
+
+This device has neither a calendar nor a contacts provider, and nothing to put
+in them: it has no accounts and no telephony. Two places asked anyway, and
+every attempt logged an error of its own ("Failed to find provider info for
+com.android.calendar", 8 lines, and the same for com.android.contacts, 7, in
+one session of PW3 Android Test V48):
+
+ - the zen-mode event rule's CalendarTracker, which the default rule set
+   creates on every boot, and
+ - SystemUI's user info, which reads the display name of the local profile on
+   a single-user device.
+
+Both now look the provider up first and skip the query when it is not
+installed. A device that has the providers is unchanged.
+
+--- a/packages/SystemUI/src/com/android/systemui/statusbar/policy/UserInfoControllerImpl.java
++++ b/packages/SystemUI/src/com/android/systemui/statusbar/policy/UserInfoControllerImpl.java
+@@ -160,7 +160,10 @@
+ 
+                 // If it's a single-user device, get the profile name, since the nickname is not
+                 // usually valid
+-                if (um.getUsers().size() <= 1) {
++                // A device with no contacts provider has no local profile, and
++                // each query of it would log an error of its own.
++                if (um.getUsers().size() <= 1 && context.getPackageManager()
++                        .resolveContentProvider(ContactsContract.AUTHORITY, 0) != null) {
+                     // Try and read the display name from the local profile
+                     final Cursor cursor = context.getContentResolver().query(
+                             ContactsContract.Profile.CONTENT_URI, new String[] {
+--- a/services/core/java/com/android/server/notification/EventConditionProvider.java
++++ b/services/core/java/com/android/server/notification/EventConditionProvider.java
+@@ -31,6 +31,7 @@
+ import android.os.Process;
+ import android.os.UserHandle;
+ import android.os.UserManager;
++import android.provider.CalendarContract;
+ import android.service.notification.Condition;
+ import android.service.notification.IConditionProvider;
+ import android.service.notification.ZenModeConfig;
+@@ -182,6 +183,14 @@
+             mTrackers.valueAt(i).setCallback(null);
+         }
+         mTrackers.clear();
++        if (mContext.getPackageManager().resolveContentProvider(
++                CalendarContract.AUTHORITY, 0) == null) {
++            // A device with no calendar has no events to watch for. Each query
++            // of a provider that is not installed logs an error of its own.
++            if (DEBUG) Slog.d(TAG, "no calendar provider");
++            evaluateSubscriptions();
++            return;
++        }
+         for (UserHandle user : UserManager.get(mContext).getUserProfiles()) {
+             final Context context = user.isSystem() ? mContext : getContextForUser(mContext, user);
+             if (context == null) {

@@ -1,0 +1,15 @@
+--- a/server.cpp
++++ b/server.cpp
+@@ -164,8 +164,10 @@
+ 
+   netlink_utils_->UnsubscribeRegDomainChange(wiphy_index_);
+ #ifdef PW3_WIFI_MODULE_CONTROL
+-  if (!Pw3SetRadioEnabled(false))
+-    return Status::fromExceptionCode(Status::EX_ILLEGAL_STATE);
++  // A failed unload is logged by Pw3SetRadioEnabled. It must not become a
++  // binder exception: WifiStateMachine does not catch it, so the framework
++  // would restart whenever the radio module could not be removed.
++  Pw3SetRadioEnabled(false);
+ #endif
+ 
+   return Status::ok();

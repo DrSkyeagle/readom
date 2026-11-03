@@ -1,0 +1,72 @@
+From: PW3 Android port
+Subject: [PW3] TextView: a text cursor that need not blink
+
+A focused text field redraws its cursor every 500 ms for as long as it is
+focused. On e-paper each redraw is a panel update: two a second while a field
+waits for input (about 300 in one V36 session), and the stock reader's cursor
+does not blink.
+
+config_textCursorBlinks (default true, as before) set to false: the cursor is
+drawn whenever it is shown at all, and nothing is posted to redraw it.
+
+--- a/core/res/res/values/config.xml
++++ b/core/res/res/values/config.xml
+@@ -3091,4 +3091,7 @@
+          booted.  -->
+     <integer name="config_stableDeviceDisplayWidth">-1</integer>
+     <integer name="config_stableDeviceDisplayHeight">-1</integer>
++
++    <!-- Whether a text cursor blinks. False on a display where each redraw is costly. -->
++    <bool name="config_textCursorBlinks">true</bool>
+ </resources>
+--- a/core/res/res/values/symbols.xml
++++ b/core/res/res/values/symbols.xml
+@@ -3079,4 +3079,5 @@
+ 
+   <java-symbol type="integer" name="config_stableDeviceDisplayWidth" />
+   <java-symbol type="integer" name="config_stableDeviceDisplayHeight" />
++  <java-symbol type="bool" name="config_textCursorBlinks" />
+ </resources>
+--- a/core/java/android/widget/Editor.java
++++ b/core/java/android/widget/Editor.java
+@@ -220,6 +220,8 @@
+ 
+     long mShowCursor;
+     private Blink mBlink;
++    // False: the cursor is shown steadily (config_textCursorBlinks).
++    final boolean mCursorBlinks;
+ 
+     boolean mCursorVisible = true;
+     boolean mSelectAllOnFocus;
+@@ -320,6 +322,8 @@
+ 
+     Editor(TextView textView) {
+         mTextView = textView;
++        mCursorBlinks = textView.getContext().getResources().getBoolean(
++                com.android.internal.R.bool.config_textCursorBlinks);
+         // Synchronize the filter list, which places the undo input filter at the end.
+         mTextView.setFilters(mTextView.getFilters());
+         mProcessTextIntentActionsHandler = new ProcessTextIntentActionsHandler(this);
+@@ -2411,7 +2415,7 @@
+             mShowCursor = SystemClock.uptimeMillis();
+             if (mBlink == null) mBlink = new Blink();
+             mTextView.removeCallbacks(mBlink);
+-            mTextView.postDelayed(mBlink, BLINK);
++            if (mCursorBlinks) mTextView.postDelayed(mBlink, BLINK);
+         } else {
+             if (mBlink != null) mTextView.removeCallbacks(mBlink);
+         }
+--- a/core/java/android/widget/TextView.java
++++ b/core/java/android/widget/TextView.java
+@@ -6703,8 +6703,9 @@
+         if (mMovement != null && (isFocused() || isPressed()) && selStart >= 0) {
+             if (selStart == selEnd) {
+                 if (mEditor != null && mEditor.isCursorVisible()
+-                        && (SystemClock.uptimeMillis() - mEditor.mShowCursor)
+-                        % (2 * Editor.BLINK) < Editor.BLINK) {
++                        && (!mEditor.mCursorBlinks
++                        || (SystemClock.uptimeMillis() - mEditor.mShowCursor)
++                        % (2 * Editor.BLINK) < Editor.BLINK)) {
+                     if (mHighlightPathBogus) {
+                         if (mHighlightPath == null) mHighlightPath = new Path();
+                         mHighlightPath.reset();

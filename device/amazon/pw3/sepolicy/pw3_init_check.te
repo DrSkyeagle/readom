@@ -1,0 +1,63 @@
+type pw3_init_check, domain;
+typeattribute pw3_init_check coredomain;
+type pw3_init_check_exec, exec_type, file_type;
+# The handover boot's own configuration files (/pw3-preinit.conf,
+# /pw3-testdata.conf, /pw3-testmap.bin). Declared here because this is the
+# domain that reads them; it used to be declared in pw3_data_prepare.te,
+# which went with the storage=ext4 mode on 2026-10-29.
+type pw3_data_config_file, file_type;
+init_daemon_domain(pw3_init_check)
+
+# Read-only preflight metadata. Device operations below are query-only; no mount or module operation.
+allow pw3_init_check zygote_exec:file getattr;
+allow pw3_init_check self:capability2 wake_alarm;
+allow pw3_init_check proc:dir search;
+allow pw3_init_check proc:file r_file_perms;
+r_dir_file(pw3_init_check, sysfs)
+allow pw3_init_check sysfs_wake_lock:file getattr;
+allow pw3_init_check sysfs_lowmemorykiller:dir search;
+allow pw3_init_check sysfs_lowmemorykiller:file getattr;
+allow pw3_init_check sysfs_pw3_power:file getattr;
+allow pw3_init_check { system_data_file cache_file }:dir { search getattr };
+allow pw3_init_check { binder_device hwbinder_device vndbinder_device ashmem_device }:chr_file getattr;
+allow pw3_init_check graphics_device:dir search;
+allow pw3_init_check graphics_device:chr_file getattr;
+# Query the framebuffer geometry and verified waveform startup contract.
+allow pw3_init_check graphics_device:chr_file { open read ioctl };
+allowxperm pw3_init_check graphics_device:chr_file ioctl { 0x4600 0x4680 };
+allow pw3_init_check sysfs_leds:dir search;
+allow pw3_init_check sysfs_leds:file r_file_perms;
+allow pw3_init_check functionfs:dir { search getattr };
+allow pw3_init_check functionfs:file getattr;
+allow pw3_init_check kmsg_device:chr_file { open write };
+get_prop(pw3_init_check, default_prop)
+get_prop(pw3_init_check, system_prop)
+set_prop(pw3_init_check, pw3_boot_prop)
+
+# Authentication defaults are read and enforced; no host key is copied here.
+
+allow pw3_init_check sysfs_pw3_bl_power:file getattr;
+
+# Attribute-only confirmation of the user store (mmcblk0p4) and of the data
+# image mapped out of it (dm-2). The lnk_file rule went with the alias the
+# storage=ext4 mode published, on 2026-10-29.
+allow pw3_init_check block_device:dir search;
+allow pw3_init_check userdata_block_device:blk_file getattr;
+
+# Testfile profile: verify the pre-init extent receipt and immutable FAT names.
+allow pw3_init_check pw3_data_config_file:file r_file_perms;
+allow pw3_init_check vfat:dir { search getattr };
+allow pw3_init_check vfat:file getattr;
+
+# Linux 3.0 requires CAP_SYS_ADMIN even for DM table queries. The device ioctl
+# filter admits status and table-status only; table creation/loading is denied.
+allow pw3_init_check self:capability sys_admin;
+allow pw3_init_check dm_device:blk_file getattr;
+# The report area's own device is labelled apart from the images (dm-3,
+# pw3_report_block_device in file_contexts) so that only pw3_boot_report may
+# write it. This check still has to see that it is there and is a block device
+# -- InitCheck.cpp stat()s it and then asks dm about the table by its
+# major:minor -- so getattr, and nothing else: no open, no read, no write.
+allow pw3_init_check pw3_report_block_device:blk_file getattr;
+allow pw3_init_check dm_device:chr_file { open read ioctl };
+allowxperm pw3_init_check dm_device:chr_file ioctl { 0xfd07 0xfd0c };

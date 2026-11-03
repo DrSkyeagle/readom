@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "about": "Upstream sources of the modules of this directory whose notice carries a copyleft licence; read by tools/collect-copyleft-sources.py. attach: archived and attached to each release. offer: too large to attach; covered by the written offer in the release's SOURCES.md. none: why the module needs no source beyond this repository.",
+  "modules": {
+    "EinkBro": {
+      "attach": [
+        {
+          "what": "EinkBro 16.7.1 (tag v16.7.1)",
+          "licence": "GPL-3.0-or-later",
+          "file": "einkbro-16.7.1-source.tar.gz",
+          "url": "https://github.com/plateaukao/einkbro/archive/031095d018ec9c6e8de333885341496bcdacb5b0.tar.gz",
+          "commit": "031095d018ec9c6e8de333885341496bcdacb5b0",
+          "bytes": 14534339,
+          "sha256": "255d8064c529f853308147d795495f099ef5624327b3eedc7e5e129ada8eb54e"
+        }
+      ]
+    },
+    "PinyinIME": {
+      "attach": [
+        {
+          "what": "rime-ice, whose entries are in res/raw/dict_pinyin.dat (tools/pinyin-dict/)",
+          "licence": "GPL-3.0-only",
+          "file": "rime-ice-da1fbe6-source.tar.gz",
+          "url": "https://github.com/iDvel/rime-ice/archive/da1fbe602e38f26db846fa10120ee64c2b0324c0.tar.gz",
+          "commit": "da1fbe602e38f26db846fa10120ee64c2b0324c0",
+          "bytes": 16782935,
+          "sha256": "6e6c0e8c00b969690dbc8b394b0a8f8cb0ed3ad348297ad631de1790c693eebb"
+        }
+      ]
+    },
+    "libjni_pinyinime": {
+      "none": "The input method's native code: Apache-2.0, in this repository. Its notice is PinyinIME's, whose GPL text belongs to the dictionary in PinyinIME.apk."
+    },
+    "SystemWebView": {
+      "offer": [
+        {
+          "what": "Chromium 128.0.6613.88",
+          "licence": "LGPL-2.1 and other licences of its parts",
+          "url": "https://commondatastorage.googleapis.com/chromium-browser-official/chromium-128.0.6613.88.tar.xz",
+          "bytes": 6703928100,
+          "md5": "41b1fc24d25ae59ae96c8ebbd021d389",
+          "reason": "6.7 GB, more than GitHub's limit of 2 GiB for a file of a release."
+        }
+      ]
+    }
+  }
+}

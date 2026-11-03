@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- AOSP shades the bottom of the open quick settings, above the navigation bar,
+     with a gradient from 33 % black; on 16 grey levels it shows as bands (Test
+     V39). Nothing is drawn there instead: the panel is opaque white
+     (dimens.xml, scrim_behind_alpha) and the bar is white too
+     (docs/design/eink-ui.md: no gradients). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="@android:color/transparent" />
+</shape>

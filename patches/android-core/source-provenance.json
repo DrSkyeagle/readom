@@ -1,0 +1,125 @@
+{
+  "aosp_commit": "563897de4a217ee19a4dfbade23d75a0ef024550",
+  "base_archive_sha256": "fa89453deb9947700cbebde2e840230e69969549be2116a0a72331ac5d2fe6c9",
+  "files": [
+    {
+      "path": "drivers/staging/Kconfig",
+      "source": "Local minimal Kconfig wiring",
+      "old_sha256": "95260f9c3426477f1831693e35b79a29c6120b9d42b23b5e862e08d979582e91",
+      "new_sha256": "a3a7df1ea8b440b4819c5af923ef1343b98c331173e161b5dc66fcdd66d27e14",
+      "new_file": false
+    },
+    {
+      "path": "drivers/staging/Makefile",
+      "source": "Local minimal Makefile wiring",
+      "old_sha256": "39ac11c6631353a82e565d2ef109d485297bc56accdbd1401937b07f4f6b2f3b",
+      "new_sha256": "065cf46d803a968ce1601018999be8667d984e3cabc3e4ad2e5ef65ab44c4859",
+      "new_file": false
+    },
+    {
+      "path": "drivers/staging/android/Kconfig",
+      "source": "Adapted minimal Kconfig from https://android.googlesource.com/kernel/common/+/563897de4a217ee19a4dfbade23d75a0ef024550/drivers/staging/android/Kconfig",
+      "old_sha256": null,
+      "new_sha256": "80e7fc7f439cdfefd11b2d0fc90df825d9503aa34c119d73eca80a78f5c6b06f",
+      "new_file": true
+    },
+    {
+      "path": "drivers/staging/android/Makefile",
+      "source": "Minimal wiring from https://android.googlesource.com/kernel/common/+/563897de4a217ee19a4dfbade23d75a0ef024550/drivers/staging/android/Makefile",
+      "old_sha256": null,
+      "new_sha256": "5080b5c7a00f6d5dbda77e3a4b5e0f50fe5303c182b859a408f37b6f043f70b8",
+      "new_file": true
+    },
+    {
+      "path": "drivers/staging/android/binder.c",
+      "source": "https://android.googlesource.com/kernel/common/+/563897de4a217ee19a4dfbade23d75a0ef024550/drivers/staging/android/binder.c",
+      "old_sha256": null,
+      "new_sha256": "6323cdebefc60e46cab44caf65ad332989a12097eb495d57a4acc5dc4a19d554",
+      "new_file": true
+    },
+    {
+      "path": "drivers/staging/android/binder.h",
+      "source": "https://android.googlesource.com/kernel/common/+/563897de4a217ee19a4dfbade23d75a0ef024550/drivers/staging/android/binder.h",
+      "old_sha256": null,
+      "new_sha256": "4f5debb2d912c0d21ac2f8ebf7f5bde45c05be5715bbfe2858fe012dd91f54f7",
+      "new_file": true
+    },
+    {
+      "path": "include/linux/ashmem.h",
+      "source": "https://android.googlesource.com/kernel/common/+/563897de4a217ee19a4dfbade23d75a0ef024550/include/linux/ashmem.h",
+      "old_sha256": null,
+      "new_sha256": "7b33dac90ef9c106caf2af8cfe20a67edb556538457deb54c983ae114e6def4e",
+      "new_file": true
+    },
+    {
+      "path": "include/linux/mm.h",
+      "source": "https://android.googlesource.com/kernel/common/+/563897de4a217ee19a4dfbade23d75a0ef024550/include/linux/mm.h (declaration only)",
+      "old_sha256": "8c41c4ce71346c91239b957005297a3530d2302d99927f3e4a632d58e4c471dc",
+      "new_sha256": "aba92fe23f1eac3ae709ec847e93ee58b65860387da9f53cd0129276b69879f1",
+      "new_file": false
+    },
+    {
+      "path": "include/linux/security.h",
+      "source": "https://android.googlesource.com/kernel/common/+/563897de4a217ee19a4dfbade23d75a0ef024550/include/linux/security.h (Binder hooks only)",
+      "old_sha256": "20d591b9a64fb445b627d5e614e74e76f0ca22b52155d4d45f236ab9c43f5178",
+      "new_sha256": "1371294e2846ed643c15ba97c37c1e41d8c51af8feaf41efca4faa56416baa3f",
+      "new_file": false
+    },
+    {
+      "path": "mm/Kconfig",
+      "source": "Local Kconfig wiring for pinned AOSP ashmem",
+      "old_sha256": "bd305755146a69e153f5a23e1ceb768aaa9db238bb1994075c112e0fcad7a369",
+      "new_sha256": "e10233a407d81cc34bdc3ffe24207f37add7aa18c0826196a4137a8634dc2f97",
+      "new_file": false
+    },
+    {
+      "path": "mm/Makefile",
+      "source": "Local minimal Makefile wiring",
+      "old_sha256": "b555ec39577dd179e28af6c92973eeb3cd5d6b7cf44140a9c9efdc68fe8d097a",
+      "new_sha256": "a237ffe99b2b5d85cc6a4658b6443a41a06fd67b362f436179cd3f0c2978d7b2",
+      "new_file": false
+    },
+    {
+      "path": "mm/ashmem.c",
+      "source": "https://android.googlesource.com/kernel/common/+/563897de4a217ee19a4dfbade23d75a0ef024550/mm/ashmem.c",
+      "old_sha256": null,
+      "new_sha256": "1fdbc21fe46539bc5c7c0d9b76e067a39d1b427b2b703f01369c1301ab73cd5f",
+      "new_file": true
+    },
+    {
+      "path": "mm/shmem.c",
+      "source": "https://android.googlesource.com/kernel/common/+/563897de4a217ee19a4dfbade23d75a0ef024550/mm/shmem.c (shmem_set_file only)",
+      "old_sha256": "79f3c5d619e2bab2e5ad9af516b59bb6b6cb4595ac6702276c217bf50c95594c",
+      "new_sha256": "de40121e4e73bee011bc83fbd837a4ff1e05a95ceae9191b8f0cb052647001c2",
+      "new_file": false
+    },
+    {
+      "path": "security/capability.c",
+      "source": "https://android.googlesource.com/kernel/common/+/563897de4a217ee19a4dfbade23d75a0ef024550/security/capability.c (Binder hook registration only)",
+      "old_sha256": "be57b4e508531acea1235bfe48c5409da225963975f182cfc10217d9563e5e33",
+      "new_sha256": "2812a16126de0b0f8af82e5ffad9499718b96c498b5461f820dd75063a29d7ad",
+      "new_file": false
+    },
+    {
+      "path": "security/security.c",
+      "source": "https://android.googlesource.com/kernel/common/+/563897de4a217ee19a4dfbade23d75a0ef024550/security/security.c (Binder dispatch only)",
+      "old_sha256": "fa836037135a80533c8cd97f2c23362123ed6425e02b4e814ef1961531d4d93d",
+      "new_sha256": "dcea0aefec09c476e4e5bfb201c5ee52863bda50cfed49fa47342941f11a8a26",
+      "new_file": false
+    },
+    {
+      "path": "security/selinux/hooks.c",
+      "source": "https://android.googlesource.com/kernel/common/+/563897de4a217ee19a4dfbade23d75a0ef024550/security/selinux/hooks.c (Binder registration only)",
+      "old_sha256": "3186561a005269c5ec48621d0136132a77b5f281aa8bdc8fb5da8cbd0be9c4e6",
+      "new_sha256": "954dabcc2dca7c2744700c0110ba0d9898c9a3d2725d72e87460082e4f109ffb",
+      "new_file": false
+    },
+    {
+      "path": "security/selinux/include/classmap.h",
+      "source": "https://android.googlesource.com/kernel/common/+/563897de4a217ee19a4dfbade23d75a0ef024550/security/selinux/include/classmap.h (Binder class only)",
+      "old_sha256": "67337b38d3b16ffba9508c4b5a74f627d2b109de0d29738b4e4b2247a2034997",
+      "new_sha256": "495efa6dc0e81e23460b66c136a4086ad8183a72c55d66397d2b6cd3287acc2a",
+      "new_file": false
+    }
+  ]
+}

@@ -1,0 +1,83 @@
+Subject: [PW3] Applications in /data are compiled again as installed after a system update
+
+A new system brings a new boot image, and the compiled code of the applications
+in /data no longer matches it. AOSP compiles them again on the first boot with
+pm.dexopt.boot ("verify": no compiled code), leaves the rest to the job that
+runs when idle and charging, and skips applications not used in the week
+before. On this CPU a large application then starts in the interpreter (WeRead
+without compiled code: over 2 minutes and "isn't responding", pw3.mk).
+
+Applications whose code is in /data (installed there, or system applications
+updated there) are compiled with the filter they were installed with
+(pm.dexopt.install), whether used lately or not. System applications keep
+pm.dexopt.boot: their code in /system was compiled for the new boot image.
+They are looked at on every boot, so a boot cut short while compiling is
+finished by the next one; code that still matches is skipped at once.
+
+The first boot after an update takes as long as compiling them (WeRead: about
+1410 s, Test V35); the installer says so before starting it.
+
+--- a/services/core/java/com/android/server/pm/PackageManagerService.java
++++ b/services/core/java/com/android/server/pm/PackageManagerService.java
+@@ -9812,13 +9812,27 @@
+         // We need to re-extract after a pruned cache, as AoT-ed files will be out of date.
+         boolean causePrunedCache = VMRuntime.didPruneDalvikCache();
+ 
+-        if (!causeUpgrade && !causeFirstBoot && !causePrunedCache) {
+-            return;
+-        }
+-
+         List<PackageParser.Package> pkgs;
+         synchronized (mPackages) {
+             pkgs = PackageManagerServiceUtils.getPackagesForDexopt(mPackages.values(), this);
++            // PW3: every application whose code is in /data, also one not used in the week
++            // before (getPackagesForDexopt leaves those out): it would otherwise start in
++            // the interpreter the next time it is used.
++            for (PackageParser.Package pkg : mPackages.values()) {
++                if (isCodeInData(pkg) && !pkgs.contains(pkg)) {
++                    pkgs.add(pkg);
++                }
++            }
++        }
++        if (!causeUpgrade && !causeFirstBoot && !causePrunedCache) {
++            // PW3: applications whose code is in /data are looked at on every boot, not
++            // only on the one that first sees a new system: if that boot was cut short
++            // while compiling, the next one finishes the work. Compiled code that still
++            // matches the boot image is skipped at once.
++            pkgs.removeIf(pkg -> !isCodeInData(pkg));
++            if (pkgs.isEmpty()) {
++                return;
++            }
+         }
+ 
+         final long startTime = System.nanoTime();
+@@ -9949,6 +9963,16 @@
+             }
+ 
+             String pkgCompilerFilter = compilerFilter;
++            if (isCodeInData(pkg)) {
++                // PW3: a new system brings a new boot image, and the compiled code of the
++                // applications in /data no longer matches it. AOSP compiles them again with
++                // pm.dexopt.boot ("verify": no compiled code) and leaves the rest to the
++                // idle-and-charging job, so the next start of a large application runs in
++                // the interpreter (WeRead: over 2 minutes, "isn't responding"). They get the
++                // filter they were installed with. System applications keep pm.dexopt.boot:
++                // their code in /system was compiled for this boot image.
++                pkgCompilerFilter = getCompilerFilterForReason(REASON_INSTALL);
++            }
+             if (useProfileForDexopt) {
+                 // Use background dexopt mode to try and use the profile. Note that this does not
+                 // guarantee usage of the profile.
+@@ -19220,6 +19244,12 @@
+         return (ps.pkgFlags & ApplicationInfo.FLAG_EXTERNAL_STORAGE) != 0;
+     }
+ 
++    /** PW3: whether a package's code is in /data (installed there, or a system app updated there). */
++    private static boolean isCodeInData(PackageParser.Package pkg) {
++        return !isSystemApp(pkg)
++                || (pkg.applicationInfo.flags & ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0;
++    }
++
+     private static boolean isSystemApp(PackageParser.Package pkg) {
+         return (pkg.applicationInfo.flags & ApplicationInfo.FLAG_SYSTEM) != 0;
+     }

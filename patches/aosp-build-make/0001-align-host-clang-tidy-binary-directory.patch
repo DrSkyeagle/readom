@@ -1,0 +1,19 @@
+From: PW3 Android port
+Subject: [PATCH] Keep the Make clang-tidy path aligned with the host bin override
+
+Soong's PW3_NATIVE_CLANG_BIN override preserves the original target runtimes.
+Make resolves this path before importing Soong variables, so apply the same
+optional executable-directory choice while retaining the existing tool check.
+---
+--- a/core/config.mk
++++ b/core/config.mk
+@@ -385,6 +385,9 @@
+ 
+ PATH_TO_CLANG_TIDY := \
+     $(LLVM_PREBUILTS_BASE)/$(BUILD_OS)-x86/$(LLVM_PREBUILTS_VERSION)/bin/clang-tidy
++ifneq ($(strip $(PW3_NATIVE_CLANG_BIN)),)
++  PATH_TO_CLANG_TIDY := $(PW3_NATIVE_CLANG_BIN)/clang-tidy
++endif
+ ifeq ($(wildcard $(PATH_TO_CLANG_TIDY)),)
+   ifneq (,$(filter 1 true,$(WITH_TIDY)))
+     $(warning *** Disable WITH_TIDY because $(PATH_TO_CLANG_TIDY) does not exist)

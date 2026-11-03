@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- INSTALL_PACKAGES lets the installer commit its session without asking. -->
+<permissions>
+    <privapp-permissions package="org.readom.wereadinstaller">
+        <permission name="android.permission.INSTALL_PACKAGES"/>
+    </privapp-permissions>
+</permissions>

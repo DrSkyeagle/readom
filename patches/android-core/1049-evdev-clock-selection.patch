@@ -1,0 +1,84 @@
+--- a/drivers/input/evdev.c
++++ b/drivers/input/evdev.c
+@@ -46,6 +46,7 @@
+ 	struct fasync_struct *fasync;
+ 	struct evdev *evdev;
+ 	struct list_head node;
++	int clkid;
+ 	unsigned int bufsize;
+ 	struct input_event buffer[];
+ };
+@@ -54,8 +55,12 @@
+ static DEFINE_MUTEX(evdev_table_mutex);
+ 
+ static void evdev_pass_event(struct evdev_client *client,
+-			     struct input_event *event)
++			     struct input_event *event,
++			     ktime_t mono, ktime_t real)
+ {
++	event->time = ktime_to_timeval(client->clkid == CLOCK_MONOTONIC ?
++					mono : real);
++
+ 	/* Interrupts are disabled, just acquire the lock. */
+ 	spin_lock(&client->buffer_lock);
+ 
+@@ -94,8 +99,11 @@
+ 	struct evdev *evdev = handle->private;
+ 	struct evdev_client *client;
+ 	struct input_event event;
++	ktime_t time_mono, time_real;
+ 
+-	do_gettimeofday(&event.time);
++	time_mono = ktime_get();
++	time_real = ktime_sub(time_mono, ktime_get_monotonic_offset());
++
+ 	event.type = type;
+ 	event.code = code;
+ 	event.value = value;
+@@ -104,10 +112,10 @@
+ 
+ 	client = rcu_dereference(evdev->grab);
+ 	if (client)
+-		evdev_pass_event(client, &event);
++		evdev_pass_event(client, &event, time_mono, time_real);
+ 	else
+ 		list_for_each_entry_rcu(client, &evdev->client_list, node)
+-			evdev_pass_event(client, &event);
++			evdev_pass_event(client, &event, time_mono, time_real);
+ 
+ 	rcu_read_unlock();
+ 
+@@ -682,6 +690,22 @@
+ 			return evdev_grab(evdev, client);
+ 		else
+ 			return evdev_ungrab(evdev, client);
++
++	/*
++	 * Mainline 3.4 (a80b83b7b845, "Input: add infrastructure for
++	 * selecting clockid for event time stamps"). Android's InputReader
++	 * asks for CLOCK_MONOTONIC; without it every touch event came stamped
++	 * with wall time, was logged by system_server as from "the wrong
++	 * clock source" and given the time it was read instead (PW3 Android,
++	 * Test V47: one line per event, six for a tap).
++	 */
++	case EVIOCSCLOCKID:
++		if (copy_from_user(&i, p, sizeof(unsigned int)))
++			return -EFAULT;
++		if (i != CLOCK_MONOTONIC && i != CLOCK_REALTIME)
++			return -EINVAL;
++		client->clkid = i;
++		return 0;
+ 
+ 	case EVIOCGKEYCODE:
+ 		return evdev_handle_get_keycode(dev, p);
+--- a/include/linux/input.h
++++ b/include/linux/input.h
+@@ -128,6 +128,8 @@
+ #define EVIOCGEFFECTS		_IOR('E', 0x84, int)			/* Report number of effects playable at the same time */
+ 
+ #define EVIOCGRAB		_IOW('E', 0x90, int)			/* Grab/Release device */
++
++#define EVIOCSCLOCKID		_IOW('E', 0xa0, int)			/* Set clockid to be used for timestamps */
+ 
+ /*
+  * Device properties and quirks

@@ -1,0 +1,3 @@
+# The product's init rc owns loading the fixed, read-only vendor driver bundle.
+# Old kernels gate both init_module and delete_module with CAP_SYS_MODULE.
+allow init self:capability sys_module;

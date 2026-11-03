@@ -1,0 +1,320 @@
+From: PW3 Android port
+Subject: [PW3] SystemUI: a notification is swiped away by the finger
+
+Patch 0055 put the question on the device. With `log.tag.swipe DEBUG` set and
+a clearable notification, one swipe of 514 px to the right answered it:
+
+    mTranslation= 312.6834  mAlpha= 0.0  velocity= 0.0
+    minDismissVel= 937.5  isDismissGesture= false  gestureTowardsMenu= false
+    gestureFastEnough= false  gestureFarEnough= false
+
+Both halves of `isDismissGesture()` read values that this panel, in these
+measurements, did not produce.
+
+  * **Distance.** `swipedFarEnough()` compares the **view's** translation with
+    `SWIPED_FAR_ENOUGH_SIZE_FRACTION * getSize()`, 0.6 * 1072 = 643 px here.
+    The view had reached 312.7 px of a 514 px swipe, and the missing 201 px
+    are not frames that were too slow to draw: when dragging begins,
+    `onInterceptTouchEvent` moves `mInitialTouchPos` to **where the finger is
+    at that moment** and the drag measures from there. On a phone that costs
+    the touch slop, 8 dp. Here a move is processed about every 190 ms while
+    the shade is being dragged (`dumpsys input`: `age=189.3ms, wait=187.7ms`),
+    so the first one that gets through is already far along, and everything
+    before it is thrown away.
+  * **Speed.** `swipedFastEnough()` reads `VelocityTracker`, whose strategy
+    keeps only samples from the last 100 ms. On this screen the reader drags,
+    waits to see what happened, and then lifts; by the lift there is nothing
+    in the window, so the velocity is 0.0 against a 937.5 px/s threshold.
+
+Across what 0055 tried -- 150, 200, 300, 400, 500, 600, 900 and 1200 ms over
+850 to 1040 px, both directions -- no swipe ever dismissed one. The row
+follows the finger, falls behind, and snaps back. 「全部清除」 still works,
+which is why the removal path itself was never in doubt.
+
+Three things change, and they are one decision: **the gesture is the finger's,
+from where it landed, and it takes effect when the finger lifts.**
+
+1.  `mGestureInitialTouchPos` and `mGestureInitialTranslation` are set at the
+    touch down and moved by nothing else until the next one, and
+    `mGestureTranslation` is recomputed from them on every event, so the travel
+    before the first processed move is kept. Both predicates,
+    the translation handed to `handleUpEvent`, and the direction `dismissChild`
+    throws the row in now read them -- that last one because the view is no
+    longer moved, so its own translation is 0 and a slow swipe to the left,
+    the ordinary speed here, would have thrown the row off to the right.
+    `mTouchAboveFalsingThreshold` is updated in the same place, so a gesture
+    whose moves were starved is no longer treated as a false touch.
+
+2.  The row is no longer moved under the finger and its swipe progress is no
+    longer updated on every move, so the shade paints nothing of the gesture
+    until the lift (the menu row still gets each move, and decides at the lift). This is rule 6 of `docs/design/eink-ui.md` -- 「大区域的手势在手指抬
+    起时一步生效」 -- the rule Launcher3 0006 already applies to opening and
+    closing the app list. Following a finger at 134 ms a frame only produces a
+    string of half-drawn pictures, and the per-move `invalidateGlobalRegion()`
+    up the whole view hierarchy is work this shade cannot afford.
+    `mCanCurrViewBeDimissed` existed only to feed that call, and goes with it.
+
+3.  `SWIPED_FAR_ENOUGH_SIZE_FRACTION` becomes 0.4. AOSP can ask for 0.6 of the
+    width because a short fast fling dismisses as well; with that path not
+    reached in any of the measurements above, the distance has to carry the
+    whole gesture, and 643 px is 54 mm of a 90 mm
+    screen. 0.4 is not a new number: `NotificationMenuRow.CheckForDrag` already
+    stops offering the menu at `mParent.getWidth() * 0.4f`, because past that
+    the gesture is a dismissal and not a reveal. Holding the two at 0.6 and 0.4
+    leaves a band -- 429 to 643 px -- where neither happens, which on a phone
+    the fling covers and here is dead travel. At 0.4 the bands meet: a short
+    swipe reveals the menu, a long one removes the notification.
+
+Because the row no longer moves under the finger, `NotificationMenuRow`'s copy
+of the translation -- fed from `ExpandableNotificationRow.setTranslation` --
+would stay at 0 for the whole gesture, and its menu could never be revealed
+again. It is given the gesture's translation instead, at the touch down, on
+each move and at the lift, so its own decision still works and its result,
+like the dismissal, lands in one step when the finger comes up.
+
+This also applies to Recents, which uses the same helper: its cards stop
+following the finger and are dismissed at 0.4 of a card instead of 0.6.
+
+--- a/packages/SystemUI/src/com/android/systemui/SwipeHelper.java
++++ b/packages/SystemUI/src/com/android/systemui/SwipeHelper.java
+@@ -58,7 +58,17 @@
+ 
+     static final float SWIPE_PROGRESS_FADE_END = 0.5f; // fraction of thumbnail width
+                                               // beyond which swipe progress->0
+-    public static final float SWIPED_FAR_ENOUGH_SIZE_FRACTION = 0.6f;
++    // PW3: 0.6 of the width is 643 px on this screen, 54 mm of its 90 mm.
++    // AOSP can ask for that because a short fast fling dismisses as well;
++    // none of the gestures measured here reached that path (see
++    // swipedFastEnough below), so the distance carries the whole gesture. 0.4 is the figure this same
++    // flow already uses for the same judgement: NotificationMenuRow's
++    // CheckForDrag stops offering the menu at mParent.getWidth() * 0.4f,
++    // because past that the gesture is a dismissal and not a reveal. With
++    // the two at 0.6 and 0.4 there is a band, 429 to 643 px here, in which
++    // AOSP neither shows the menu nor dismisses the row; on a phone the
++    // fling covers it.
++    public static final float SWIPED_FAR_ENOUGH_SIZE_FRACTION = 0.4f;
+     static final float MAX_SCROLL_SIZE_FRACTION = 0.3f;
+ 
+     private float mMinSwipeProgress = 0f;
+@@ -77,9 +87,20 @@
+     private boolean mDragging;
+     private boolean mSnappingChild;
+     private View mCurrView;
+-    private boolean mCanCurrViewBeDimissed;
+     private float mDensityScale;
+     private float mTranslation = 0;
++    // PW3: this gesture, as the finger made it. mInitialTouchPos and
++    // mTranslation are moved to where the finger was when dragging began,
++    // which on a phone costs the touch slop and here costs everything the
++    // finger did before a move was processed: moves arrive about 190 ms
++    // apart while the shade is being dragged, so the first one can already
++    // be hundreds of pixels along. Measured on V85: a swipe of 514 px put
++    // the row at 312.7 px, and the missing 201 px are that reset. The first
++    // two are the touch down and are not moved again until the next one; the
++    // third is what every decision reads, recomputed from them on each event.
++    private float mGestureInitialTouchPos;
++    private float mGestureInitialTranslation;
++    private float mGestureTranslation;
+ 
+     private boolean mMenuRowIntercepting;
+     private boolean mLongPressSent;
+@@ -283,11 +304,13 @@
+ 
+                 if (mCurrView != null) {
+                     onDownUpdate(mCurrView, ev);
+-                    mCanCurrViewBeDimissed = mCallback.canChildBeDismissed(mCurrView);
+                     mVelocityTracker.addMovement(ev);
+                     mInitialTouchPos = getPos(ev);
+                     mPerpendicularInitialTouchPos = getPerpendicularPos(ev);
+                     mTranslation = getTranslation(mCurrView);
++                    mGestureInitialTouchPos = mInitialTouchPos;
++                    mGestureInitialTranslation = mTranslation;
++                    mGestureTranslation = mTranslation;
+                     if (mLongPressListener != null) {
+                         if (mWatchLongPress == null) {
+                             mWatchLongPress = new Runnable() {
+@@ -374,15 +397,21 @@
+         final boolean canBeDismissed = mCallback.canChildBeDismissed(animView);
+         float newPos;
+         boolean isLayoutRtl = animView.getLayoutDirection() == View.LAYOUT_DIRECTION_RTL;
++        // PW3: which way the row goes is read from the gesture for the view the
++        // finger is on. That view is no longer moved while the finger is down,
++        // so its own translation is 0, and a slow swipe to the left -- the
++        // ordinary speed on this screen -- would throw the row off to the right.
++        final float translation = animView == mCurrView
++                ? mGestureTranslation : getTranslation(animView);
+ 
+         // if we use the Menu to dismiss an item in landscape, animate up
+-        boolean animateUpForMenu = velocity == 0 && (getTranslation(animView) == 0 || isDismissAll)
++        boolean animateUpForMenu = velocity == 0 && (translation == 0 || isDismissAll)
+                 && mSwipeDirection == Y;
+         // if the language is rtl we prefer swiping to the left
+-        boolean animateLeftForRtl = velocity == 0 && (getTranslation(animView) == 0 || isDismissAll)
++        boolean animateLeftForRtl = velocity == 0 && (translation == 0 || isDismissAll)
+                 && isLayoutRtl;
+         boolean animateLeft = (Math.abs(velocity) > getEscapeVelocity() && velocity < 0) ||
+-                (getTranslation(animView) < 0 && !isDismissAll);
++                (translation < 0 && !isDismissAll);
+         if (animateLeft || animateLeftForRtl || animateUpForMenu) {
+             newPos = -getSize(animView);
+         } else {
+@@ -393,7 +422,7 @@
+             duration = MAX_ESCAPE_ANIMATION_DURATION;
+             if (velocity != 0) {
+                 duration = Math.min(duration,
+-                        (int) (Math.abs(newPos - getTranslation(animView)) * 1000f / Math
++                        (int) (Math.abs(newPos - translation) * 1000f / Math
+                                 .abs(velocity))
+                 );
+             } else {
+@@ -597,26 +626,16 @@
+             case MotionEvent.ACTION_OUTSIDE:
+             case MotionEvent.ACTION_MOVE:
+                 if (mCurrView != null) {
+-                    float delta = getPos(ev) - mInitialTouchPos;
+-                    float absDelta = Math.abs(delta);
+-                    if (absDelta >= getFalsingThreshold()) {
+-                        mTouchAboveFalsingThreshold = true;
+-                    }
+-                    // don't let items that can't be dismissed be dragged more than
+-                    // maxScrollDistance
+-                    if (CONSTRAIN_SWIPE && !mCallback.canChildBeDismissed(mCurrView)) {
+-                        float size = getSize(mCurrView);
+-                        float maxScrollDistance = MAX_SCROLL_SIZE_FRACTION * size;
+-                        if (absDelta >= size) {
+-                            delta = delta > 0 ? maxScrollDistance : -maxScrollDistance;
+-                        } else {
+-                            delta = maxScrollDistance * (float) Math.sin((delta/size)*(Math.PI/2));
+-                        }
+-                    }
+-
+-                    setTranslation(mCurrView, mTranslation + delta);
+-                    updateSwipeProgressFromOffset(mCurrView, mCanCurrViewBeDimissed);
+-                    onMoveUpdate(mCurrView, ev, mTranslation + delta, delta);
++                    float delta = updateGestureTranslation(ev);
++                    // PW3: the row is not moved under the finger and its swipe
++                    // progress is not updated, so the shade paints nothing of
++                    // the gesture until the lift. Rule 6 of
++                    // docs/design/eink-ui.md: a gesture over a large area takes
++                    // effect in one step at that point, because the fastest
++                    // frame here is 134 ms and following a finger only produces
++                    // a string of half-drawn pictures. The menu row is still
++                    // told of each move, and makes its own decision at the lift.
++                    onMoveUpdate(mCurrView, ev, mGestureTranslation, delta);
+                 }
+                 break;
+             case MotionEvent.ACTION_UP:
+@@ -626,8 +645,12 @@
+                 }
+                 mVelocityTracker.computeCurrentVelocity(1000 /* px/sec */, getMaxVelocity());
+                 float velocity = getVelocity(mVelocityTracker);
++                // PW3: the lift carries the finger's last position, and while
++                // the row was being dragged it is often the only sample that
++                // was read at all. It counts.
++                updateGestureTranslation(ev);
+ 
+-                if (!handleUpEvent(ev, mCurrView, velocity, getTranslation(mCurrView))) {
++                if (!handleUpEvent(ev, mCurrView, velocity, mGestureTranslation)) {
+                     if (isDismissGesture(ev)) {
+                         // flingadingy
+                         dismissChild(mCurrView, velocity,
+@@ -645,6 +668,39 @@
+         return true;
+     }
+ 
++    /**
++     * Reads this gesture out of the touch event and records where it has asked
++     * the current view to be.
++     *
++     * PW3: measured from the touch down, not from mInitialTouchPos, which is
++     * moved to the first move that was processed. AOSP takes the answer from
++     * the view's own translation, which is that same partial travel, applied
++     * one frame at a time on a panel whose frames take 134 to 463 ms.
++     *
++     * @return the gesture's travel, after the rubber band AOSP puts on a row
++     *         that cannot be dismissed.
++     */
++    private float updateGestureTranslation(MotionEvent ev) {
++        float delta = getPos(ev) - mGestureInitialTouchPos;
++        float absDelta = Math.abs(delta);
++        if (absDelta >= getFalsingThreshold()) {
++            mTouchAboveFalsingThreshold = true;
++        }
++        // don't let items that can't be dismissed be dragged more than
++        // maxScrollDistance
++        if (CONSTRAIN_SWIPE && !mCallback.canChildBeDismissed(mCurrView)) {
++            float size = getSize(mCurrView);
++            float maxScrollDistance = MAX_SCROLL_SIZE_FRACTION * size;
++            if (absDelta >= size) {
++                delta = delta > 0 ? maxScrollDistance : -maxScrollDistance;
++            } else {
++                delta = maxScrollDistance * (float) Math.sin((delta/size)*(Math.PI/2));
++            }
++        }
++        mGestureTranslation = mGestureInitialTranslation + delta;
++        return delta;
++    }
++
+     private int getFalsingThreshold() {
+         float factor = mCallback.getFalsingThresholdFactor();
+         return (int) (mFalsingThreshold * factor);
+@@ -667,9 +723,9 @@
+     }
+ 
+     protected boolean swipedFarEnough() {
+-        float translation = getTranslation(mCurrView);
+         return DISMISS_IF_SWIPED_FAR_ENOUGH
+-                && Math.abs(translation) > SWIPED_FAR_ENOUGH_SIZE_FRACTION * getSize(mCurrView);
++                && Math.abs(mGestureTranslation)
++                        > SWIPED_FAR_ENOUGH_SIZE_FRACTION * getSize(mCurrView);
+     }
+ 
+     public boolean isDismissGesture(MotionEvent ev) {
+@@ -689,10 +745,14 @@
+     }
+ 
+     protected boolean swipedFastEnough() {
++        // PW3: the sign is compared against the gesture, not against a view the
++        // gesture has not moved. The velocity itself is left as AOSP wrote it,
++        // and on this panel it is usually 0: the reader drags, waits for the
++        // screen, then lifts, and VelocityTracker keeps only the last 100 ms.
++        // That is why the distance above has to carry the gesture on its own.
+         float velocity = getVelocity(mVelocityTracker);
+-        float translation = getTranslation(mCurrView);
+         boolean ret = (Math.abs(velocity) > getEscapeVelocity())
+-                && (velocity > 0) == (translation > 0);
++                && (velocity > 0) == (mGestureTranslation > 0);
+         return ret;
+     }
+ 
+--- a/packages/SystemUI/src/com/android/systemui/statusbar/stack/NotificationStackScrollLayout.java
++++ b/packages/SystemUI/src/com/android/systemui/statusbar/stack/NotificationStackScrollLayout.java
+@@ -4410,6 +4410,12 @@
+                 mCurrMenuRow = row.createMenu();
+                 mCurrMenuRow.setSwipeActionHelper(NotificationSwipeHelper.this);
+                 mCurrMenuRow.setMenuClickListener(NotificationStackScrollLayout.this);
++                // PW3: the menu row keeps its own copy of the translation, fed
++                // from ExpandableNotificationRow.setTranslation. The row is no
++                // longer moved while a finger is down, so start that copy from
++                // where the row actually is and let the gesture carry it from
++                // here.
++                mCurrMenuRow.onTranslationUpdate(getTranslation(currView));
+                 mCurrMenuRow.onTouchEvent(currView, ev, 0 /* velocity */);
+             }
+         }
+@@ -4418,6 +4424,7 @@
+         public void onMoveUpdate(View view, MotionEvent ev, float translation, float delta) {
+             mHandler.removeCallbacks(mFalsingCheck);
+             if (mCurrMenuRow != null) {
++                mCurrMenuRow.onTranslationUpdate(translation);
+                 mCurrMenuRow.onTouchEvent(view, ev, 0 /* velocity */);
+             }
+         }
+@@ -4426,6 +4433,7 @@
+         public boolean handleUpEvent(MotionEvent ev, View animView, float velocity,
+                 float translation) {
+             if (mCurrMenuRow != null) {
++                mCurrMenuRow.onTranslationUpdate(translation);
+                 return mCurrMenuRow.onTouchEvent(animView, ev, velocity);
+             }
+             return false;

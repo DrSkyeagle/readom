@@ -1,0 +1,61 @@
+Icons are drawn as they were authored
+
+The home screen shows four entries, and until now no two of them could look
+alike, because two different pieces of machinery drew them:
+
+  * an application's icon goes through LauncherIcons.createBadgedIconBitmap().
+    With LEGACY_ICON_TREATMENT, an icon that is not an AdaptiveIconDrawable and
+    whose application targets O or later is *wrapped* in one -- a white rounded
+    tile with the icon scaled into the adaptive safe zone, two thirds of the
+    width -- and then ADAPTIVE_ICON_SHADOW bakes a shadow under it;
+  * the all-applications entry is a legacy shortcut, so LoaderCursor.loadIcon()
+    calls LauncherIcons.createIconBitmap(), which does none of that and draws
+    the drawable as it is.
+
+So the three applications were white tiles with a shadow and the fourth was a
+bare mark, and no amount of redrawing the fourth could make the four a set
+("整个 ICON 没有完全平铺太大了，和其他 ICON 不匹配", the reader, 2026-10-22).
+This turns both off, which is the half of the fix that belongs to the launcher:
+every icon is now drawn as its author drew it, at the size the normalizer still
+gives them all in common. The other half is the four marks themselves
+(device/amazon/pw3/launcher-icons/, four of Lucide's).
+
+The shadow is worth a line of its own. It is a blur rendered under each icon
+and kept in the icon cache; on this screen it is dithered grey, which is what
+docs/design/eink-ui.md rule 3 exists to keep off the panel, and it costs a blur
+per icon at first load on a machine with one core.
+
+Icon normalization is deliberately left on, and it is the one difference
+between the two paths that remains: an application's icon is scaled by
+IconNormalizer.getScale(), a legacy shortcut is not. It stays because it is
+what keeps an application the reader installs from towering over these four,
+and because on these four it is worth almost nothing. Running that method's
+own arithmetic over the four marks as they are drawn at their intrinsic size
+(48dp at density 1.875, so 90 px) gives 0.962 for the all-applications mark,
+0.980 for Files, 1.000 for Settings and 0.994 for the Browser; the first of
+those is the shortcut, so it is not applied, and the four end up within 2% of
+each other, about two pixels of 112. The white tile was the whole of the
+mismatch.
+
+diff --git a/src/com/android/launcher3/config/BaseFlags.java b/src/com/android/launcher3/config/BaseFlags.java
+--- a/src/com/android/launcher3/config/BaseFlags.java
++++ b/src/com/android/launcher3/config/BaseFlags.java
+@@ -60,10 +60,16 @@ abstract class BaseFlags {
+     // When enabled the status bar may show dark icons based on the top of the wallpaper.
+     public static final boolean LIGHT_STATUS_BAR = false;
+     // When enabled, icons not supporting {@link AdaptiveIconDrawable} will be wrapped in {@link FixedScaleDrawable}.
+-    public static final boolean LEGACY_ICON_TREATMENT = true;
++    // PW3: off. Wrapping puts a white tile under an icon and shrinks it into the
++    // adaptive safe zone, which no legacy shortcut ever gets, so the home
++    // screen's four entries could not be drawn as one set.
++    public static final boolean LEGACY_ICON_TREATMENT = false;
+     // When enabled, adaptive icons would have shadows baked when being stored to icon cache.
+-    public static final boolean ADAPTIVE_ICON_SHADOW = true;
++    // PW3: off. The shadow is a blur baked under every icon; on this panel it is
++    // dithered grey (docs/design/eink-ui.md rule 3) and it costs a blur per icon
++    // on a single core.
++    public static final boolean ADAPTIVE_ICON_SHADOW = false;
+     // When enabled, app discovery will be enabled if service is implemented
+     public static final boolean DISCOVERY_ENABLED = false;
+     // When enabled, the qsb will be moved to the hotseat.
+     public static final boolean QSB_IN_HOTSEAT = true;

@@ -1,0 +1,78 @@
+From: PW3 Android port
+Subject: [PW3] Settings: no grey bands
+
+Measured on V86 (2026-10-27) by counting the grey levels of each region of a
+screenshot rather than of a whole page. The first count was of whole pages and
+was wrong twice over: it put the Files application's illustration down as that
+application's chrome, which is white, and it missed that the main Settings
+page is already white.
+
+  | region                                             | grey | pixels  |
+  |----------------------------------------------------|------|---------|
+  | sub-page title bar (storage, about, apps, network) |  245 | ~106000 |
+  | storage page, the band under the title bar         |  238 |  239300 |
+
+Rule 1 of docs/design/eink-ui.md names #F5F5F5 and #EEEEEE as colours that land
+on panel level 14, one level from white, and so cannot mark a region. Both
+reach Settings from the framework through the theme: the title bar is
+?attr/colorPrimary, primary_device_default_light, primary_material_light,
+material_grey_100; and the band is ?attr/colorSecondary,
+secondary_device_default_settings_light, secondary_material_settings_light,
+material_grey_200.
+
+They are changed here and not in the framework because rule 3 asks for the
+page's own white with a black rule of 1dp (2 px), and a rule needs a drawable.
+Adding one to framework-res would add a resource name, which moves every
+resource ID after it, and with them framework.jar and the ART boot image; an
+application may add names freely. Settings is also the only place the greys
+were measured. Quick settings is white but for 7,573 px of level 14, recents
+is white, the Files application is white, and the main Settings page already
+draws its own white search card (patch 0004).
+
+The drawable reuses the outline colour and width that patch 0004 put in
+res/values/pw3_eink.xml, so the two are defined once.
+
+--- a/res/values/themes.xml
++++ b/res/values/themes.xml
+@@ -211,6 +211,9 @@
+ 
+     <style name="Theme.ActionBar" parent="@android:style/Widget.Material.ActionBar.Solid">
+         <item name="android:contentInsetStart">@dimen/actionbar_contentInsetStart</item>
++        <!-- PW3: white with the rule that marks its lower edge, in place of
++             Material's grey 100 (docs/design/eink-ui.md rules 1 and 3). -->
++        <item name="android:background">@drawable/pw3_bottom_rule</item>
+     </style>
+ 
+     <style name="Theme.ActionBar.SubSettings" parent="Theme.ActionBar">
+--- a/res/layout/storage_summary_donut.xml
++++ b/res/layout/storage_summary_donut.xml
+@@ -17,7 +17,7 @@
+ <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+     android:layout_width="match_parent"
+     android:layout_height="wrap_content"
+-    android:background="?android:attr/colorSecondary"
++    android:background="@drawable/pw3_bottom_rule"
+     android:gravity="center_vertical"
+     android:orientation="horizontal" >
+ 
+--- /dev/null
++++ b/res/drawable/pw3_bottom_rule.xml
+@@ -0,0 +1,18 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- PW3: a band of the page's own white, with the rule that marks its lower
++     edge (docs/design/eink-ui.md). Material sets such a band apart with a grey
++     one panel level from white, which rule 1 names as a colour that cannot mark
++     a region here; rule 3 marks it with the outline instead. The values are the
++     ones Settings already carries in res/values/pw3_eink.xml. -->
++<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
++    <item>
++        <shape android:shape="rectangle">
++            <solid android:color="@color/pw3_outline" />
++        </shape>
++    </item>
++    <item android:bottom="@dimen/pw3_outline_width">
++        <shape android:shape="rectangle">
++            <solid android:color="?android:attr/colorBackground" />
++        </shape>
++    </item>
++</layer-list>

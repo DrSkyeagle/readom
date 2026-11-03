@@ -1,0 +1,66 @@
+From: PW3 Android port
+Subject: [PW3] SystemUI: the notification swipe decision can be asked on the device
+
+Swiping a notification away does not work on this device. What is measured so
+far, on V82, with a clearable notification (the screenshot one, flags=0x10):
+
+  * it never dismisses -- 150, 200, 300, 400, 500, 600, 900 and 1200 ms across
+    850-1040 px, both directions, screen awake, row bounds read from
+    `uiautomator dump` before each try. The row translates a little and snaps
+    back every time;
+  * the same `input swipe` in Recents **does** dismiss its card;
+  * 「全部清除」 removes the same notification, so nothing is wrong with the
+    removal path itself;
+  * one MOVE was caught in `dumpsys input` with `age=189.3ms, wait=187.7ms`,
+    so the shade takes about that long per event while dragging;
+  * a gesture slow enough that no MOVE is processed within 750 ms
+    (`ViewConfiguration.getLongPressTimeout() * 1.5`) opens the notification's
+    guts instead, because `removeLongPressCallback()` only runs once dragging
+    has begun.
+
+The decision itself is three predicates in `NotificationMenuRow.handleUpEvent`
+and `SwipeHelper`: `swipedFarEnough()` compares the **view's** translation
+against 0.4 of its width (429 px here, against 196 px for a Recents card,
+which is one reason the two behave differently), `swipedFastEnough()` compares
+the velocity tracker against 500 dp/s and requires its sign to match that same
+translation, and `canChildBeDismissed()` has to hold. On a panel whose frames
+take 134-463 ms the view's translation is not the finger's travel, so any of
+the three can be the one that fails, and from outside they are
+indistinguishable: all three produce the same snap-back.
+
+This class already prints every one of those values, and the next line prints
+the outcome -- `mTranslation`, `velocity`, `minDismissVel`, `isDismissGesture`,
+`gestureTowardsMenu`, `gestureFastEnough`, `gestureFarEnough`. They are behind
+a compile-time `false`, so the only way to ask the question is another system
+image. `Log.isLoggable` is the form the rest of the platform uses for exactly
+this, it reads one system property at class load and costs nothing after, and
+it leaves the build identical for anyone who does not set the tag:
+
+    adb shell setprop log.tag.swipe DEBUG     # before SystemUI starts
+    adb shell killall com.android.systemui    # the flag is read at class load
+
+This patch is the question, not the answer. The fix goes in once the values
+say which predicate is wrong -- and the answer is expected to be that the
+decision has to come from the touch events rather than from a view that cannot
+keep up, which is rule 6 of docs/design/eink-ui.md applied to this gesture.
+
+--- a/packages/SystemUI/src/com/android/systemui/statusbar/NotificationMenuRow.java
++++ b/packages/SystemUI/src/com/android/systemui/statusbar/NotificationMenuRow.java
+@@ -48,8 +48,15 @@
+ public class NotificationMenuRow implements NotificationMenuRowPlugin, View.OnClickListener,
+         ExpandableNotificationRow.LayoutListener {
+ 
+-    private static final boolean DEBUG = false;
+     private static final String TAG = "swipe";
++    // PW3: this class already prints every value the dismiss decision is made
++    // from -- translation, velocity, and each of the three predicates. On a
++    // screen whose frames take 134-463 ms the view cannot keep up with the
++    // finger, so which of those values is wrong is the whole question, and a
++    // compile-time false means the only way to ask is another system image.
++    // Log.isLoggable costs nothing when the tag is not set: adb shell setprop
++    // log.tag.swipe DEBUG.
++    private static final boolean DEBUG = Log.isLoggable(TAG, Log.DEBUG);
+ 
+     private static final int ICON_ALPHA_ANIM_DURATION = 200;
+     private static final long SHOW_MENU_DELAY = 60;
+ 

@@ -1,0 +1,96 @@
+From: PW3 Android port
+Subject: [PW3] the immersive-mode cling is readable, and does not dim the page
+
+The first time an application goes fullscreen, the system puts up a panel that
+says what happened and how to get out of it. On this device that panel is a
+black slab with nothing on it but a chevron and 知道了: the two lines that
+carry the whole message are invisible.
+
+AOSP's layout (core/res/res/layout/immersive_mode_cling.xml) paints the panel
+in `?android:attr/colorAccent` and writes the title and the description in
+`@color/primary_text_default_material_light`, which is #de000000. That works
+because an accent colour is a mid-tone: dark body text reads on it, and so
+does the white 知道了. Rule 2 of docs/design/eink-ui.md makes the accent black
+here -- Material's teal lands on grey level 2 on this panel, which is only
+slightly lighter than body text -- so the panel became black and the text with
+it. Everything that stayed legible is what AOSP had drawn in white.
+
+Photographed and then read off the device: the panel is [0,0]-[1072,468],
+uniformly #000000 apart from the chevron's white circle and the 知道了 in the
+corner. `uiautomator dump` has both TextViews present, laid out and on screen
+(immersive_cling_title at [0,98][1072,234], immersive_cling_description at
+[0,234][1072,299]) -- nothing is clipped or missing, the ink is the same colour
+as the paper.
+
+So the panel becomes what every other floating surface in this build already
+is: white, with a black line where it meets the page (rule 1, rule 3). The two
+TextViews are then left exactly as AOSP wrote them. 知道了 moves from white to
+the accent, which is Material's own meaning for it and black here. The chevron
+is already tinted with the accent, and its white backing circles simply stop
+showing, which leaves a black chevron on white.
+
+The line is a plain View rather than a background drawable with a stroke,
+because a new drawable would be a new name in framework-res and every name
+there shifts the resource IDs after it (docs/design/eink-ui.md, "数值在哪里定
+义"): framework.jar changes, the boot image changes, and every application in
+/data has to be compiled again. Changing values inside an existing layout adds
+no name. The panel's 24dp of bottom padding moves to the button's margin so
+that the line sits on the panel's edge and not 24dp inside it.
+
+The second thing on that screen is the dimming. ClingWindowView fills the
+display and paints BGCOLOR = 0x80000000 behind the panel, and with no GPU
+(`ActivityManager.isHighEndGfx()` false) it is set at once rather than faded
+in. Rule 4 is that nothing dims the page behind it: 50 % black turns white
+paper into grey level 2, so putting the cling up and taking it down are two
+full-screen 16-level updates, about 463 ms each, and they leave the page
+ghosted. The scrim is decoration -- the window is FLAG_NOT_TOUCH_MODAL and not
+focusable, so what is behind it stays touchable either way -- and with the
+colour transparent only the panel's own rectangle is painted.
+
+--- a/core/res/res/layout/immersive_mode_cling.xml
++++ b/core/res/res/layout/immersive_mode_cling.xml
+@@ -16,9 +16,8 @@
+ <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+         android:layout_width="match_parent"
+         android:layout_height="wrap_content"
+-        android:background="?android:attr/colorAccent"
+-        android:gravity="center_vertical"
+-        android:paddingBottom="24dp">
++        android:background="@color/white"
++        android:gravity="center_vertical">
+ 
+     <FrameLayout
+             android:id="@+id/immersive_cling_chevron"
+@@ -81,12 +80,19 @@
+             android:layout_height="wrap_content"
+             android:layout_alignParentEnd="true"
+             android:layout_below="@+id/immersive_cling_description"
++            android:layout_marginBottom="24dp"
+             android:layout_marginEnd="40dp"
+             android:layout_marginTop="18dp"
+             android:paddingEnd="8dp"
+             android:paddingStart="8dp"
+             android:text="@string/immersive_cling_positive"
+-            android:textColor="@android:color/white"
++            android:textColor="?android:attr/colorAccent"
+             android:textSize="14sp" />
+ 
++    <View
++            android:layout_width="match_parent"
++            android:layout_height="1dp"
++            android:layout_below="@id/ok"
++            android:background="@color/black" />
++
+ </RelativeLayout>
+\ No newline at end of file
+--- a/services/core/java/com/android/server/policy/ImmersiveModeConfirmation.java
++++ b/services/core/java/com/android/server/policy/ImmersiveModeConfirmation.java
+@@ -220,7 +220,7 @@
+     }
+ 
+     private class ClingWindowView extends FrameLayout {
+-        private static final int BGCOLOR = 0x80000000;
++        private static final int BGCOLOR = 0x00000000;
+         private static final int OFFSET_DP = 96;
+         private static final int ANIMATION_DURATION = 250;
+ 

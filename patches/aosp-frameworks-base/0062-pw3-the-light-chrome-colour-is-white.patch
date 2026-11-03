@@ -1,0 +1,69 @@
+From: PW3 Android port
+Subject: [PW3] framework: the light themes' chrome colour is white
+
+Measured on V86 (2026-10-27) from raw framebuffer grabs, by region rather
+than over whole pages:
+
+  PackageInstaller, the header band of every install screen  grey 245, 1072 x 95 px
+  Settings sub-page title bar (storage, about, apps, ...)    grey 245, about 106,000 px
+  Settings storage page, the band under the title bar        grey 238, 239,300 px
+
+Rule 1 of docs/design/eink-ui.md: #F5F5F5 and #EEEEEE land on the panel's
+14th level, which is not told apart from white, so they may not be used to
+separate one region from another. Three colours put them there, and all three
+are pass-throughs whose only readers are a theme's colorPrimary or
+colorSecondary:
+
+  primary_material_light           colorPrimary of Theme.Material.Light, and
+                                   through colors_device_defaults.xml of
+                                   Theme.DeviceDefault.Light -- the action bar
+                                   (Widget.Material.ActionBar) and the ten
+                                   ?android:attr/colorPrimary backgrounds in
+                                   PackageInstaller's install and uninstall
+                                   layouts
+  primary_material_settings_light  colorPrimary of Theme.Material.Settings.Light
+                                   and Theme.DeviceDefault.Settings.Light
+  secondary_material_settings_light  colorSecondary of the same two
+
+So one value each, at the point where the chrome colour is named, rather than
+one patch for every application that reads it. The greys themselves
+(material_grey_100, material_grey_200) are a palette and are left alone.
+
+colorEdgeEffect is ?attr/colorPrimary as well, so the overscroll glow turns
+white with the rest: rule 5 asks for no gradients, and a glow that is drawn in
+two or three 134 ms frames is the kind this device cannot afford. Nothing else
+in core/res reads these three names.
+
+Where a bar still needs an edge, the edge is black and drawn by the
+application: patches/aosp-settings/0008 gives the Settings action bar and the
+storage band a 2 px black rule under a white ground (rule 3). This patch is
+what makes every other light-theme bar white.
+
+Only values change. No name is added, and nothing is written above an entry:
+com.android.internal.R, framework.jar and the 45 ART boot files stay as they
+are. Patch 0060's header records what happens when a comment is put above an
+entry in this file.
+
+--- a/core/res/res/values/colors_material.xml
++++ b/core/res/res/values/colors_material.xml
+@@ -26,9 +26,9 @@
+     <color name="background_floating_material_light">@color/white</color>
+ 
+     <color name="primary_material_dark">@color/material_grey_900</color>
+-    <color name="primary_material_light">@color/material_grey_100</color>
++    <color name="primary_material_light">@color/white</color>
+     <color name="primary_material_settings">@color/material_blue_grey_900</color>
+-    <color name="primary_material_settings_light">@color/material_grey_100</color>
++    <color name="primary_material_settings_light">@color/white</color>
+     <color name="primary_dark_material_dark">@color/black</color>
+     <color name="primary_dark_material_light">@color/material_grey_600</color>
+     <color name="primary_dark_material_light_light_status_bar">@color/material_grey_300</color>
+@@ -36,7 +36,7 @@
+     <color name="primary_dark_material_settings_light">@color/material_grey_300</color>
+ 
+     <color name="secondary_material_settings">@color/material_blue_grey_800</color>
+-    <color name="secondary_material_settings_light">@color/material_grey_200</color>
++    <color name="secondary_material_settings_light">@color/white</color>
+     <color name="tertiary_material_settings">@color/material_blue_grey_700</color>
+     <color name="quaternary_material_settings">@color/material_blue_grey_200</color>
+ 

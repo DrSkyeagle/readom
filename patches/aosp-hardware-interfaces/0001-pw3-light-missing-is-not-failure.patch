@@ -1,0 +1,52 @@
+From: PW3 Android port
+Subject: [PW3] light: a device without a light is not a HAL that failed
+
+The service asks the legacy HAL for all eight logical lights at startup. This
+device has one, the frontlight, and its HAL answers EINVAL for the other
+seven, each of which produced two error lines ("light_open lights keyboard
+failed: -22" and "Light passthrough failed to load legacy HAL.", 14 lines per
+boot of PW3 Android Test V49) while the frontlight was loaded and working.
+
+EINVAL from open() is the HAL saying it has no such light, so it is now
+logged as that, once, at info. A module that cannot be loaded at all, or
+fails for any other reason, still logs both errors.
+
+--- a/light/2.0/default/Light.cpp
++++ b/light/2.0/default/Light.cpp
+@@ -16,6 +16,7 @@
+ 
+ #define LOG_TAG "light"
+ 
++#include <errno.h>
+ #include <log/log.h>
+ 
+ #include "Light.h"
+@@ -115,19 +116,21 @@
+     if (ret == 0) {
+         ret = hwModule->methods->open(hwModule, name,
+             reinterpret_cast<hw_device_t**>(&lightDevice));
+-        if (ret != 0) {
++        if (ret == -EINVAL) {
++            // Every logical light is asked for, and a device has only some of
++            // them; a HAL that answers EINVAL is saying it has no such light,
++            // which is not a failure to load it.
++            ALOGI("No %s light on this device", name);
++        } else if (ret != 0) {
+             ALOGE("light_open %s %s failed: %d", LIGHTS_HARDWARE_MODULE_ID, name, ret);
++            ALOGE("Light passthrough failed to load legacy HAL.");
+         }
+     } else {
+         ALOGE("hw_get_module %s %s failed: %d", LIGHTS_HARDWARE_MODULE_ID, name, ret);
+-    }
+-
+-    if (ret == 0) {
+-        return lightDevice;
+-    } else {
+         ALOGE("Light passthrough failed to load legacy HAL.");
+-        return nullptr;
+     }
++
++    return ret == 0 ? lightDevice : nullptr;
+ }
+ 
+ ILight* HIDL_FETCH_ILight(const char* /* name */) {

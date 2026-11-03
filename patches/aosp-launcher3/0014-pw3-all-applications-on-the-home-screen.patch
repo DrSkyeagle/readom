@@ -1,0 +1,273 @@
+From: PW3 Android port
+Subject: [PW3] Launcher3: the home screen has a way into all applications
+
+Everything installed after this image was built is in the list of all
+applications, and nothing on the device says the list is there ("现在主要问题
+是，用这个系统的用户不知道如何唤出全部应用", user, 2026-10-22). A swipe up
+opens it (0006) and no mark hints at the swipe: the caret AOSP floated above
+the hotseat belonged to the pull that 0006 took out, and the user asked for no
+hint in its place (Test V39).
+
+So the home screen gets an entry of its own: a cell like the four applications
+above it, labelled 全部应用, drawn as nine squares -- the mark this list has
+had on every Android home screen.
+
+What it costs:
+
+  * nothing the four entries already in the layout do not. The entry is a row
+    in the workspace database (<shortcut>: a title, an icon resource and an
+    intent), bound by the same loader and drawn by the same BubbleTextView as
+    an application's icon;
+  * a tap starts nothing at all. The intent names no activity; it carries one
+    action, Utilities.ACTION_ALL_APPS_ENTRY, which the launcher recognises in
+    startAppShortcutOrInfoActivity and answers with onClickAllAppsButton --
+    the call AOSP's own all-apps button made -- so the list opens exactly as a
+    swipe opens it, in one panel update.
+
+Three things cannot take the entry off the screen, for one reason: it is the
+only thing on the screen that says the list exists, so losing it leaves the
+device with no visible way in. A long press does not pick it up (so no drag can
+drop it on 移除), accessibility does not offer to remove it, and dropping
+another icon on it does not make a folder of the two -- which would put it
+inside the folder and leave the home screen as bare as before. AOSP's own
+all-apps button could not be dragged off either, while it still had a cell.
+
+The entry can still be moved out of the way by what moves the rest of the home
+screen: a drop that needs its cell pushes it along with the others, inside the
+page.
+
+The hotseat was the other candidate for the cell and is the wrong one: a
+hotseat cell draws no label (CellLayout, setTextVisibility(mContainerType !=
+HOTSEAT)), and the one thing this entry has to do is say what it is.
+
+The label follows the language in use. A <shortcut> keeps its title in the
+database as the string the row was written with, so an entry seeded in Chinese
+would read Chinese in an English system; the loader reads this one's title from
+the resource instead (LoaderTask).
+
+How the entry reaches a device that already has a home screen is 0015's
+question and not this one's. Up to here that was done by moving SCHEMA_VERSION,
+which seeds the workspace again from an empty table and costs the reader
+everything they had arranged and installed; 0015 gives the layout a version of
+its own and delivers what a new version added, so this entry arrives without
+the home screen being taken apart to carry it.
+
+diff --git a/res/drawable/ic_all_apps_pw3.xml b/res/drawable/ic_all_apps_pw3.xml
+new file mode 100644
+--- /dev/null
++++ b/res/drawable/ic_all_apps_pw3.xml
+@@ -0,0 +1,23 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- 全部应用, on the home screen. Material Symbols Rounded grid_view-fill
++     (launcher-icons/material-symbols), on a tile, turned into a
++     VectorDrawable by launcher-icons/make_icons.py. Edit the script or
++     the drawing it reads, not this file. -->
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="48dp"
++    android:height="48dp"
++    android:viewportWidth="112"
++    android:viewportHeight="112">
++    <path
++        android:fillColor="#FF000000"
++        android:pathData="M31,11 H81 A20,20 0 0 1 101,31 V81 A20,20 0 0 1 81,101 H31 A20,20 0 0 1 11,81 V31 A20,20 0 0 1 31,11 Z"/>
++    <group
++        android:scaleX="0.053125"
++        android:scaleY="0.053125"
++        android:translateX="30.5"
++        android:translateY="81.5">
++        <path
++            android:fillColor="#FFFFFFFF"
++            android:pathData="M180-510q-24.75 0-42.37-17.63Q120-545.25 120-570v-210q0-24.75 17.63-42.38Q155.25-840 180-840h210q24.75 0 42.38 17.62Q450-804.75 450-780v210q0 24.75-17.62 42.37Q414.75-510 390-510H180Zm0 390q-24.75 0-42.37-17.63Q120-155.25 120-180v-210q0-24.75 17.63-42.38Q155.25-450 180-450h210q24.75 0 42.38 17.62Q450-414.75 450-390v210q0 24.75-17.62 42.37Q414.75-120 390-120H180Zm390-390q-24.75 0-42.37-17.63Q510-545.25 510-570v-210q0-24.75 17.63-42.38Q545.25-840 570-840h210q24.75 0 42.38 17.62Q840-804.75 840-780v210q0 24.75-17.62 42.37Q804.75-510 780-510H570Zm0 390q-24.75 0-42.37-17.63Q510-155.25 510-180v-210q0-24.75 17.63-42.38Q545.25-450 570-450h210q24.75 0 42.38 17.62Q840-414.75 840-390v210q0 24.75-17.62 42.37Q804.75-120 780-120H570Z"/>
++    </group>
++</vector>
+diff --git a/res/values-zh-rCN/strings.xml b/res/values-zh-rCN/strings.xml
+--- a/res/values-zh-rCN/strings.xml
++++ b/res/values-zh-rCN/strings.xml
+@@ -43,6 +43,7 @@
+     <string name="out_of_space" msgid="4691004494942118364">"此主屏幕上已没有空间。"</string>
+     <string name="hotseat_out_of_space" msgid="7448809638125333693">"收藏栏已满"</string>
+     <string name="all_apps_button_label" msgid="8130441508702294465">"应用列表"</string>
++    <string name="all_apps_entry_label">"全部应用"</string>
+     <string name="all_apps_home_button_label" msgid="252062713717058851">"主屏幕"</string>
+     <string name="remove_drop_target_label" msgid="7812859488053230776">"移除"</string>
+     <string name="uninstall_drop_target_label" msgid="4722034217958379417">"卸载"</string>
+diff --git a/res/values/strings.xml b/res/values/strings.xml
+--- a/res/values/strings.xml
++++ b/res/values/strings.xml
+@@ -80,6 +80,10 @@
+ 
+     <!-- All applications label -->
+     <string name="all_apps_button_label">Apps list</string>
++    <!-- PW3: the home screen's own entry for the list of all applications
++         (default_workspace_pw3.xml). Not all_apps_button_label, which is what
++         a screen reader reads out for the button AOSP had above the hotseat. -->
++    <string name="all_apps_entry_label">All apps</string>
+     <!-- Label for button in all applications label to go back home (to the workspace / desktop)
+          for accessibilty (spoken when the button gets focus). -->
+     <string name="all_apps_home_button_label">Home</string>
+diff --git a/res/xml/default_workspace_pw3.xml b/res/xml/default_workspace_pw3.xml
+--- a/res/xml/default_workspace_pw3.xml
++++ b/res/xml/default_workspace_pw3.xml
+@@ -48,7 +48,20 @@
+      entry (WeReadInstaller/StatusActivity), under WeRead name and an icon
+      that says it is a download. Without it nothing on this device says that
+      WeRead can be had here at all. It takes itself off once WeRead is
+-     installed, and WeRead own icon is placed in the cell it leaves. -->
++     installed, and WeRead own icon is placed in the cell it leaves.
++
++     Under them is the list of all applications. A swipe up opens it and
++     nothing says so: the caret AOSP floated above the hotseat went with the
++     pull it belonged to (0006), so a reader has no way of knowing the list is
++     there, or of reaching anything installed after this layout was written
++     ("用这个系统的用户不知道如何唤出全部应用", user, 2026-10-22). The entry is
++     in the grid rather than the hotseat because a hotseat cell shows no label
++     (CellLayout: setTextVisibility(mContainerType != HOTSEAT)) and the one
++     thing this entry has to do is say what it is.
++
++     It is a <shortcut> and not a <favorite> because it names no activity:
++     nothing is started when it is tapped. The launcher reads the action and
++     opens the list in place (Utilities.ACTION_ALL_APPS_ENTRY). -->
+ <favorites xmlns:launcher="http://schemas.android.com/apk/res-auto/com.android.launcher3">
+ 
+     <favorite
+@@ -79,4 +92,12 @@
+         launcher:packageName="com.android.settings"
+         launcher:className="com.android.settings.Settings" />
+ 
++    <shortcut
++        launcher:screen="0"
++        launcher:x="0"
++        launcher:y="2"
++        launcher:title="@string/all_apps_entry_label"
++        launcher:icon="@drawable/ic_all_apps_pw3"
++        launcher:uri="#Intent;action=org.readom.action.ALL_APPS;end" />
++
+ </favorites>
+diff --git a/src/com/android/launcher3/DeleteDropTarget.java b/src/com/android/launcher3/DeleteDropTarget.java
+--- a/src/com/android/launcher3/DeleteDropTarget.java
++++ b/src/com/android/launcher3/DeleteDropTarget.java
+@@ -51,9 +51,13 @@
+ 
+     /** @return true for items that should have a "Remove" action in accessibility. */
+     public static boolean supportsAccessibleDrop(ItemInfo info) {
+-        return (info instanceof ShortcutInfo)
+-                || (info instanceof LauncherAppWidgetInfo)
+-                || (info instanceof FolderInfo);
++        // PW3: everything except the entry for all applications, which a long press does
++        // not pick up either (Launcher.onLongClick). It is the only thing on the screen
++        // that says the list of applications is there, so nothing offers to remove it.
++        return !Utilities.isAllAppsEntry(info)
++                && ((info instanceof ShortcutInfo)
++                        || (info instanceof LauncherAppWidgetInfo)
++                        || (info instanceof FolderInfo));
+     }
+ 
+     @Override
+diff --git a/src/com/android/launcher3/Launcher.java b/src/com/android/launcher3/Launcher.java
+--- a/src/com/android/launcher3/Launcher.java
++++ b/src/com/android/launcher3/Launcher.java
+@@ -2445,6 +2445,13 @@
+ 
+     private void startAppShortcutOrInfoActivity(View v) {
+         ItemInfo item = (ItemInfo) v.getTag();
++        if (Utilities.isAllAppsEntry(item)) {
++            // PW3: the home screen's entry for all applications. Its intent names no
++            // activity: it is read here and the list is opened in place, by the call
++            // AOSP's all-apps button used, so nothing is started.
++            onClickAllAppsButton(v);
++            return;
++        }
+         Intent intent;
+         if (item instanceof PromiseAppInfo) {
+             PromiseAppInfo promiseAppInfo = (PromiseAppInfo) item;
+@@ -2748,6 +2755,15 @@
+             longClickCellInfo = new CellLayout.CellInfo(v, info);
+             itemUnderLongClick = longClickCellInfo.cell;
+             mPendingRequestArgs = null;
++            if (Utilities.isAllAppsEntry(info)) {
++                // PW3: the entry for all applications is part of the home screen, not an
++                // icon somebody put on it. A long press does not pick it up, so no drag
++                // can drop it on 移除 and leave the device with the list reachable only
++                // by a swipe nothing hints at (0006). The press is answered here rather
++                // than earlier so that everything a long press settles -- the cell it was
++                // on, a request still waiting for its result -- is settled the same way.
++                return true;
++            }
+         }
+ 
+         // The hotseat touch handling does not go through Workspace, and we always allow long press
+diff --git a/src/com/android/launcher3/Utilities.java b/src/com/android/launcher3/Utilities.java
+--- a/src/com/android/launcher3/Utilities.java
++++ b/src/com/android/launcher3/Utilities.java
+@@ -107,6 +107,25 @@
+      */
+     public static final boolean IS_DEBUG_DEVICE = Build.TYPE.toLowerCase().contains("debug");
+ 
++    /**
++     * PW3: the action of the home screen's entry for the list of all applications
++     * (res/xml/default_workspace_pw3.xml). It names no activity and nothing ever starts
++     * it: the launcher reads it and opens the list in place
++     * (Launcher.startAppShortcutOrInfoActivity). A swipe up opens the same list, and
++     * since 0006 nothing on the screen says so, which is what the entry is for.
++     */
++    public static final String ACTION_ALL_APPS_ENTRY = "org.readom.action.ALL_APPS";
++
++    /** PW3: whether this is the home screen's entry for all applications. */
++    public static boolean isAllAppsEntry(ItemInfo info) {
++        return info != null && isAllAppsEntry(info.getIntent());
++    }
++
++    /** PW3: whether this is the intent of that entry. */
++    public static boolean isAllAppsEntry(Intent intent) {
++        return intent != null && ACTION_ALL_APPS_ENTRY.equals(intent.getAction());
++    }
++
+     // An intent extra to indicate the horizontal scroll of the wallpaper.
+     public static final String EXTRA_WALLPAPER_OFFSET = "com.android.launcher3.WALLPAPER_OFFSET";
+ 
+diff --git a/src/com/android/launcher3/Workspace.java b/src/com/android/launcher3/Workspace.java
+--- a/src/com/android/launcher3/Workspace.java
++++ b/src/com/android/launcher3/Workspace.java
+@@ -2308,6 +2308,15 @@
+             return false;
+         }
+ 
++        Object dropOverTag = dropOverView.getTag();
++        if (dropOverTag instanceof ItemInfo && Utilities.isAllAppsEntry((ItemInfo) dropOverTag)) {
++            // PW3: dropping an icon on the entry for all applications does not make a folder
++            // of the two. The entry would be inside the folder, and the home screen would be
++            // back to having nothing on it that says the list of applications is there --
++            // the same hole a long press is refused for (Launcher.onLongClick).
++            return false;
++        }
++
+         boolean aboveShortcut = (dropOverView.getTag() instanceof ShortcutInfo);
+         boolean willBecomeShortcut =
+                 (info.itemType == LauncherSettings.Favorites.ITEM_TYPE_APPLICATION ||
+diff --git a/src/com/android/launcher3/model/LoaderTask.java b/src/com/android/launcher3/model/LoaderTask.java
+--- a/src/com/android/launcher3/model/LoaderTask.java
++++ b/src/com/android/launcher3/model/LoaderTask.java
+@@ -45,6 +45,7 @@
+ import com.android.launcher3.LauncherAppWidgetInfo;
+ import com.android.launcher3.LauncherModel;
+ import com.android.launcher3.LauncherSettings;
++import com.android.launcher3.R;
+ import com.android.launcher3.ShortcutInfo;
+ import com.android.launcher3.Utilities;
+ import com.android.launcher3.compat.AppWidgetManagerCompat;
+@@ -488,6 +489,15 @@
+                                 }
+                             } else { // item type == ITEM_TYPE_SHORTCUT
+                                 info = c.loadSimpleShortcut();
++                                if (Utilities.isAllAppsEntry(intent)) {
++                                    // PW3: the label of the entry for all applications
++                                    // follows the language in use. A legacy shortcut's
++                                    // title is the string its row was written with, in
++                                    // the language of the first open, and this row is
++                                    // written by the layout rather than by anybody.
++                                    info.title = context.getText(
++                                            R.string.all_apps_entry_label);
++                                }
+ 
+                                 // Shortcuts are only available on the primary profile
+                                 if (!TextUtils.isEmpty(targetPkg)

@@ -1,0 +1,34 @@
+From: PW3 Android port
+Subject: [PW3] PackageManager: the handler watchdog scales with ro.hw_timeout_multiplier
+
+An application is installed on PackageManagerService's handler
+(processPendingInstall), and installPackageLI compiles it there with the
+install filter (pm.dexopt.install, speed). The watchdog declares that
+handler wedged after WATCHDOG_TIMEOUT, ten minutes, and then kills
+system_server; the dexopt wake lock is held for one minute more.
+
+Ten minutes is generous on phone hardware. On the single Cortex-A9 of the
+PW3, dex2oat compiles WeRead (13 dex files, 70.5 MB) in 1199 s, 20 minutes
+(Test V40.1, `cmd package compile -m speed -f`, which runs on a binder
+thread), so installing it the way its publisher describes (copy the APK
+over USB, open it in Files) would restart the framework half way. That
+compile also outlived the wake lock: "WakeLock *dexopt* time out.
+Operation took 1198928 ms." The deadline now scales like the application
+deadlines of ActivityManagerService (0012): the product's multiplier is 4,
+which gives 40 minutes, and the wake lock 41.
+---
+--- a/services/core/java/com/android/server/pm/PackageManagerService.java
++++ b/services/core/java/com/android/server/pm/PackageManagerService.java
+@@ -485,8 +485,11 @@
+      * our handler thread is wedged.  The usual default for such things is one
+      * minute but we sometimes do very lengthy I/O operations on this thread,
+      * such as installing multi-gigabyte applications, so ours needs to be longer.
++     * PW3: installing also compiles the application here, which takes many
++     * minutes on slow hardware; scaled like ActivityManagerService's deadlines.
+      */
+-    static final long WATCHDOG_TIMEOUT = 1000*60*10;     // ten minutes
++    static final long WATCHDOG_TIMEOUT = 1000*60*10     // ten minutes
++            * Math.max(1, SystemProperties.getInt("ro.hw_timeout_multiplier", 1));
+ 
+     /**
+      * Wall-clock timeout (in milliseconds) after which we *require* that an fstrim

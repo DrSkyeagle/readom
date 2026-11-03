@@ -1,0 +1,28 @@
+From: PW3 Android port
+Subject: [PW3] AlarmManager: listener alarms keep their uid when the wake lock
+ is handed on
+
+When an alarm finished and another was still in flight, AlarmManagerService
+attributed its wake lock to the next one with knownUid -1. For an alarm set
+with a listener (no PendingIntent) setWakelockWorkSource() then called
+getTarget() on a null PendingIntent; the NullPointerException was caught and
+the wake lock charged to the system instead of the app. Found from a
+system_server fault in the kernel log, mapped with oatdump to dex pc 0x44 of
+setWakelockWorkSource (PW3 Android, Test V47); Wi-Fi's own alarms are listener
+alarms, so it came with Wi-Fi state changes.
+
+The first delivery already passes the alarm's uid for listener alarms
+(deliverLocked); the hand-on now does the same.
+
+--- a/services/core/java/com/android/server/AlarmManagerService.java
++++ b/services/core/java/com/android/server/AlarmManagerService.java
+@@ -3033,7 +3033,8 @@
+                 if (mInFlight.size() > 0) {
+                     InFlight inFlight = mInFlight.get(0);
+                     setWakelockWorkSource(inFlight.mPendingIntent, inFlight.mWorkSource,
+-                            inFlight.mAlarmType, inFlight.mTag, -1, false);
++                            inFlight.mAlarmType, inFlight.mTag,
++                            (inFlight.mPendingIntent == null) ? inFlight.mUid : -1, false);
+                 } else {
+                     // should never happen
+                     mLog.w("Alarm wakelock still held but sent queue empty");

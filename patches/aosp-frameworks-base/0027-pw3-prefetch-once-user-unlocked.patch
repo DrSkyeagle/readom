@@ -1,0 +1,72 @@
+From: PW3 Android port
+Subject: [PW3] PinnerService: prefetch the last used app once the user is unlocked
+
+0025 read the last used app's compiled code at PHASE_BOOT_COMPLETED. On the
+device (Test V40) it never read anything, and said nothing: boot completes
+about half a second before the system user is unlocked, and until then the
+user's recent tasks are not loaded (getRecentTasks returns none for a locked
+user) and home resolves to Settings' FallbackHome, so no app was found.
+
+The prefetch now starts on ACTION_USER_UNLOCKED for the system user, which is
+sent after the recent tasks are loaded. The FallbackHome task, still listed
+then, is skipped like home (its intent has CATEGORY_HOME), and a prefetch that
+finds nothing to read says so in the log.
+
+--- a/services/core/java/com/android/server/PinnerService.java
++++ b/services/core/java/com/android/server/PinnerService.java
+@@ -130,10 +130,24 @@
+ 
+     @Override
+     public void onBootPhase(int phase) {
+-        if (phase == SystemService.PHASE_BOOT_COMPLETED
++        // Once the system user is unlocked. Boot completes before that, while its recent tasks
++        // are not loaded yet and home is Settings' FallbackHome: at PHASE_BOOT_COMPLETED
++        // nothing was found to read (PW3 Test V40).
++        if (phase == SystemService.PHASE_SYSTEM_SERVICES_READY
+                 && SystemProperties.getBoolean(PREFETCH_RECENT_APP_PROPERTY, false)) {
+-            // Its own thread: the reads take seconds and must not hold up the pinner handler.
+-            new Thread(this::prefetchRecentApp, "PinnerPrefetch").start();
++            mContext.registerReceiver(new BroadcastReceiver() {
++                @Override
++                public void onReceive(Context context, Intent intent) {
++                    if (intent.getIntExtra(Intent.EXTRA_USER_HANDLE, UserHandle.USER_NULL)
++                            != UserHandle.USER_SYSTEM) {
++                        return;
++                    }
++                    context.unregisterReceiver(this);
++                    // Its own thread: the reads take seconds and must not hold up the
++                    // pinner handler.
++                    new Thread(PinnerService.this::prefetchRecentApp, "PinnerPrefetch").start();
++                }
++            }, new IntentFilter(Intent.ACTION_USER_UNLOCKED));
+         }
+     }
+ 
+@@ -141,6 +155,7 @@
+         Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
+         ApplicationInfo app = getRecentAppInfo();
+         if (app == null) {
++            Slog.i(TAG, "Prefetch: no recent app");
+             return;
+         }
+         String arch = "arm";
+@@ -154,6 +169,7 @@
+         } catch (IOException e) {
+         }
+         if (outputs == null) {
++            Slog.i(TAG, "Prefetch: no compiled code found for " + app.packageName);
+             return;
+         }
+         // The .odex and .vdex, and the app image (.art) next to them if there is one.
+@@ -199,7 +215,10 @@
+         for (ActivityManager.RecentTaskInfo task : tasks) {
+             ComponentName component = task.realActivity != null ? task.realActivity
+                     : task.baseIntent != null ? task.baseIntent.getComponent() : null;
+-            if (component == null || component.getPackageName().equals(homePackage)) {
++            // Home, and the FallbackHome task Settings leaves from before the user was unlocked.
++            if (component == null || component.getPackageName().equals(homePackage)
++                    || (task.baseIntent != null
++                            && task.baseIntent.hasCategory(Intent.CATEGORY_HOME))) {
+                 continue;
+             }
+             try {

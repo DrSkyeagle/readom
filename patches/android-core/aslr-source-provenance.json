@@ -1,0 +1,39 @@
+{
+  "schema": 1,
+  "patch_sha256": "6f8690e76d4d828a47e9fcbfd0bbcc993905b27dfbad6193feb85518086ffb1d",
+  "upstream_commits": [
+    "d07e22597d1d355829b7b18ac19afa912cf758d1",
+    "e0c25d958f78acfd5c97df5776eeba3e0684101b"
+  ],
+  "adaptation": "ARM32 bounded tunable and once-per-exec bottom-up base; optional stock-off configuration",
+  "files": {
+    "arch/Kconfig": {
+      "before_sha256": "1d858bd8d5249589806d095e3c2794fd8afc9d840ec65c8ee4f6cd24e9db9d78",
+      "after_sha256": "b4bb015799bf2a4423db4cfa59b52fb759ea4f863816c0a13594ec24bf5a8bc2"
+    },
+    "arch/arm/Kconfig": {
+      "before_sha256": "62b29c096a7113da52eb541a4c5b3ee6440da885d002be2e33930b509f710693",
+      "after_sha256": "0de7fd850ac5024432a8c362d10981282e926061eb92b55eaf457c488890b1f5"
+    },
+    "arch/arm/include/asm/processor.h": {
+      "before_sha256": "0196e0e16aade165a66d071b2a99f49cbd5bf26d3067e50473bb71f32416cee2",
+      "after_sha256": "eb9c25f7140b2eb34f146205c728dd0bb908a11e775a791e4f7a04817825e458"
+    },
+    "include/linux/mm.h": {
+      "before_sha256": "aba92fe23f1eac3ae709ec847e93ee58b65860387da9f53cd0129276b69879f1",
+      "after_sha256": "c9805ca118528e695fd66a0bf7e485455cc106ebaa298ae9725178eb0f1eeabd"
+    },
+    "mm/mmap.c": {
+      "before_sha256": "238f140845239622b86751a69f9333da35bfbe62a8af4196a277bc2361e082b7",
+      "after_sha256": "85f3b22b10e00bfb6573ad468983997a8c4ed219e1d32eec0749cc1136161cbd"
+    },
+    "kernel/sysctl.c": {
+      "before_sha256": "0ac65c299c09b9292ddd4db57f9856c76ac3500b9a84216348374b9bc275dbbb",
+      "after_sha256": "2c31af9bfa19a38ee606917717bcbd5dff7b61a2eee646ad9c1bff7b0b4675a8"
+    },
+    "arch/arm/mm/mmap.c": {
+      "before_sha256": "98b56f39e4a170a5dca432a441302b466462e29b4931783f046ec266705c660a",
+      "after_sha256": "d202cc11bd3c78116164d1a0f80af3adc4ed4f20e883f364d1f52c7a885eca98"
+    }
+  }
+}

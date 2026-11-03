@@ -1,0 +1,49 @@
+From: PW3 Android port
+Subject: [PW3] WindowManager: no animation at all when the animation scales
+ are 0
+
+PW3 ships with the window, transition and animator scales at 0 (e-paper).
+Scaled to 0 ms, an animation still applies its final transformation for one
+frame: Animation.getTransformation() returns true once more after it has
+ended. Opening an app from the launcher (task_open_exit) thus composed one
+frame with the launcher scaled to 90%, at 60% opacity, moved down 10%, over
+the animation's black background. The PW3 composer does not scale layers, so
+that frame went to SwiftShader, which spent 10-23 s of CPU on it while
+SurfaceFlinger could serve nothing else: WeRead's cold start took 24.5-25.8 s
+and its window had not appeared 20 s after the launch (PW3 Android, Test V48).
+
+With a scale of 0 an app transition and a window animation now take the path
+of a frozen display: the windows change visibility without any animation.
+Battery saver's mAnimationsDisabled reaches the same scales and the same path.
+
+--- a/services/core/java/com/android/server/wm/WindowManagerService.java
++++ b/services/core/java/com/android/server/wm/WindowManagerService.java
+@@ -2376,7 +2376,13 @@
+         // artifacts when we unfreeze the display if some different animation
+         // is running.
+         Trace.traceBegin(TRACE_TAG_WINDOW_MANAGER, "WM#applyAnimationLocked");
+-        if (atoken.okToAnimate()) {
++        // PW3: a transition scale of 0 means no animation. Scaled to 0 ms an
++        // animation still shows its final frame once (Animation's one more
++        // frame): opening an app from the launcher showed the launcher at 90%
++        // and 60% opacity on black, which the e-paper composer cannot scale,
++        // so SwiftShader composed it in 10-23 s of CPU (PW3 Android, Test V48).
++        // The transition now takes the path of a frozen display.
++        if (atoken.okToAnimate() && getTransitionAnimationScaleLocked() != 0) {
+             final DisplayContent displayContent = atoken.getTask().getDisplayContent();
+             final DisplayInfo displayInfo = displayContent.getDisplayInfo();
+             final int width = displayInfo.appWidth;
+--- a/services/core/java/com/android/server/wm/WindowStateAnimator.java
++++ b/services/core/java/com/android/server/wm/WindowStateAnimator.java
+@@ -1838,7 +1838,10 @@
+         // artifacts when we unfreeze the display if some different animation
+         // is running.
+         Trace.traceBegin(Trace.TRACE_TAG_WINDOW_MANAGER, "WSA#applyAnimationLocked");
+-        if (mWin.mToken.okToAnimate()) {
++        // PW3: a window animation scale of 0 means no animation, not one frame
++        // of the animation's final state (see WindowManagerService
++        // applyAnimationLocked).
++        if (mWin.mToken.okToAnimate() && mService.getWindowAnimationScaleLocked() != 0) {
+             int anim = mPolicy.selectAnimationLw(mWin, transit);
+             int attr = -1;
+             Animation a = null;

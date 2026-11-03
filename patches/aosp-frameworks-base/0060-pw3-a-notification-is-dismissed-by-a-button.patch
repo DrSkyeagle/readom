@@ -1,0 +1,285 @@
+From: PW3 Android port
+Subject: [PW3] SystemUI: a notification is dismissed by a button, not by a swipe
+
+Measured on V86 (2026-10-27), with the row's real bounds read out of
+`uiautomator dump` before each try and the swipe aimed at its middle:
+
+  | gesture            | 400 ms | 600 ms | 900 ms |
+  |--------------------|--------|--------|--------|
+  | 700 px, either way | gone   |        | stays  |
+  | 500 px, either way |        | stays  |        |
+
+Direction makes no difference; the clock does. 700 px is well past the 0.4 of
+the width patch 0057 lowered the threshold to, so the distance is not what
+decides it. A frame on this panel takes 134-463 ms, `VelocityTracker` keeps
+only the last 100 ms, and a reader on e-paper swipes slowly because they are
+waiting to see the screen answer. A gesture that works at 400 ms and not at
+600 ms is not a way to remove a notification; it is a coin toss, and the
+losing side of it is a notification that vanishes on a scroll the reader did
+not mean as a swipe.
+
+The menu the gesture shares the row with cannot be reached either. It is
+revealed by the row sliding out from under it, and since 0057 the row does not
+follow the finger at all (rule 6 of docs/design/eink-ui.md), so
+`isMenuVisible()` is never true and every predicate that asks for it is dead.
+What is left of the long press still opens the notification's settings, and a
+long press is a timer rather than a gesture -- the one thing on this panel
+that cannot be mistimed.
+
+So the gesture goes and a button takes its place. AOSP already inflates one
+into every row -- `@id/veto`, 48dp wide and 0dp high, pushed off the end by a
+margin of -80dp, referred to from nowhere in SystemUI 8.1. It is given the
+cross SystemUI already draws (`ic_close`), the 56dp rule 7 asks for at the
+edge of the screen, and the click `StatusBar.bindRow()` has always put on
+every row: `performDismiss()` -> `performRemoveNotification()`, which is where
+the shade's own "clear all" ends too. Nothing new reaches the notification
+manager. It goes at the top right because that half of the header is empty:
+the expand chevron is laid out inline after the text, measured at x 270-360 of
+1072.
+
+What the cross is drawn from is `canViewBeDismissed()`, so the ongoing USB and
+adb notices do not carry one that would do nothing. The answer is asked in
+three places. One is in `setHideSensitive()`, right after `mShowingPublic` is
+assigned and above that method's early return, and that one call covers every
+view state the stack applies: `ExpandableViewState.applyToView()` and
+`animateTo()` both call `setHideSensitive()` on every row unconditionally,
+whether or not the row's sensitivity changed. The other two cover moments a
+row's answer changes with no state pass behind them -- `onNotificationUpdated()`
+and the end of `onChildrenCountChanged()`. That last one is at the end on
+purpose:
+`isClearable()` reads `mIsSummaryWithChildren`, which that method reassigns on
+its first line, so updating at the top would draw the cross from the count the
+row came in with, and a group that has just gained an ongoing child would
+carry a cross that does nothing -- on this panel, a tap that costs a refresh
+and changes nothing. The click asks `canViewBeDismissed()` again rather than
+trusting what was drawn.
+
+The action list's background changes with it. `#EEEEEE` is one of this panel's
+sixteen levels away from white, which rule 1 names as unusable for marking a
+region; and as an opaque band the full width of the row it was painted over
+the outline that 0059 draws, leaving the card's edge broken for the height of
+the actions -- measured on V86, not one black pixel at the row's left edge
+there. White is the colour the row already is, so the band stops being a
+region of its own.
+
+White and not transparent, which is what a first version of this patch wrote
+and what looks exactly the same on a white row. `notification_action_list` is
+not only a background. `NotificationColorUtil.resolveContrastColor()` reads it
+as the background an application's accent colour is measured against, and
+`resolveActionBarColor()` returns it as a colour in its own right:
+
+    final int actionBg = context.getColor(
+            com.android.internal.R.color.notification_action_list);
+    color = NotificationColorUtil.ensureLargeTextContrast(color, actionBg, isDark);
+
+`ColorUtilsFromCompat.calculateContrast()` documents that background as opaque,
+answers a translucent one with `Log.wtf`, and then measures against the
+luminance of its RGB with the alpha dropped -- for `#00000000`, the luminance
+of black. The colour that comes out is not what suffers: the next line measures
+the same accent against the row's real background at 4.5:1, which is stricter
+than this call's 3:1, so a wrong reference here is overruled there. What it
+costs is the log. Measured on V90: twenty-odd entries of 2.3 to 2.5 KB in a
+single boot (`dumpsys dropbox --print`), entered from
+`Notification$Builder.resolveContrastColor` and from
+`ExpandableNotificationRow.updateNotificationColor` -- a stack written to
+storage every time a notification is built or expanded, for a value that was
+only ever meant to be the colour of a band. White is that colour, and it is
+opaque.
+
+Only that one value changes in `colors.xml`, and nothing is written above the
+entry. A first build of this patch carried seven lines of explanation there,
+and the export's `boot_image.sha256` over the 45 ART boot files came out
+`ba857c7b91108dd45674ae86ca31eac65f6127a56a3abff4bb5ec1672086ccfc` against the
+`73db7fc9d00b36b16b0295034c2c0f49eccf92683a33ee4058c0c6d92123c3d4` that V80
+through V86 all share; with the comment moved here it is `73db7fc9...` again.
+That is the field the payload manifest carries and the installer reads to
+decide whether Android compiles the applications in /data again.
+`aapt2` copies a comment that sits directly above an
+entry into `com.android.internal.R` as Javadoc; every class declared after it
+in the generated `R.java` moves down by those lines; and the line numbers
+their constructors carry are in `framework.jar`, which is in the boot image. A
+boot image that moves costs every app in `/data` its machine code. So the
+explanation lives here, in the patch, and the resource file keeps the shape
+AOSP gave it.
+
+--- a/core/res/res/values/colors.xml
++++ b/core/res/res/values/colors.xml
+@@ -140,7 +140,7 @@
+ 
+     <color name="notification_progress_background_color">@color/secondary_text_material_light</color>
+ 
+-    <color name="notification_action_list">#ffeeeeee</color>
++    <color name="notification_action_list">#ffffffff</color>
+     <color name="notification_action_list_dark">#ffe0e0e0</color>
+ 
+     <!-- Keyguard colors -->
+--- a/packages/SystemUI/res/layout/status_bar_notification_row.xml
++++ b/packages/SystemUI/res/layout/status_bar_notification_row.xml
+@@ -43,15 +43,25 @@
+         android:layout_width="match_parent"
+         android:layout_height="wrap_content" />
+ 
++    <!-- PW3: AOSP inflates this button into every row and refers to it from
++         nowhere (no R.id.veto in SystemUI 8.1); a height of zero and a margin of
++         -80dp keep it out of sight. It is what dismisses a notification here.
++         Swiping cannot be made to work on this panel: measured on V86, 700 px in
++         400 ms took the row away and the same 700 px in 900 ms did not, nor did
++         500 px in 600 ms, in either direction. A frame takes 134 to 463 ms, the
++         reader waits for it, and VelocityTracker keeps only the last 100 ms. A
++         button is a tap, and a tap is one frame. 56dp because it sits at the edge
++         of the screen (rule 7); top|end because the header's right half is empty
++         (the expand chevron is inline after the text, measured at x 270 to 360 of
++         1072). ExpandableNotificationRow gives it its click and its visibility. -->
+     <Button
+         android:id="@+id/veto"
+-        android:layout_width="48dp"
+-        android:layout_height="0dp"
+-        android:gravity="end"
+-        android:layout_marginEnd="-80dp"
+-        android:background="@null"
+-        android:paddingEnd="8dp"
+-        android:paddingStart="8dp"
++        android:layout_width="56dp"
++        android:layout_height="56dp"
++        android:layout_gravity="top|end"
++        android:layout_marginEnd="8dp"
++        android:background="@drawable/pw3_notification_dismiss"
++        android:visibility="gone"
+         />
+ 
+     <ViewStub
+--- a/packages/SystemUI/src/com/android/systemui/statusbar/ExpandableNotificationRow.java
++++ b/packages/SystemUI/src/com/android/systemui/statusbar/ExpandableNotificationRow.java
+@@ -162,6 +162,8 @@
+     private boolean mIsSummaryWithChildren;
+     private NotificationChildrenContainer mChildrenContainer;
+     private NotificationMenuRowPlugin mMenuRow;
++    // PW3: the cross at the row's top right; see status_bar_notification_row.xml.
++    private View mDismissButton;
+     private ViewStub mGutsStub;
+     private boolean mIsSystemChildExpanded;
+     private boolean mIsPinned;
+@@ -358,6 +360,7 @@
+         mIsColorized = mStatusBarNotification.getNotification().isColorized();
+         mShowingPublicInitialized = false;
+         updateNotificationColor();
++        updateDismissButton();
+         if (mMenuRow != null) {
+             mMenuRow.onNotificationUpdated(mStatusBarNotification);
+         }
+@@ -1066,6 +1069,17 @@
+         }
+     }
+ 
++    /**
++     * PW3: the cross is shown only for a notification this row may remove --
++     * an ongoing one (the USB and adb notices on this device) may not, and
++     * AOSP answers that in canViewBeDismissed().
++     */
++    private void updateDismissButton() {
++        if (mDismissButton != null) {
++            mDismissButton.setVisibility(canViewBeDismissed() ? VISIBLE : GONE);
++        }
++    }
++
+     public void setOnDismissRunnable(Runnable onDismissRunnable) {
+         mOnDismissRunnable = onDismissRunnable;
+     }
+@@ -1294,6 +1308,25 @@
+         super.onFinishInflate();
+         mPublicLayout = (NotificationContentView) findViewById(R.id.expandedPublic);
+         mPrivateLayout = (NotificationContentView) findViewById(R.id.expanded);
++        // PW3: performDismiss() is the path StatusBar.bindRow() gives every row
++        // (setOnDismissRunnable -> performRemoveNotification), the same one the
++        // shade's own "clear all" ends in, so the button adds no way out of its
++        // own. It stays gone until onNotificationUpdated() finds the row
++        // clearable: a cross that does nothing is worse than no cross.
++        mDismissButton = findViewById(R.id.veto);
++        mDismissButton.setOnClickListener(v -> {
++            // Asked again here, not trusted from the last time the button
++            // was shown: what the cross is drawn from can change without
++            // this row being told (a group gaining an ongoing child, the
++            // lock screen turning the row public), and a cross that is a
++            // frame out of date must not remove a notification that may no
++            // longer be removed.
++            if (canViewBeDismissed()) {
++                performDismiss();
++            }
++        });
++        mDismissButton.setContentDescription(
++                getContext().getString(R.string.accessibility_remove_notification));
+         mLayouts = new NotificationContentView[] {mPrivateLayout, mPublicLayout};
+ 
+         for (NotificationContentView l : mLayouts) {
+@@ -1335,6 +1368,7 @@
+             // Remove views that don't translate
+             mTranslateableViews.remove(mChildrenContainerStub);
+             mTranslateableViews.remove(mGutsStub);
++            mTranslateableViews.remove(mDismissButton);
+         }
+     }
+ 
+@@ -1701,6 +1735,12 @@
+         mPrivateLayout.updateExpandButtons(isExpandable());
+         updateChildrenHeaderAppearance();
+         updateChildrenVisibility();
++        // PW3: a group is clearable only while every one of its children
++        // is (isClearable), and isClearable() reads the
++        // mIsSummaryWithChildren this method has just reassigned. So the
++        // cross is updated here, at the end, from the count the row has
++        // now rather than the one it came in with.
++        updateDismissButton();
+     }
+ 
+     public void updateChildrenHeaderAppearance() {
+@@ -1816,6 +1856,9 @@
+             long duration) {
+         boolean oldShowingPublic = mShowingPublic;
+         mShowingPublic = mSensitive && hideSensitive;
++        // PW3: canViewBeDismissed() reads mShowingPublic, so the cross
++        // follows the row between its public and private faces.
++        updateDismissButton();
+         if (mShowingPublicInitialized && mShowingPublic == oldShowingPublic) {
+             return;
+         }
+--- a/packages/SystemUI/src/com/android/systemui/SwipeHelper.java
++++ b/packages/SystemUI/src/com/android/systemui/SwipeHelper.java
+@@ -350,10 +350,22 @@
+                     float deltaPerpendicular = perpendicularPos - mPerpendicularInitialTouchPos;
+                     if (Math.abs(delta) > mPagingTouchSlop
+                             && Math.abs(delta) > Math.abs(deltaPerpendicular)) {
+-                        mCallback.onBeginDrag(mCurrView);
+-                        mDragging = true;
+-                        mInitialTouchPos = getPos(ev);
+-                        mTranslation = getTranslation(mCurrView);
++                        // PW3: no drag begins. A notification is dismissed by the
++                        // cross at its top right (status_bar_notification_row.xml);
++                        // measured on V86, the same swipe took the row away at
++                        // 400 ms and did not at 600 or 900 ms, and a gesture that
++                        // works by the clock is worse than none -- a reader would
++                        // see a notification vanish on a scroll they did not mean
++                        // as a swipe. mDragging staying false is the whole of it:
++                        // onInterceptTouchEvent then claims nothing, onTouchEvent
++                        // never reaches the dismiss decision, and the stack keeps
++                        // the touch (it asks the scroller first, and this helper
++                        // only when it is not already scrolling).
++                        //
++                        // The finger moving is still reason to call off the long
++                        // press, which is a timer and not a gesture: it is how the
++                        // notification's own settings are reached here, and it is
++                        // the one thing on this panel that cannot be mistimed.
+                         removeLongPressCallback();
+                     }
+                 }
+--- /dev/null
++++ b/packages/SystemUI/res/drawable/pw3_notification_dismiss.xml
+@@ -0,0 +1,9 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- PW3: the cross SystemUI already carries, inside the 56dp target rule 7
++     of docs/design/eink-ui.md asks for at the edge of the screen. The inset
++     leaves the glyph at the 24dp it is drawn for; stretching it to the whole
++     target would put a large black mark on a page that is mostly white
++     (rule 9). -->
++<inset xmlns:android="http://schemas.android.com/apk/res/android"
++       android:drawable="@drawable/ic_close"
++       android:inset="16dp" />

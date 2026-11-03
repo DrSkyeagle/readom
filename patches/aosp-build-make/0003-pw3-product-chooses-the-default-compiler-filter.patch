@@ -1,0 +1,100 @@
+From: PW3 Android port
+Subject: [PW3] dexpreopt: the product chooses the default compiler filter
+
+Every application in the image that is not named in PRODUCT_DEXPREOPT_SPEED_APPS
+is compiled to `quicken`, which puts no compiled code in the image at all.
+8.1 writes that word into the build rule, "to save on storage".
+
+On this device that default is not a saving, it is a silent override of what
+the build decided, and it was measured on the device (V59, 2026-10-20):
+
+  - ART prefers /data/dalvik-cache over the odex beside the APK whenever the
+    APK's directory is not writable, which /system never is, and it does not
+    compare the two filters while doing so (art/runtime/oat_file_assistant.cc,
+    GetBestInfo: "We cannot write to the odex location. This must be a system
+    app. If the oat location is usable take it.").
+  - A system app shipped at `quicken` is therefore recompiled into
+    /data/dalvik-cache by the first dexopt pass whose target is better --
+    install, bg-dexopt and ab-ota are all `speed-profile` here -- and from then
+    on that copy is what runs.
+  - It keeps running even after the image ships a better one: the copy stays
+    valid as long as the APK's dex is unchanged, and raising a module from
+    `quicken` to `speed` does not change its dex. On this device Settings,
+    DocumentsUI and PackageInstaller were raised to `speed` in V59 and all
+    three still ran V58's `speed-profile` copies out of /data -- the three
+    applications behind the settings, files and install-an-APK screens.
+  - The same root cause had already been met once, from the other side: code
+    system_server loads may not come from /data/dalvik-cache at all, so
+    FusedLocation at `quicken` was compiled there and then refused by SELinux
+    on every load (Test V47). PRODUCT_SYSTEM_SERVER_APPS fixed those three
+    modules; the default stayed as it was.
+
+A filter of `speed` in the image closes it for good rather than per module:
+CompilerFilterIsOkay asks IsAsGoodAs(current, target), `speed` is as good as
+every target this product sets, so getDexoptNeeded answers kNoDexOptNeeded and
+nothing is ever written to /data/dalvik-cache for a system app. The device also
+stops spending its one core recompiling what the build already compiled.
+
+So the default becomes the product's to state. This is the knob later AOSP adds
+for it, with its name and its shape (platform/build
+57c2d9f670af89bdaeb347cd59c9d465f8d29e58), so that a rebase drops this patch
+rather than carrying it: PRODUCT_DEX_PREOPT_DEFAULT_COMPILER_FILTER, empty
+meaning `quicken` as before. Only the knob is taken here, not that commit's
+unrelated renaming and .dm files.
+
+A product variable takes two edits in this version and the first build of this
+patch had only one: core/product.mk's _product_var_list is what copies the
+value out of the product makefile into PRODUCTS.<product>.<name>, and
+core/product_config.mk is where each of those is assigned back to the plain
+name the rest of the build reads -- one line per variable, written out by hand.
+Without the second, the knob is set, registered, and empty where it is used, so
+the image is built to `quicken` and says nothing about it. What found it was
+reading the compiler filter back out of the built odex (`oatdump --oat-file=...
+--header-only`), which is the only place the answer is not a guess.
+
+--- a/core/product.mk
++++ b/core/product.mk
+@@ -125,6 +125,7 @@ _product_var_list := \
+     PRODUCT_DEX_PREOPT_PROFILE_DIR \
+     PRODUCT_DEX_PREOPT_BOOT_IMAGE_PROFILE_LOCATION \
+     PRODUCT_USE_PROFILE_FOR_BOOT_IMAGE \
++    PRODUCT_DEX_PREOPT_DEFAULT_COMPILER_FILTER \
+     PRODUCT_SYSTEM_SERVER_COMPILER_FILTER \
+     PRODUCT_SANITIZER_MODULE_CONFIGS \
+     PRODUCT_SYSTEM_BASE_FS_PATH \
+--- a/core/product_config.mk
++++ b/core/product_config.mk
+@@ -392,6 +392,8 @@ PRODUCT_USE_PROFILE_FOR_BOOT_IMAGE := \
+ PRODUCT_DEX_PREOPT_BOOT_IMAGE_PROFILE_LOCATION := \
+     $(strip $(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_DEX_PREOPT_BOOT_IMAGE_PROFILE_LOCATION))
+ 
++PRODUCT_DEX_PREOPT_DEFAULT_COMPILER_FILTER := \
++    $(strip $(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_DEX_PREOPT_DEFAULT_COMPILER_FILTER))
+ PRODUCT_SYSTEM_SERVER_COMPILER_FILTER := \
+     $(strip $(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_SYSTEM_SERVER_COMPILER_FILTER))
+ PRODUCT_SYSTEM_SERVER_DEBUG_INFO := \
+--- a/core/dex_preopt_odex_install.mk
++++ b/core/dex_preopt_odex_install.mk
+@@ -196,6 +196,12 @@ ifeq (,$(my_system_server_compiler_filter))
+ my_system_server_compiler_filter := speed
+ endif
+
++my_default_compiler_filter := $(PRODUCT_DEX_PREOPT_DEFAULT_COMPILER_FILTER)
++ifeq (,$(my_default_compiler_filter))
++# If no default compiler filter is specified, default to 'quicken' to save on storage.
++my_default_compiler_filter := quicken
++endif
++
+ ifeq (,$(filter --compiler-filter=%, $(LOCAL_DEX_PREOPT_FLAGS)))
+   ifneq (,$(filter $(PRODUCT_SYSTEM_SERVER_JARS),$(LOCAL_MODULE)))
+     # Jars of system server, use the product option if it is set, speed otherwise.
+@@ -210,8 +216,7 @@ ifeq (,$(filter --compiler-filter=%, $(LOCAL_DEX_PREOPT_FLAGS)))
+         # For non system server jars, use speed-profile when we have a profile.
+         LOCAL_DEX_PREOPT_FLAGS += --compiler-filter=speed-profile
+       else
+-        # If no compiler filter is specified, default to 'quicken' to save on storage.
+-        LOCAL_DEX_PREOPT_FLAGS += --compiler-filter=quicken
++        LOCAL_DEX_PREOPT_FLAGS += --compiler-filter=$(my_default_compiler_filter)
+       endif
+     endif
+   endif

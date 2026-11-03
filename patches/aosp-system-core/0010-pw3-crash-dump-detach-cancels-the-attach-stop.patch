@@ -1,0 +1,62 @@
+From: PW3 Android port
+Subject: [PW3] crash_dump: a refused detach cancels the attach's stop
+
+Patch 0006 attaches with PTRACE_ATTACH, whose SIGSTOP is queued for the thread
+and taken when the thread next runs. Patch 0009 gives the whole dump 20 s, and
+the alarm handler detaches everything attached so far.
+
+The two meet badly when the alarm fires while the attach loop is still waiting
+for a thread to reach its stop -- a thread sitting in uninterruptible I/O, for
+instance, which on this single core and this eMMC is the thread the limit is
+there for. PTRACE_DETACH on a thread that has not stopped is refused with
+ESRCH, and the tracer's exit unlinks the tracee without cancelling the SIGSTOP
+already queued for it. The thread comes back from its I/O, takes the SIGSTOP,
+and group-stops the whole process, with nothing left that would continue it:
+no tracer, and no SIGCHLD to anyone waiting. For system_server that is the
+device, because its own Watchdog is stopped with it.
+
+SIGCONT discards every pending stop for a thread group, so one SIGCONT to the
+process cancels what the refused detaches left behind. It is sent only when a
+detach was refused, so a dump that finishes normally -- which resumes the
+threads itself -- does not get one. kill(2) is async-signal-safe, like the
+ptrace(2) the handler already calls.
+
+--- a/debuggerd/crash_dump.cpp
++++ b/debuggerd/crash_dump.cpp
+@@ -91,13 +91,25 @@
+ static bool g_attach_compat = false;
+ static pid_t g_compat_tids[4096];
+ static size_t g_compat_count = 0;
++// The process those threads belong to, for the SIGCONT below. Named at the
++// first attach rather than guessed from the first tid.
++static pid_t g_compat_pid = 0;
++static void compat_note_process(pid_t pid) { g_compat_pid = pid; }
+ 
+-// Async-signal-safe: only ptrace(2). A thread that is not stopped refuses the
+-// detach and is left as it is; the tracer's exit unlinks it.
++// Async-signal-safe: ptrace(2) and kill(2) only.
+ static void compat_detach_all() {
++  bool refused = false;
+   for (size_t i = 0; i < g_compat_count; ++i) {
+-    ptrace(PTRACE_DETACH, g_compat_tids[i], 0, 0);
++    if (ptrace(PTRACE_DETACH, g_compat_tids[i], 0, 0) != 0) refused = true;
+   }
++  // A thread that has not yet reached the attach's stop refuses the detach --
++  // the alarm can fire while this is waiting for one that sits in
++  // uninterruptible I/O -- and unlinking the tracer does not cancel the
++  // SIGSTOP already queued for it. The process would stop for good the moment
++  // that thread came back, with nothing left to continue it; when the process
++  // is system_server, that is the device. SIGCONT discards a pending stop for
++  // the whole thread group.
++  if (refused && g_compat_pid > 0) kill(g_compat_pid, SIGCONT);
+   g_compat_count = 0;
+ }
+ 
+@@ -370,6 +382,7 @@
+ 
+   {
+     ATRACE_NAME("ptrace");
++    compat_note_process(main_tid);
+     // Seize the main thread.
+     if (!ptrace_seize_thread(target_proc_fd, main_tid, &attach_error)) {
+       LOG(FATAL) << attach_error;

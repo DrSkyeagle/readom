@@ -1,0 +1,193 @@
+--- /dev/null
++++ b/include/linux/android_aid.h
+@@ -0,0 +1,28 @@
++/* include/linux/android_aid.h
++ *
++ * Copyright (C) 2008 Google, Inc.
++ *
++ * This software is licensed under the terms of the GNU General Public
++ * License version 2, as published by the Free Software Foundation, and
++ * may be copied, distributed, and modified under those terms.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ */
++
++#ifndef _LINUX_ANDROID_AID_H
++#define _LINUX_ANDROID_AID_H
++
++/* AIDs that the kernel treats differently */
++#define AID_NET_BT_ADMIN 3001
++#define AID_NET_BT       3002
++#define AID_INET         3003
++#define AID_NET_RAW      3004
++#define AID_NET_ADMIN    3005
++#define AID_NET_BW_STATS 3006  /* read bandwidth statistics */
++#define AID_NET_BW_ACCT  3007  /* change bandwidth statistics accounting */
++
++#endif
+--- a/include/linux/netlink.h
++++ b/include/linux/netlink.h
+@@ -161,6 +161,10 @@
+ 	struct ucred		creds;		/* Skb credentials	*/
+ 	__u32			pid;
+ 	__u32			dst_group;
++#ifdef CONFIG_ANDROID_GID_NET_CAPABILITIES
++	/* Sender GID grants, set only by cap_netlink_send; never user payload. */
++	__u32			android_gid_net_caps;
++#endif
+ };
+ 
+ #define NETLINK_CB(skb)		(*(struct netlink_skb_parms*)&((skb)->cb))
+--- a/net/netlink/af_netlink.c
++++ b/net/netlink/af_netlink.c
+@@ -911,6 +911,10 @@
+ 	int err;
+ 	long timeo;
+ 
++#ifdef CONFIG_ANDROID_GID_NET_CAPABILITIES
++	if (netlink_is_kernel(ssk))
++		NETLINK_CB(skb).android_gid_net_caps = 0;
++#endif
+ 	skb = netlink_trim(skb, gfp_any());
+ 
+ 	timeo = sock_sndtimeo(ssk, nonblock);
+@@ -1059,6 +1063,10 @@
+ 	struct hlist_node *node;
+ 	struct sock *sk;
+ 
++#ifdef CONFIG_ANDROID_GID_NET_CAPABILITIES
++	if (netlink_is_kernel(ssk))
++		NETLINK_CB(skb).android_gid_net_caps = 0;
++#endif
+ 	skb = netlink_trim(skb, allocation);
+ 
+ 	info.exclude_sk = ssk;
+@@ -1370,6 +1378,9 @@
+ 	NETLINK_CB(skb).pid	= nlk->pid;
+ 	NETLINK_CB(skb).dst_group = dst_group;
+ 	memcpy(NETLINK_CREDS(skb), &siocb->scm->creds, sizeof(struct ucred));
++#ifdef CONFIG_ANDROID_GID_NET_CAPABILITIES
++	NETLINK_CB(skb).android_gid_net_caps = 0;
++#endif
+ 
+ 	err = -EFAULT;
+ 	if (memcpy_fromiovec(skb_put(skb, len), msg->msg_iov, len)) {
+--- a/security/Kconfig
++++ b/security/Kconfig
+@@ -94,6 +94,21 @@
+ 
+ 	  If you are unsure how to answer this question, answer N.
+ 
++config ANDROID_GID_NET_CAPABILITIES
++	bool "Android reserved-group network capabilities"
++	depends on ANDROID && NET
++	default n
++	help
++	  Permit the reserved Android net_raw (3004) and net_admin (3005)
++	  groups to satisfy CAP_NET_RAW and CAP_NET_ADMIN checks, including
++	  the legacy netlink receive capability path.  This supports Android
++	  Wi-Fi daemons launched as non-root without ambient capabilities.
++
++	  Grants apply only to credentials in the initial user namespace,
++	  respect capability bounding-set drops, and do not bypass SELinux.
++	  This does not enable Android's separate INET socket group gate.
++	  Leave disabled for non-Android kernels or when this ABI is unused.
++
+ config SECURITYFS
+ 	bool "Enable the securityfs filesystem"
+ 	help
+--- a/security/commoncap.c
++++ b/security/commoncap.c
+@@ -29,6 +29,9 @@
+ #include <linux/securebits.h>
+ #include <linux/user_namespace.h>
+ #include <linux/personality.h>
++#ifdef CONFIG_ANDROID_GID_NET_CAPABILITIES
++#include <linux/android_aid.h>
++#endif
+ 
+ /*
+  * If a non-root user executes a setuid-root binary in
+@@ -52,16 +55,64 @@
+ 	}
+ }
+ 
++#ifdef CONFIG_ANDROID_GID_NET_CAPABILITIES
++/*
++ * Android init assigns these reserved groups to the Wi-Fi daemons.  Use
++ * the supplied credentials, not current's groups: cap_capable can query
++ * another task.  A group in a child user namespace must not gain powers
++ * in the initial namespace, and explicit bounding-set drops still apply.
++ * SELinux capability and netlink checks remain in their existing callers.
++ */
++static bool android_gid_net_capable(const struct cred *cred,
++				   struct user_namespace *targ_ns, int cap)
++{
++	gid_t gid;
++
++	if (targ_ns != &init_user_ns || cred->user->user_ns != &init_user_ns)
++		return false;
++	switch (cap) {
++	case CAP_NET_RAW:
++		gid = AID_NET_RAW;
++		break;
++	case CAP_NET_ADMIN:
++		gid = AID_NET_ADMIN;
++		break;
++	default:
++		return false;
++	}
++	if (!cap_raised(cred->cap_bset, cap))
++		return false;
++	return cred->egid == gid || groups_search(cred->group_info, gid);
++}
++#endif
++
+ int cap_netlink_send(struct sock *sk, struct sk_buff *skb)
+ {
++#ifdef CONFIG_ANDROID_GID_NET_CAPABILITIES
++	const struct cred *cred = current_cred();
++
++	BUILD_BUG_ON(sizeof(struct netlink_skb_parms) > sizeof(skb->cb));
++	/* The skb payload/SCM ucred cannot supply supplementary groups. */
++	NETLINK_CB(skb).android_gid_net_caps = 0;
++	if (android_gid_net_capable(cred, &init_user_ns, CAP_NET_RAW))
++		NETLINK_CB(skb).android_gid_net_caps |= CAP_TO_MASK(CAP_NET_RAW);
++	if (android_gid_net_capable(cred, &init_user_ns, CAP_NET_ADMIN))
++		NETLINK_CB(skb).android_gid_net_caps |= CAP_TO_MASK(CAP_NET_ADMIN);
++#endif
+ 	return 0;
+ }
+ 
+ int cap_netlink_recv(struct sk_buff *skb, int cap)
+ {
+-	if (!cap_raised(current_cap(), cap))
+-		return -EPERM;
+-	return 0;
++	if (cap_raised(current_cap(), cap))
++		return 0;
++#ifdef CONFIG_ANDROID_GID_NET_CAPABILITIES
++	/* Only the sender-side hook can populate these two grant bits. */
++	if ((cap == CAP_NET_RAW || cap == CAP_NET_ADMIN) &&
++	    (NETLINK_CB(skb).android_gid_net_caps & CAP_TO_MASK(cap)))
++		return 0;
++#endif
++	return -EPERM;
+ }
+ EXPORT_SYMBOL(cap_netlink_recv);
+ 
+@@ -84,6 +135,10 @@
+ int cap_capable(struct task_struct *tsk, const struct cred *cred,
+ 		struct user_namespace *targ_ns, int cap, int audit)
+ {
++#ifdef CONFIG_ANDROID_GID_NET_CAPABILITIES
++	if (android_gid_net_capable(cred, targ_ns, cap))
++		return 0;
++#endif
+ 	for (;;) {
+ 		/* The creator of the user namespace has all caps. */
+ 		if (targ_ns != &init_user_ns && targ_ns->creator == cred->user)

@@ -1,0 +1,136 @@
+--- a/drivers/usb/gadget/arcotg_udc.c
++++ b/drivers/usb/gadget/arcotg_udc.c
+@@ -83,6 +83,56 @@
+ /* it is initialized in probe()  */
+ static struct fsl_udc *udc_controller;
+ 
++/* Opt-in, bounded diagnostics. Sample software state and values already read
++ * by the driver; never wake the PHY or read an additional hardware register. */
++static bool pw3_diag;
++module_param(pw3_diag, bool, 0400);
++MODULE_PARM_DESC(pw3_diag, "Bounded PW3 USB software-state observations");
++static struct delayed_work pw3_diag_work;
++static unsigned int pw3_diag_sample;
++static atomic_t pw3_diag_irqs = ATOMIC_INIT(0);
++static atomic_t pw3_diag_delayed_irqs = ATOMIC_INIT(0);
++static atomic_t pw3_diag_resumes = ATOMIC_INIT(0);
++static u32 pw3_diag_run_otg, pw3_diag_irq_otg, pw3_diag_irq_src;
++
++static void pw3_diag_worker(struct work_struct *work)
++{
++    struct fsl_udc *udc = udc_controller;
++    struct fsl_usb2_platform_data *pdata;
++    unsigned long flags;
++    unsigned int stopped, suspended, lowpower, delay, pending;
++    unsigned int vbus, softconnect, state, speed, first;
++    (void)work;
++    if (!udc || !pw3_diag)
++        return;
++    pdata = udc->pdata;
++    ++pw3_diag_sample;
++    if (spin_trylock_irqsave(&udc->lock, flags)) {
++        stopped = udc->stopped;
++        suspended = udc->suspended;
++        lowpower = pdata->lowpower;
++        delay = pdata->irq_delay;
++        pending = pdata->wakeup_pdata->usb_wakeup_is_pending;
++        vbus = udc->vbus_active;
++        softconnect = udc->softconnect;
++        state = udc->usb_state;
++        speed = udc->gadget.speed;
++        first = udc->first_resume;
++        spin_unlock_irqrestore(&udc->lock, flags);
++        printk(KERN_INFO "pw3-usb-diag: n=%u stop=%u suspend=%u lp=%u delay=%u pending=%u vbus=%u soft=%u state=%u speed=%u first=%u irq=%d delayed_irq=%d resume=%d run_otg=%08x irq_otg=%08x irq_src=%08x\n",
++            pw3_diag_sample, stopped, suspended, lowpower, delay, pending,
++            vbus, softconnect, state, speed, first,
++            atomic_read(&pw3_diag_irqs), atomic_read(&pw3_diag_delayed_irqs),
++            atomic_read(&pw3_diag_resumes), pw3_diag_run_otg,
++            pw3_diag_irq_otg, pw3_diag_irq_src);
++    } else {
++        printk(KERN_INFO "pw3-usb-diag: n=%u state_lock_busy=1\n", pw3_diag_sample);
++    }
++    if (pw3_diag_sample < 24)
++        schedule_delayed_work(&pw3_diag_work, msecs_to_jiffies(10000));
++}
++
++
+ #ifdef POSTPONE_FREE_LAST_DTD
+ static struct ep_td_struct *last_free_td;
+ #endif
+@@ -500,6 +550,9 @@
+ 	temp = fsl_readl(&dr_regs->otgsc);
+ 	temp |= OTGSC_B_SESSION_VALID_IRQ_EN;
+ 	fsl_writel(temp, &dr_regs->otgsc);
++
++	if (pw3_diag)
++		pw3_diag_run_otg = temp;
+ 
+ 	/* If vbus not on and used low power mode */
+ 	if (!(temp & OTGSC_B_SESSION_VALID)) {
+@@ -2260,6 +2313,8 @@
+ 
+ 	/* check if Vbus change irq */
+ 	irq_src = fsl_readl(&dr_regs->otgsc) & (~OTGSC_ID_CHANGE_IRQ_STS);
++	if (pw3_diag)
++		pw3_diag_irq_otg = irq_src;
+ 	if (irq_src & OTGSC_B_SESSION_VALID_IRQ_STS) {
+ 		u32 tmp;
+ 		/* Only handle device interrupt event
+@@ -2324,8 +2379,13 @@
+ 	irqreturn_t status = IRQ_NONE;
+ 	unsigned long flags;
+ 	struct fsl_usb2_platform_data *pdata = udc->pdata;
+-	if (pdata->irq_delay)
++	if (pw3_diag)
++		atomic_inc(&pw3_diag_irqs);
++	if (pdata->irq_delay) {
++		if (pw3_diag)
++			atomic_inc(&pw3_diag_delayed_irqs);
+ 		return status;
++	}
+ 
+ 	spin_lock_irqsave(&udc->lock, flags);
+ 
+@@ -2347,6 +2407,8 @@
+ 		goto irq_end;
+ 	}
+ 	irq_src = fsl_readl(&dr_regs->usbsts) & fsl_readl(&dr_regs->usbintr);
++	if (pw3_diag)
++		pw3_diag_irq_src = irq_src;
+ 	/* Clear notification bits */
+ 	fsl_writel(irq_src, &dr_regs->usbsts);
+ 
+@@ -3099,6 +3161,7 @@
+ 		return -ENOMEM;
+ 	}
+ 	udc_controller->pdata = pdata;
++	INIT_DELAYED_WORK(&pw3_diag_work, pw3_diag_worker);
+ 
+ #ifdef CONFIG_USB_OTG
+ 	/* Memory and interrupt resources will be passed from OTG */
+@@ -3288,6 +3351,8 @@
+ 	udc_controller->charger.enable = false;
+ #endif
+ 
++	if (pw3_diag)
++		schedule_delayed_work(&pw3_diag_work, msecs_to_jiffies(10000));
+ 	return 0;
+ 
+ err4:
+@@ -3317,6 +3382,7 @@
+ 	u32 temp;
+ 	if (!udc_controller)
+ 		return -ENODEV;
++	cancel_delayed_work_sync(&pw3_diag_work);
+ 	/* open USB PHY clock */
+ 	dr_clk_gate(true);
+ 
+@@ -3528,6 +3594,8 @@
+ {
+ 	struct fsl_usb2_platform_data *pdata = udc_controller->pdata;
+ 	struct fsl_usb2_wakeup_platform_data *wake_up_pdata = pdata->wakeup_pdata;
++	if (pw3_diag)
++		atomic_inc(&pw3_diag_resumes);
+ 	pr_debug("USB Gadget resume begins\n");
+ 
+ 	pr_debug("%s, Wait for wakeup thread finishes\n", __func__);

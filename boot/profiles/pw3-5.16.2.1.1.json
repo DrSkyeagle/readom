@@ -1,0 +1,62 @@
+{
+  "description": "Kindle Paperwhite 3 (Wario, machine 4091) on stock firmware 5.16.2.1.1: the stock kernel the handoff module loads into, and the physical plan of the jump",
+  "supported_zh": "Kindle Paperwhite 3\uff08\u7b2c 7 \u4ee3\uff0c2015 \u5e74\u6b3e\uff0c\u673a\u8eab\u80cc\u9762\u578b\u53f7 DP75SDI\uff09\uff0c\u56fa\u4ef6 5.16.2.1.1",
+  "supported_en": "Kindle Paperwhite (7th generation, 2015; model DP75SDI on the back), firmware 5.16.2.1.1",
+  "supported_why": "what the E101 screen tells someone whose Kindle this build refuses (installer/screens/render_screens.py). Amazon's own name for the model, not this project's \"PW3\": the person reading it knows what they bought, not what the board is called. The generation and the year are both there because the model number on the back is shared with the 2013 Paperwhite, and the firmware because the handover runs that kernel's own code (stock_kernel_why)",
+  "module_profile": 1,
+  "machine": 4091,
+  "boot_ram_base": "0x80000000",
+  "identity_limit": "0xbf000000",
+  "identity_limit_why": "the upper bound of the one-to-one region of the page table the handoff runs under, which the module builds in the half this kernel leaves to user space. It equals this kernel's TASK_SIZE, but that is a coincidence of 3G/1G: PAGE_OFFSET (0xc0000000) and PHYS_OFFSET (0x80000000) differ here, so the kernel's lowmem mapping is not one to one and a window has to be made. On a 2G/2G Kindle the two are equal and lowmem itself is the window (docs/design/porting-to-other-models.md section 6)",
+  "cmdline_base": "log_pos_goal=0x8fff0000 console=ttymxc0,115200 ro ip=off quiet video=mxcepdcfb:E60,bpp=8,x_mem=3M",
+  "cmdline_base_why": "the stock command line without root= and rootwait (devicedata.c checks the running system's against it); the console, the EPDC's video mode and the log position stay as stock has them",
+  "stock_kernel_release": "3.0.35-lab126",
+  "stock_kernel_version": "#8 PREEMPT Tue Aug 1 12:49:59 UTC 2023",
+  "stock_kernel_why": "the stock kernel this firmware ships, as /proc/version and uname report it. The handover runs that kernel's own pm_test_show and L2 cache functions and checks their bodies against stock_functions, so another build of it cannot be used; devicedata.c refuses it as another firmware and the screen says so (E101) rather than leaving someone to restart and tap again for ever",
+  "ram": [
+    [
+      "0x80000000",
+      "0x20000000"
+    ]
+  ],
+  "forbidden": [
+    [
+      "0x88000000",
+      "0x18000000"
+    ]
+  ],
+  "forbidden_why": "payload destinations stay in the low 128 MiB, below anything the stock system may still have in use above it",
+  "atag_kinds": [
+    "0x54410001",
+    "0x54410002",
+    "0x54410007",
+    "0x54410009",
+    "0x5441000b",
+    "0x5441000d",
+    "0x5441000f",
+    "0x54420005"
+  ],
+  "device_archive_max": 12582912,
+  "footprint_profile": "pw3",
+  "module_kernel_source": "/home/builder/pw3-build/linux-stock",
+  "module_kernel_output": "/home/builder/loader-candidate-kernel-out",
+  "stock_functions": {
+    "pm_test_show": {
+      "bytes": 124,
+      "sha256": "b90bd45b33892d8abebe0f6b97b1c99c5d3cb14fe43cc2dc375791ff78505228"
+    },
+    "l2x0_flush_all": {
+      "bytes": 116,
+      "sha256": "97e1a3e96e6a36b1736648c2f1ff1ced143d05539c7dca241cc54216959e0983"
+    },
+    "l2x0_disable": {
+      "bytes": 124,
+      "sha256": "d22c505f5476b03cb719d834973443a317d3754d7d5dc6af6ac68393db76a6b6"
+    },
+    "l2x0_inv_all": {
+      "bytes": 152,
+      "sha256": "ba9491d55a253991c4260fa880a2fc0b59b35369449bcae4ecbb6d71eab8a2cc"
+    }
+  },
+  "stock_functions_source": "function bodies of the stock 5.16.2.1.1 kernel (image sha256 3915c4c0d09566d674a8d2b4ca249292a056e882d5291fe3997f1dc6ca49e02d), read from a device's own eMMC; only their sizes and hashes are kept"
+}

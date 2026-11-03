@@ -1,0 +1,7 @@
+# Compressed swap in RAM (kernel zram); set up by swapon_all in init.pw3.rc.
+# Half of the RAM. Measured on Test V32: about 3.6:1 on application data.
+# max_comp_streams=-1: this kernel's zram (3.0, staging) has no such attribute.
+# fs_mgr sets it whenever the value is 0 or more - 0 being what it assumes when
+# the flag is absent - and gives up on the whole entry if the file cannot be
+# opened (Test V34, first start: "Unable to open zram conf comp device", no swap).
+/dev/block/zram0 none swap defaults zramsize=268435456,max_comp_streams=-1

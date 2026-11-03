@@ -1,0 +1,23 @@
+From: PW3 Android port
+Subject: [PW3] init.rc: no flash_recovery service on a device with no recovery
+
+AOSP's init.rc starts /system/bin/install-recovery.sh at every boot, as a
+oneshot in class main. That script is generated only for a product that builds
+a recovery image, to write the recovery partition again after a system update.
+This device builds none: BoardConfig.mk sets TARGET_NO_RECOVERY, the Kindle's
+own recovery is Amazon's and this project never writes a partition.
+
+So the file is never there, init fails to start the service, and says so at
+every boot. The line looks like a fault and is not one, which is the kind of
+log noise that costs somebody an afternoon.
+
+--- a/rootdir/init.rc
++++ b/rootdir/init.rc
+@@ -732,7 +732,3 @@
+     # The folder is used to store method traces.
+     chmod 0773 /data/misc/trace
+     start console
+-
+-service flash_recovery /system/bin/install-recovery.sh
+-    class main
+-    oneshot

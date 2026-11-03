@@ -1,0 +1,158 @@
+From: PW3 Android port
+Subject: [PW3] framework: outlined dialogs, menus and toasts; no dimming; white and black
+
+The e-paper interface rules (docs/design/eink-ui.md) for the framework's own
+look, which SystemUI, Settings and every app on the default themes use.
+
+Material sets a floating surface apart with a shadow, dims what is behind a
+dialog to 40 %, and colours with teal on light grey. On PW3 none of it works:
+everything is drawn in software, where no shadow is drawn, so a white dialog
+or menu on a white page has no edge; dimming turns the whole page dark grey
+and back, two full-panel updates through the slow 16-level waveform; teal
+lands on panel level 2, a dark grey hardly different from text; light grey
+50 is the panel's white anyway, and the toast's 90 % grey 200 one level below
+it, which shows no edge. So:
+
+  * dialogs, popup menus and toasts: white, a black outline of 1dp (2 px) and
+    corners of 4dp;
+  * backgroundDimAmount 0 in the base, Material and Holo themes: the window
+    manager then never shows its dim layer (DimLayer stays hidden at alpha 0);
+    an app may still ask for dimming itself;
+  * the light theme's background is white and its accent black: a state is
+    told apart by shape and fill (checked, on, selected), not by colour.
+
+Only values change; no resource is added, so resource IDs, framework.jar and
+the boot image stay as they are, and no app needs compiling again.
+
+--- a/core/res/res/drawable/dialog_background_material.xml
++++ b/core/res/res/drawable/dialog_background_material.xml
+@@ -17,7 +17,10 @@
+ <inset xmlns:android="http://schemas.android.com/apk/res/android"
+     android:inset="16dp">
+     <shape android:shape="rectangle">
+-        <corners android:radius="2dp" />
++        <!-- PW3: an outline instead of the shadow, which software rendering does not draw
++             (docs/design/eink-ui.md: outline black, 1dp = 2 px; corners 4dp). -->
++        <corners android:radius="4dp" />
+         <solid android:color="?attr/colorBackground" />
++        <stroke android:width="1dp" android:color="@color/black" />
+     </shape>
+ </inset>
+--- a/core/res/res/drawable/popup_background_material.xml
++++ b/core/res/res/drawable/popup_background_material.xml
+@@ -17,9 +17,14 @@
+ <shape xmlns:android="http://schemas.android.com/apk/res/android"
+        android:shape="rectangle">
+ 
++    <!-- PW3: an outline instead of the shadow, which software rendering does not draw
++         (docs/design/eink-ui.md: outline black, 1dp = 2 px; corners 4dp). -->
+     <corners
+-            android:radius="2dp" />
++            android:radius="4dp" />
+     <solid
+             android:color="?attr/colorBackground" />
++    <stroke
++            android:width="1dp"
++            android:color="@color/black" />
+ 
+ </shape>
+--- a/core/res/res/drawable/toast_frame.xml
++++ b/core/res/res/drawable/toast_frame.xml
+@@ -17,8 +17,10 @@
+ -->
+ <shape xmlns:android="http://schemas.android.com/apk/res/android"
+        android:shape="rectangle">
+-    <!-- background is material_grey_200 with .9 alpha -->
+-    <solid android:color="#E6EEEEEE" />
+-    <corners android:radius="22dp" />
++    <!-- PW3: white with an outline, as every floating surface (docs/design/eink-ui.md).
++         AOSP's 90 % light grey is one level below the panel's white: no edge. -->
++    <solid android:color="@color/white" />
++    <stroke android:width="1dp" android:color="@color/black" />
++    <corners android:radius="4dp" />
+ </shape>
+ 
+--- a/core/res/res/values/themes.xml
++++ b/core/res/res/values/themes.xml
+@@ -66,7 +66,9 @@
+         <item name="colorError">@color/red</item>
+ 
+         <item name="disabledAlpha">0.5</item>
+-        <item name="backgroundDimAmount">0.6</item>
++        <!-- PW3: nothing is dimmed behind a dialog (docs/design/eink-ui.md): the window
++             manager never shows its dim layer; the panel redraws only the dialog. -->
++        <item name="backgroundDimAmount">0</item>
+ 
+         <!-- Text styles -->
+         <item name="textAppearance">@style/TextAppearance</item>
+--- a/core/res/res/values/themes_material.xml
++++ b/core/res/res/values/themes_material.xml
+@@ -50,7 +50,9 @@
+         <item name="disabledAlpha">@dimen/disabled_alpha_material_dark</item>
+         <item name="primaryContentAlpha">@dimen/primary_content_alpha_material_dark</item>
+         <item name="secondaryContentAlpha">@dimen/secondary_content_alpha_material_dark</item>
+-        <item name="backgroundDimAmount">0.6</item>
++        <!-- PW3: nothing is dimmed behind a dialog (docs/design/eink-ui.md): the window
++             manager never shows its dim layer; the panel redraws only the dialog. -->
++        <item name="backgroundDimAmount">0</item>
+         <item name="colorError">@color/error_color_material</item>
+ 
+         <!-- Text styles -->
+@@ -417,7 +419,9 @@
+         <item name="disabledAlpha">@dimen/disabled_alpha_material_light</item>
+         <item name="primaryContentAlpha">@dimen/primary_content_alpha_material_light</item>
+         <item name="secondaryContentAlpha">@dimen/secondary_content_alpha_material_light</item>
+-        <item name="backgroundDimAmount">0.6</item>
++        <!-- PW3: nothing is dimmed behind a dialog (docs/design/eink-ui.md): the window
++             manager never shows its dim layer; the panel redraws only the dialog. -->
++        <item name="backgroundDimAmount">0</item>
+ 
+         <!-- Text styles -->
+         <item name="textAppearance">@style/TextAppearance.Material</item>
+--- a/core/res/res/values/themes_holo.xml
++++ b/core/res/res/values/themes_holo.xml
+@@ -68,7 +68,9 @@
+         <item name="colorBackgroundFloating">@color/background_holo_dark</item>
+         <item name="colorBackgroundCacheHint">@color/background_cache_hint_selector_holo_dark</item>
+         <item name="disabledAlpha">0.5</item>
+-        <item name="backgroundDimAmount">0.6</item>
++        <!-- PW3: nothing is dimmed behind a dialog (docs/design/eink-ui.md): the window
++             manager never shows its dim layer; the panel redraws only the dialog. -->
++        <item name="backgroundDimAmount">0</item>
+ 
+         <item name="colorPressedHighlight">@color/holo_gray_light</item>
+         <item name="colorLongPressedHighlight">@color/holo_gray_bright</item>
+@@ -411,7 +413,9 @@
+         <item name="colorBackgroundFloating">@color/background_holo_light</item>
+         <item name="colorBackgroundCacheHint">@color/background_cache_hint_selector_holo_light</item>
+         <item name="disabledAlpha">0.5</item>
+-        <item name="backgroundDimAmount">0.6</item>
++        <!-- PW3: nothing is dimmed behind a dialog (docs/design/eink-ui.md): the window
++             manager never shows its dim layer; the panel redraws only the dialog. -->
++        <item name="backgroundDimAmount">0</item>
+ 
+         <item name="colorPressedHighlight">@color/holo_gray_light</item>
+         <item name="colorLongPressedHighlight">@color/holo_gray_bright</item>
+--- a/core/res/res/values/colors_material.xml
++++ b/core/res/res/values/colors_material.xml
+@@ -20,7 +20,8 @@
+     <color name="foreground_material_light">@color/black</color>
+ 
+     <color name="background_material_dark">@color/material_grey_850</color>
+-    <color name="background_material_light">@color/material_grey_50</color>
++    <!-- PW3: white, the panel's lightest level (docs/design/eink-ui.md). -->
++    <color name="background_material_light">@color/white</color>
+     <color name="background_floating_material_dark">@color/material_grey_800</color>
+     <color name="background_floating_material_light">@color/white</color>
+ 
+@@ -40,7 +41,9 @@
+     <color name="quaternary_material_settings">@color/material_blue_grey_200</color>
+ 
+     <color name="accent_material_700">@color/material_deep_teal_700</color>
+-    <color name="accent_material_light">@color/material_deep_teal_500</color>
++    <!-- PW3: black. Teal is only an uncertain dark grey on e-paper; states are told
++         apart by shape and fill (docs/design/eink-ui.md). -->
++    <color name="accent_material_light">@color/black</color>
+     <color name="accent_material_dark">@color/material_deep_teal_200</color>
+     <color name="accent_material_50">@color/material_deep_teal_50</color>
+ 

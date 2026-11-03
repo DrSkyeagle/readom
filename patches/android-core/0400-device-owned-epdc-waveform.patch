@@ -1,0 +1,563 @@
+--- a/drivers/video/mxc/mxc_epdc_fb.c
++++ b/drivers/video/mxc/mxc_epdc_fb.c
+@@ -270,6 +270,10 @@
+ 	int max_num_updates;
+ 	volatile bool in_init;
+ 	bool hw_ready;
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	bool android_waveform_verified;
++	bool android_startup_complete;
++#endif
+ 	bool hw_initializing;
+ 	bool waiting_for_idle;
+ 	u32 auto_mode;
+@@ -426,6 +430,7 @@
+ 
+ #include "mxc_epdc_fb_lab126.c"
+ #define WFM_TEMP_BUF_LEN   (1024*1024*10)
++#include "mxc_epdc_fb_android.h"
+ static int mxc_epdc_debugging = 0;
+ static int mxc_epdc_paused = 0;
+ static int use_cmap = 0;
+@@ -4175,7 +4180,32 @@
+ 	int ret = -EINVAL;
+ 
+ 	switch (cmd) {
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	case MXCFB_GET_ANDROID_INFO: {
++		struct mxc_epdc_fb_data *fb_data = (struct mxc_epdc_fb_data *)info;
++		struct mxcfb_android_info state;
++		memset(&state, 0, sizeof(state));
++		if (!fb_data->android_startup_complete || !fb_data->android_waveform_verified ||
++		    !fb_data->hw_ready || !fb_data->wv_header)
++			return -EAGAIN;
++		state.version = MXCFB_ANDROID_INFO_VERSION;
++		state.size = sizeof(state);
++		state.flags = MXCFB_ANDROID_INFO_WAVEFORM_VERIFIED |
++			      MXCFB_ANDROID_INFO_STARTUP_COMPLETE;
++		state.mode_version = fb_data->wv_header->mode_version;
++		state.gc16_mode = fb_data->wv_modes.mode_gc16;
++		state.rotate = info->var.rotate;
++		state.xres = info->var.xres;
++		state.yres = info->var.yres;
++		state.temperature_auto = TEMP_USE_AUTO;
++		state.mode_count = fb_data->wv_header->mc + 1;
++		return copy_to_user(argp, &state, sizeof(state)) ? -EFAULT : 0;
++	}
++#endif
+ 	case MXCFB_SET_WAVEFORM_MODES:
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++		return -EPERM;
++#endif
+ 		{
+ 			struct mxcfb_waveform_modes modes;
+ 			if (!copy_from_user(&modes, argp, sizeof(modes))) {
+@@ -5600,19 +5630,34 @@
+ 		yres = screeninfo->yres;
+ 	}
+ 
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	memset(&update, 0, sizeof(update));
++#endif
+ 	update.update_region.left = 0;
+ 	update.update_region.width = xres;
+ 	update.update_region.top = 0;
+ 	update.update_region.height = yres;
+ 	update.update_mode = UPDATE_MODE_FULL;
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	update.waveform_mode = fb_data->wv_modes.mode_gc16;
++	update.hist_bw_waveform_mode = fb_data->wv_modes.mode_gc16;
++	update.hist_gray_waveform_mode = fb_data->wv_modes.mode_gc16;
++#else
+ 	update.waveform_mode = WAVEFORM_MODE_AUTO;
++#endif
+ 	update.update_marker = INIT_UPDATE_MARKER;
+ 	update.temp = TEMP_USE_AUTO;
+ 	update.flags = 0;
+ 
+ 	upd_marker_data.update_marker = update.update_marker;
+ 
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	ret = mxc_epdc_fb_send_update(&update, &fb_data->info);
++	if (ret)
++		return ret;
++#else
+ 	mxc_epdc_fb_send_update(&update, &fb_data->info);
++#endif
+ 	/* Block on initial update */
+ 	ret = mxc_epdc_fb_wait_update_complete(update.update_marker,
+ 			&fb_data->info);
+@@ -5635,6 +5680,16 @@
+ 			rounded_pix_clk, target_pix_clk;
+ 	size_t temp_wfm_buf_len = 0;
+ 	unsigned char *temp_wfm_buf;
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	size_t android_vc_offset = 0, android_vc_length = 0;
++	fb_data->android_waveform_verified = false;
++	/* The private packer emits a canonical gzip without optional name fields. */
++	if (fw->size < 18 || fw->data[0] != 0x1f || fw->data[1] != 0x8b ||
++	    fw->data[2] != GUNZIP_DEFLATED || fw->data[3] != 0) {
++		release_firmware(fw);
++		return -EINVAL;
++	}
++#endif
+ 
+ 	temp_wfm_buf = vmalloc(WFM_TEMP_BUF_LEN);
+ 	if (temp_wfm_buf == NULL) {
+@@ -5649,6 +5704,15 @@
+ 		goto error;
+ 	}
+ 
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	ret = android_wf_layout(temp_wfm_buf, temp_wfm_buf_len,
++				&android_vc_offset, &android_vc_length);
++	if (ret)
++		goto error;
++	ret = android_wf_matches_panel(temp_wfm_buf, temp_wfm_buf_len);
++	if (ret)
++		goto error;
++#endif
+ 	wv_file = (struct mxcfb_waveform_data_file *)temp_wfm_buf;
+ 
+ 	fb_data->temp_range_bounds = NULL;
+@@ -5713,7 +5777,23 @@
+ 
+ 	// 2nd gen waveform firmware file */
+ 	fb_data->waveform_vcd_buffer = NULL;
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	/* The legacy helper does unchecked offsets and allocation; use bounded data. */
++	if (android_vc_length) {
++		fb_data->waveform_vcd_buffer = kmalloc(android_vc_length, GFP_KERNEL);
++		if (!fb_data->waveform_vcd_buffer) {
++			ret = -ENOMEM;
++			goto error;
++		}
++		memcpy(fb_data->waveform_vcd_buffer, temp_wfm_buf + android_vc_offset,
++		       android_vc_length);
++	}
++	fb_data->waveform_mc = wv_file->wdh.mc + 1;
++	fb_data->waveform_trc = wv_file->wdh.trc + 1;
++	fb_data->android_waveform_verified = true;
++#else
+ 	eink_get_wfm_voltage_control(fb_data->wv_header, (u8*)fb_data->waveform_buffer_virt);
++#endif
+ 
+ 	/* Enable clocks to access EPDC regs */
+ 	clk_enable(fb_data->epdc_clk_axi);
+@@ -5788,6 +5868,15 @@
+ 	const struct firmware *fw;
+ 	int ret;
+ 
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	/* A fixed relative name is resolved by Android ueventd under /vendor/firmware. */
++	strcpy(fb_data->fw_str, "epdc/pw3/waveform.wbf.gz");
++	wfm_using_builtin = false;
++	ret = request_firmware(&fw, fb_data->fw_str, fb_data->dev);
++	if (ret)
++		return ret;
++	return mxc_epdc_fb_process_fw(fb_data, fw);
++#endif
+ 	/*
+ 	 * Create fw search string based on ID string in selected videomode.
+ 	 * Format is "imx/epdc_[panel string].fw"
+@@ -6268,7 +6357,15 @@
+ 	if (!fb_data->default_bpp)
+ 		fb_data->default_bpp = default_bpp;
+ 
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	ret = mxc_epdc_panel_init(fb_data);
++	if (ret || !panel_flash_present() || override_panel_settings) {
++		ret = ret ? ret : -ENODEV;
++		goto out_panel_close;
++	}
++#else
+ 	mxc_epdc_panel_init(fb_data);
++#endif
+ 
+ 	fb_data->cur_mode = panel_choose_fbmode(fb_data);
+ 	if (!fb_data->cur_mode) {
+@@ -6980,6 +7077,9 @@
+ 		if (!fb_data->dither_err_dist)
+ 		{
+ 			dev_err(&pdev->dev, "Failed to allocated dither memory\n");
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++			ret = -ENOMEM;
++#endif
+ 			goto out_framebuffer;
+ 		}
+ 	}
+@@ -6994,9 +7094,17 @@
+ 	fb_data->sw_algo.scaled_height = 0;
+ 	fb_data->sw_algo.scaled_factor = SCALED_FACTOR;
+ #endif
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	/* Publish only after mode0, the initial GC16, portrait setup and allocations. */
++	fb_data->android_startup_complete = true;
++#endif
+ 	goto out;
+ 
+ out_framebuffer:
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	fb_data->android_startup_complete = false;
++	g_fb_data = NULL;
++#endif
+ 	unregister_framebuffer(info);
+ 
+ out_lutmap:
+--- a/drivers/video/mxc/mxc_epdc_fb_lab126.c
++++ b/drivers/video/mxc/mxc_epdc_fb_lab126.c
+@@ -180,6 +180,38 @@
+ 
+ #define WFM_HDR_SIZE          (0x30)
+ 
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++static bool android_wf_header_valid(const struct waveform_data_header *h)
++{
++	size_t limit;
++	switch (h->wf_type) {
++	case EINK_WAVEFORM_TYPE_WJ:
++	case EINK_WAVEFORM_TYPE_WR:
++		limit = 0x30000 - DEFAULT_WFM_ADDR;
++		break;
++	case EINK_WAVEFORM_TYPE_AA:
++	case EINK_WAVEFORM_TYPE_AC:
++	case EINK_WAVEFORM_TYPE_BD:
++	case EINK_WAVEFORM_TYPE_AE:
++		limit = 0x70000 - DEFAULT_WFM_ADDR;
++		break;
++	default:
++		return false;
++	}
++	switch (h->mode_version) {
++	case WF_UPD_MODES_07:
++	case WF_UPD_MODES_18:
++	case WF_UPD_MODES_19:
++	case WF_UPD_MODES_24:
++	case WF_UPD_MODES_25:
++		break;
++	default:
++		return false;
++	}
++	return h->file_length > WFM_HDR_SIZE && h->file_length <= limit;
++}
++#endif
++
+ #define PNL_BASE_PART_NUMBER  0x00
+ #define PNL_SIZE_PART_NUMBER  16
+ 
+@@ -422,7 +454,7 @@
+ 
+ static int panel_data_write(unsigned long base_address, struct file *file, const char __user *buf, unsigned long count, void *data)
+ {
+-#ifdef DEVELOPMENT_MODE
++#if defined(DEVELOPMENT_MODE) && !defined(CONFIG_LAB126_ANDROID_EPDC)
+ 	int result = count;
+ 	unsigned char *buffer;
+ 	unsigned long *offset = data;
+@@ -1665,7 +1697,12 @@
+ 		return panel->bcd;
+ 	}
+ 
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	if (panel_read_from_flash(panel->addrs->pnl_info_addr + PNL_BASE_BCD, bcd, PNL_SIZE_BCD))
++		return NULL;
++#else
+ 	panel_read_from_flash(panel->addrs->pnl_info_addr + PNL_BASE_BCD, bcd, PNL_SIZE_BCD);
++#endif
+ 	panel_data_translate(bcd, PNL_SIZE_BCD, true);
+ 	strncpy(panel->bcd, bcd, PNL_SIZE_BCD);
+ 	panel->bcd[PNL_SIZE_BCD] = '\0';
+@@ -1748,6 +1785,18 @@
+ }
+ 
+ 
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++#define panel_spi_sync(spi, message, result, fmt, args...) \
++({ \
++	int _rc = spi_sync((spi), (message)); \
++	int _ret = 0; \
++	if (_rc || (message)->status) { \
++		*(result) = _rc ? _rc : (message)->status; \
++		_ret = 1; \
++	} \
++	_ret; \
++})
++#else
+ #define panel_spi_sync(spi, message, result, fmt, args...) \
+ ({ \
+ 	int _ret = 0; \
+@@ -1758,6 +1807,7 @@
+ 	} \
+ 	_ret; \
+ })
++#endif
+ 
+ static int panel_read_from_flash(unsigned long addr, unsigned char *data, unsigned long size)
+ {
+@@ -2318,11 +2368,28 @@
+ 	char vcom_str[PNL_SIZE_VCOM_STR] = { 0 };
+ 
+ 	if (panel_get_vcom_str(vcom_str, PNL_SIZE_VCOM_STR) == NULL) {
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++		printk(KERN_ERR "eink_fb_waveform: E vcom:Missing panel calibration\n");
++#else
+ 		printk(KERN_ERR "eink_fb_waveform: E vcom:Setting VCOM to default value -2.05V!!!\n");
++#endif
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++		panel->vcom_uV = 0; /* Refuse missing calibration; no default voltage. */
++#else
+ 		panel->vcom_uV = -2050000;
++#endif
+ 		return panel->vcom_uV;
+ 	}
+ 
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	/* The five-byte panel calibration format is -d.dd volts. */
++	if (vcom_str[0] != '-' || vcom_str[1] < '0' || vcom_str[1] > '9' ||
++	    vcom_str[2] != '.' || vcom_str[3] < '0' || vcom_str[3] > '9' ||
++	    vcom_str[4] < '0' || vcom_str[4] > '9') {
++		panel->vcom_uV = 0;
++		return 0;
++	}
++#endif
+ 	// Skip the negative sign (i.e., i = 1, instead of i = 0).
+ 	if ('-' == (char)vcom_str[0])
+ 		panel->vcom_uV = -parse_vcom_str(vcom_str + 1, PNL_SIZE_VCOM - 1);
+@@ -2425,7 +2492,12 @@
+ 		wfm_base = panel_info_cache->addrs->waveform_addr;
+ 
+ 	pr_debug("Reading waveform.. (%d bytes)\n", buffer_size);
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	if (panel_read_from_flash(wfm_base + offset, buffer, buffer_size))
++		return NULL;
++#else
+ 	panel_read_from_flash(wfm_base + offset, buffer, buffer_size);
++#endif
+ 	return buffer;
+ }
+ 
+@@ -2514,6 +2586,9 @@
+ 	case WF_UPD_MODES_19:
+ 		wf_upd_mode_version = WF_UPD_MODES_19;
+ 		wf_upd_modes = &panel_mode_19;
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++		break;
++#endif
+ 	case WF_UPD_MODES_24:
+ 		wf_upd_mode_version = WF_UPD_MODES_24;
+ 		wf_upd_modes = &panel_mode_24;
+@@ -2599,8 +2674,13 @@
+ 		}
+ 	}
+ 
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	/* Unknown barcode means unknown timing/voltage settings, not a Pinot panel. */
++	return NULL;
++#else
+ 	// Default to the pinot mode
+ 	return &fb_data->pdata->epdc_mode[PANEL_MODE_E60_PINOT];
++#endif
+ }
+ 
+ 
+@@ -2804,9 +2884,18 @@
+ 				return -ENOMEM;
+ 			}
+ 
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++			if (!android_wf_header_valid((struct waveform_data_header *)panel_waveform))
++				goto android_bad_panel;
++#endif
+ 			panel_get_format(panel_info_cache, (struct waveform_data_header *)panel_waveform);
+ 
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++			if (!panel_get_bcd(panel_info_cache))
++				goto android_bad_panel;
++#else
+ 			panel_get_bcd(panel_info_cache);
++#endif
+ 			panel_get_id(panel_info_cache);
+ 
+ 			panel_get_panel_info_version(panel_info_cache);
+@@ -2822,6 +2911,10 @@
+ 			eink_get_pnl_wfm_human_version(panel_waveform, WFM_HDR_SIZE, panel_info_cache->human_version, WAVEFORM_VERSION_STRING_MAX);
+ 
+ 			panel_get_vcom(panel_info_cache);
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++			if (panel_info_cache->vcom_uV >= 0)
++				goto android_bad_panel;
++#endif
+ 
+ 			kfree(panel_waveform);
+ 			panel_waveform = NULL;
+@@ -2850,6 +2943,14 @@
+ 	*panel = panel_info_cache;
+ 
+ 	return 0;
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++android_bad_panel:
++	kfree(panel_waveform);
++	kfree(panel_info_cache->waveform_info);
++	kfree(panel_info_cache);
++	panel_info_cache = NULL;
++	return -EINVAL;
++#endif
+ }
+ 
+ /******
+@@ -3265,8 +3366,12 @@
+ 		tmpvar.rotate = FB_ROTATE_CCW;
+ 	}
+ 	tmpvar.activate = FB_ACTIVATE_FORCE | FB_ACTIVATE_NOW | FB_ACTIVATE_ALL;
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	return fb_set_var(&(fb_data->info), &tmpvar);
++#else
+ 	fb_set_var(&(fb_data->info), &tmpvar);
+ 	return 0;
++#endif
+ }
+ 
+ int mxc_epdc_waveform_init(struct mxc_epdc_fb_data *fb_data)
+--- a/include/linux/mxcfb.h
++++ b/include/linux/mxcfb.h
+@@ -227,6 +227,25 @@
+ };
+ /* Halftone Pattern end */
+ 
++/* Versioned read-only Android startup contract; no panel identity or voltages. */
++struct mxcfb_android_info {
++	__u32 version;
++	__u32 size;
++	__u32 flags;
++	__u32 mode_version;
++	__u32 gc16_mode;
++	__u32 rotate;
++	__u32 xres;
++	__u32 yres;
++	__u32 temperature_auto;
++	__u32 mode_count;
++	__u32 reserved[6];
++};
++#define MXCFB_ANDROID_INFO_VERSION 1
++#define MXCFB_ANDROID_INFO_WAVEFORM_VERIFIED 1
++#define MXCFB_ANDROID_INFO_STARTUP_COMPLETE 2
++#define MXCFB_GET_ANDROID_INFO _IOR('F', 0x80, struct mxcfb_android_info)
++
+ #ifdef __KERNEL__
+ 
+ #define EHWFAULT   901
+--- a/drivers/video/mxc/Kconfig
++++ b/drivers/video/mxc/Kconfig
+@@ -103,6 +103,15 @@
+ 	select FB_DEFERRED_IO
+ 	tristate "E-Ink Panel Framebuffer"
+ 
++config LAB126_ANDROID_EPDC
++	bool "Strict device-owned waveform initialization for Android PW3"
++	depends on FB_MXC_EINK_PANEL && LAB126 && MACH_MX6SL_WARIO
++	default n
++	help
++	  Require the matching physical panel, checked device-owned waveform and
++	  calibration. Never load a generic fallback. Expose a read-only startup
++	  contract for the Android framebuffer HAL; this does not prove PM idle.
++
+ config FB_MXC_EINK_WORK_BUFFER_B
+ 	bool "Enable use of working buffer B"
+ 	default n
+--- /dev/null
++++ b/drivers/video/mxc/mxc_epdc_fb_android.h
+@@ -0,0 +1,94 @@
++/* Android PW3 policy. Included by mxc_epdc_fb.c after the Lab126 helpers. */
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++static u64 android_wf_le64(const u8 *p)
++{
++	u64 value = 0;
++	int i;
++	for (i = 0; i < 8; ++i)
++		value |= (u64)p[i] << (8 * i);
++	return value;
++}
++
++/* Only versions with an explicit production table in this source are allowed. */
++static int android_wf_layout(u8 *data, size_t length, size_t *vc_offset,
++			     size_t *vc_length)
++{
++	struct waveform_data_header *h = (struct waveform_data_header *)data;
++	size_t off, bytes, modes, temps, entries, i, j;
++	u64 start, end;
++	u8 *payload;
++	*vc_offset = *vc_length = 0;
++	if (sizeof(*h) != WFM_HDR_SIZE || length < WFM_HDR_SIZE ||
++	    !android_wf_header_valid(h) || h->file_length != length)
++		return -EINVAL;
++	if (eink_get_computed_waveform_checksum(data) != h->checksum)
++		return -EBADMSG;
++	modes = h->mc + 1;
++	temps = h->trc + 1;
++	off = WFM_HDR_SIZE + temps + 1;
++	if (off >= length || modes < 3 || temps < 2 || h->advanced_wfm_flags > 3)
++		return -EINVAL;
++	/* Preserve the original TRT bytes and its existing temperature lookup ABI. */
++	bytes = length - off;
++	payload = data + off;
++	entries = modes;
++	if (h->advanced_wfm_flags == 1 || h->advanced_wfm_flags == 3)
++		entries = modes + 2;
++	if (entries > bytes / 8)
++		return -EINVAL;
++	/* The EPDC-owned waveform encoding is copied unchanged and checked against
++	 * every physical panel byte. Bound only the offsets dereferenced by this CPU.
++	 */
++	if (h->advanced_wfm_flags == 1 || h->advanced_wfm_flags == 3) {
++		start = android_wf_le64(payload + modes * 8);
++		end = android_wf_le64(payload + (modes + 1) * 8);
++		if (start < entries * 8 || start >= end || end > bytes ||
++		    end - start < modes * temps * sizeof(struct epd_vc_data))
++			return -EINVAL;
++		for (i = 0; i < modes * temps; ++i) {
++			u8 sum = 0;
++			const u8 *record = payload + start + i * sizeof(struct epd_vc_data);
++			for (j = 0; j + 1 < sizeof(struct epd_vc_data); ++j)
++				sum += record[j];
++			if (sum != record[sizeof(struct epd_vc_data) - 1])
++				return -EBADMSG;
++		}
++		*vc_offset = off + (size_t)start;
++		*vc_length = (size_t)(end - start);
++	}
++	return 0;
++}
++
++/* Compare all bytes with this physical panel, before any EPDC waveform DMA. */
++static int android_wf_matches_panel(const u8 *data, size_t length)
++{
++	struct panel_info *panel;
++	u8 *chunk;
++	size_t off, count;
++	int ret;
++	if (!panel_flash_present() || override_panel_settings)
++		return -ENODEV;
++	ret = panel_get_info(&panel, true);
++	if (ret)
++		return ret;
++	if (length > panel->addrs->waveform_len)
++		return -EINVAL;
++	chunk = kmalloc(1024, GFP_KERNEL);
++	if (!chunk)
++		return -ENOMEM;
++	for (off = 0; off < length; off += count) {
++		count = min((size_t)1024, length - off);
++		ret = panel_read_from_flash(panel->addrs->waveform_addr + off, chunk, count);
++		if (ret) {
++			ret = -EIO;
++			break;
++		}
++		if (memcmp(data + off, chunk, count)) {
++			ret = -EXDEV;
++			break;
++		}
++	}
++	kfree(chunk);
++	return ret;
++}
++#endif

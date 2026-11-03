@@ -1,0 +1,66 @@
+From: PW3 Android port
+Subject: [PATCH] tcp: register Lab126's /proc/tcpreset once
+
+The stock kernel's own defect, and it lands in the diagnostic this project
+asks readers to send.
+
+`/proc/tcpreset` is Lab126's: writing "42" or "43" plus a list of ports to
+skip resets this machine's IPv4 TCP connections (proc_tcpreset_write, under
+CONFIG_LAB126). It is created inside tcp_proc_register(), which is called
+once per address family -- tcp4_proc_init() at net/ipv4/tcp_ipv4.c and
+tcp6_proc_init() at net/ipv6/tcp_ipv6.c -- so the second call creates an
+entry that already exists, and proc_register() answers with a WARN plus a
+full backtrace. It is the first line of every boot's kernel log:
+
+    proc_dir_entry '/proc/tcpreset' already registered
+    Modules linked in:
+    Backtrace:
+    [<c003d5cc>] (dump_backtrace+0x0/0x10c) from [<c04a8fd0>] (dump_stack+0x18/0x1c)
+    ...
+    [<c0167984>] (proc_register+0x0/0x174) from [<c016840c>] (create_proc_entry+0x60/0xa0)
+    [<c01683ac>] (create_proc_entry+0x0/0xa0) from [<c0406578>] (tcp_proc_register+0xa0/0xd8)
+    [<c04064d8>] (tcp_proc_register+0x0/0xd8) from [<c046db2c>] (tcp6_proc_init+0x18/0x1c)
+
+Nothing breaks: the second registration fails, the entry still exists once
+and still works, and it is an IPv4 facility that IPv6 has no use for. Two
+reasons to fix it anyway, and the second is the one that matters:
+
+  * the kernel ring is 32 KB (CONFIG_LOG_BUF_SHIFT=15) and this spends about
+    1.5 KB of it at 0.47 seconds, which is the part of the ring a panic
+    capture needs most;
+  * the entry's log filter keeps WARNING, Backtrace: and register dumps on
+    purpose (boot/launcher/userlog.c), so those twenty-odd lines go into
+    every android/logs/<time>/ folder a reader hands on, at the top, where
+    they read as this port's own backtrace.
+
+The guard is the one proc_register() itself would want: create the entry if
+it is not there. tcp_proc_unregister() already tests the same pointer before
+removing, so this only makes the two sides agree -- and it leaves the
+existing behaviour alone, because the pointer is NULL until the first call.
+
+--- a/net/ipv4/tcp_ipv4.c
++++ b/net/ipv4/tcp_ipv4.c
+@@ -2515,11 +2515,16 @@ int tcp_proc_register(struct net *net, struct tcp_seq_afinfo *afinfo)
+ 		rc = -ENOMEM;
+
+ #if defined(CONFIG_LAB126)
+-        proc_tcpreset = create_proc_entry(N_PROC_TCPRESET, S_IWUGO, NULL);
+-        if (proc_tcpreset != NULL) {
+-            proc_tcpreset->data = NULL;
+-            proc_tcpreset->read_proc = NULL;
+-            proc_tcpreset->write_proc = proc_tcpreset_write;
+-        }
++        /* Called once per address family, and the entry is not per-net (its
++         * parent is NULL), so the second family would re-create a name that is
++         * already there and take a WARN with a backtrace for it. */
++        if (proc_tcpreset == NULL) {
++            proc_tcpreset = create_proc_entry(N_PROC_TCPRESET, S_IWUGO, NULL);
++            if (proc_tcpreset != NULL) {
++                proc_tcpreset->data = NULL;
++                proc_tcpreset->read_proc = NULL;
++                proc_tcpreset->write_proc = proc_tcpreset_write;
++            }
++        }
+ #endif
+
+ 	return rc;

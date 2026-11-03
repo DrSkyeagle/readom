@@ -1,0 +1,255 @@
+From: PW3 Android port
+Subject: [PW3] SystemUI: a notification in the shade is parted by a rule, not boxed
+
+0059 gave every notification row a solid outline, because this SystemUI draws
+in software and the elevation shadow AOSP parts rows with is never drawn there.
+It works -- the rows have an edge. But four edges per row is a box, and a shade
+with three notifications in it read as three boxes stacked in a column. Shown
+that screenshot on 2026-10-28, the reader asked for what a list is normally
+parted by: one thin line between one notification and the next.
+
+A heads-up notification is not that. It is a surface floating over whatever the
+reader was looking at, with the reader's page behind it on three sides, and an
+outline is exactly what rule 3 of docs/design/eink-ui.md asks for there. So the
+shape now follows what the row is at that moment -- `isPinned()`, which is true
+only while the row is floating as a heads-up -- and a pinned row keeps the
+outline 0059 drew for it, unchanged. That is also why the `<corners>` 0059 put
+in the two background drawables stay: the fill still has to follow that curve
+when there is one. In the shade, where the fill is white on a white shade, the
+rounded corners it keeps are white on white.
+
+Where the edge is drawn had to change with the shape. 0059 drew it in
+`NotificationBackgroundView`, a sibling view behind the row's content, and that
+was already visible there: the action row of an expanded notification
+(`notification_material_action_list.xml`) is `match_parent` wide, 48dp high and
+`layout_gravity="bottom"`, so its background is an opaque band flush with the
+bottom edge of the row. Measured on V86, it left not one black pixel at the
+row's left edge for the height of the actions. A rule along the bottom edge is
+precisely the part of the outline that band covers, so the edge moves to
+`ExpandableNotificationRow.dispatchDraw()`, after the children, where nothing
+the content paints can reach it. 0060 makes that band white, which is the
+colour of the row, but white is paint too: a rule behind it would be gone just
+the same.
+
+`ExpandableNotificationRow` and not `ActivatableNotificationView`, which is
+where `dispatchDraw` is already overridden: the other subclass of that class is
+`NotificationShelf`, and the shelf is a strip of icons, not an entry in a list
+and not a surface floating over a page. One thing that existing override does
+is not inherited by drawing after it -- the canvas translation of the appear
+animation, which moves the children while a row is being added or removed. For
+the one frame of it this panel renders (134 to 463 ms each, against an
+animation of about 350 ms) the edge stays at the row's own rectangle. Reading
+`mAppearAnimationTranslation` out of the parent class would be a field of state
+for a line, and the line is in the right place before and after.
+
+Two values 0059 brought with it go back to what AOSP had:
+
+  * `notification_divider_height` went from 0.5dp to 4dp because two outlines
+    meeting across a one-pixel gap would read as a single thick line. One rule
+    cannot meet itself, so the gap goes back to the one pixel AOSP asks for,
+    and the rule plus that pixel is the whole boundary;
+  * `notification_children_container_divider_height` was pinned at 0.5dp when
+    the value it used to point at stopped being 0.5dp. It can point at it
+    again. Between two children of an expanded group that line and the child's
+    own rule now land next to each other, 1 px of grey 97 beside 2 px of black:
+    a group's inner boundary is a pixel thicker than the boundary between two
+    top-level rows, which is the order those two should be in.
+
+What the edge no longer gets is the background's alpha. 0059 had to hand it
+over, because `ActivatableNotificationView` fades the normal background of a
+row that cannot be dimmed while the shade dims, and a black frame around a fill
+that was no longer there would have been worse than no frame. An edge drawn
+after the children is not in that fade, and should not be: the dimmed
+background takes the normal one's place, so the row always has a fill, and the
+boundary between two rows is not a thing that dims. `setDrawableAlpha()` goes
+back to the one line AOSP wrote.
+
+The edge is `pw3_outline` at `pw3_outline_width` -- the same black and the same
+2 px as every other edge this port draws (1dp at density 1.875, rounded by
+`getDimensionPixelSize`). `getActualHeight()` and `getClipBottomAmount()`
+rather than `getHeight()`: that pair is the rectangle the background is drawn
+between, so the edge ends up where the fill ends, a row collapsing under the
+shelf keeps it there, and nothing has to decide whether this row has a fill to
+draw an edge for -- if the fill shows, the edge shows. Anti-aliasing stays on
+for the sake of the pinned row's corners, and costs the rule nothing: a stroke
+of whole-pixel width `w` centred on `bottom - w/2` covers the pixel rows
+`bottom - w` to `bottom` exactly, so there is no fractional coverage for it to
+soften into the grey rule 1 rules out.
+
+The last row in the shade gets a rule under it with nothing below it. That is a
+list closing itself off -- the shade's own footer comes next -- and the
+alternative is the stack telling every row whether it is the last one, which is
+state, and an answer that changes every time a notification arrives or leaves.
+
+--- a/packages/SystemUI/src/com/android/systemui/statusbar/ExpandableNotificationRow.java
++++ b/packages/SystemUI/src/com/android/systemui/statusbar/ExpandableNotificationRow.java
+@@ -26,6 +26,8 @@
+ import android.content.Context;
+ import android.content.res.Resources;
+ import android.content.res.Configuration;
++import android.graphics.Canvas;
++import android.graphics.Paint;
+ import android.graphics.drawable.AnimatedVectorDrawable;
+ import android.graphics.drawable.AnimationDrawable;
+ import android.graphics.drawable.ColorDrawable;
+@@ -164,6 +166,15 @@
+     private NotificationMenuRowPlugin mMenuRow;
+     // PW3: the cross at the row's top right; see status_bar_notification_row.xml.
+     private View mDismissButton;
++    // PW3: the edge this row draws for itself. SystemUI is drawn in software,
++    // where no elevation shadow is drawn, so a white row on a white shade has
++    // no edge of its own (rule 3 of docs/design/eink-ui.md). It is drawn here
++    // and not in the row's background (NotificationBackgroundView, where 0059
++    // drew it), which is a sibling view behind the content: the action row of
++    // an expanded notification is an opaque band flush with the bottom edge
++    // and painted straight over it.
++    private final Paint mEdge = new Paint(Paint.ANTI_ALIAS_FLAG);
++    private float mEdgeRadius;
+     private ViewStub mGutsStub;
+     private boolean mIsSystemChildExpanded;
+     private boolean mIsPinned;
+@@ -1281,6 +1292,12 @@
+                 res.getBoolean(R.bool.config_enableNonGroupedNotificationExpand);
+         mShowGroupBackgroundWhenExpanded =
+                 res.getBoolean(R.bool.config_showGroupNotificationBgWhenExpanded);
++        // PW3: read here, with the rest, so that they follow a density change.
++        mEdge.setStyle(Paint.Style.STROKE);
++        mEdge.setColor(getContext().getColor(R.color.pw3_outline));
++        // Whole pixels: a fractional width is drawn as a pair of grey edges.
++        mEdge.setStrokeWidth(res.getDimensionPixelSize(R.dimen.pw3_outline_width));
++        mEdgeRadius = res.getDimension(R.dimen.pw3_corner_radius);
+     }
+ 
+     /**
+@@ -1783,6 +1800,31 @@
+         mLayoutListener = null;
+     }
+ 
++    // PW3: after the children, so that nothing the notification's own content
++    // paints can cover the edge. Two shapes, because rule 3 is about two
++    // different things: a heads-up notification floats over whatever the reader
++    // was looking at, and keeps the outline on all four sides that 0059 gave
++    // every row; a row in the shade is an entry in a list, and one rule along
++    // its bottom is what parts it from the next one. getActualHeight() and
++    // getClipBottomAmount() rather than getHeight(): that pair is the rectangle
++    // the background is drawn between, so if the fill shows the edge shows, and
++    // a row collapsing under the shelf keeps its edge where its fill ends.
++    @Override
++    protected void dispatchDraw(Canvas canvas) {
++        super.dispatchDraw(canvas);
++        final int bottom = getActualHeight() - getClipBottomAmount();
++        if (bottom <= getClipTopAmount()) {
++            return;
++        }
++        final float inset = mEdge.getStrokeWidth() / 2f;
++        if (isPinned()) {
++            canvas.drawRoundRect(inset, getClipTopAmount() + inset, getWidth() - inset,
++                    bottom - inset, mEdgeRadius, mEdgeRadius, mEdge);
++        } else {
++            canvas.drawLine(0, bottom - inset, getWidth(), bottom - inset, mEdge);
++        }
++    }
++
+     @Override
+     protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
+         super.onLayout(changed, left, top, right, bottom);
+--- a/packages/SystemUI/src/com/android/systemui/statusbar/NotificationBackgroundView.java
++++ b/packages/SystemUI/src/com/android/systemui/statusbar/NotificationBackgroundView.java
+@@ -19,7 +19,6 @@
+ import android.content.Context;
+ import android.content.res.ColorStateList;
+ import android.graphics.Canvas;
+-import android.graphics.Paint;
+ import android.graphics.ColorFilter;
+ import android.graphics.PorterDuff;
+ import android.graphics.drawable.Drawable;
+@@ -27,8 +26,6 @@
+ import android.util.AttributeSet;
+ import android.view.View;
+ 
+-import com.android.systemui.R;
+-
+ /**
+  * A view that can be used for both the dimmed and normal background of an notification.
+  */
+@@ -39,27 +36,9 @@
+     private int mActualHeight;
+     private int mClipBottomAmount;
+     private int mTintColor;
+-    // PW3: what separates one notification from the next in AOSP is the
+-    // elevation shadow each row casts on the one below, and this SystemUI is
+-    // drawn in software, where no shadow is drawn at all (FakeShadowView only
+-    // sets translationZ). White rows on a white shade then have no edge.
+-    // Rule 3 of docs/design/eink-ui.md: a solid outline instead. It is drawn
+-    // here rather than put in the background drawable because setTint() below
+-    // paints that drawable through a SRC_ATOP colour filter -- a media
+-    // notification with a background colour of its own would take the outline
+-    // with it.
+-    private final Paint mOutline;
+-    private final float mOutlineRadius;
+ 
+     public NotificationBackgroundView(Context context, AttributeSet attrs) {
+         super(context, attrs);
+-        mOutline = new Paint(Paint.ANTI_ALIAS_FLAG);
+-        mOutline.setStyle(Paint.Style.STROKE);
+-        mOutline.setColor(context.getColor(R.color.pw3_outline));
+-        // Whole pixels: a fractional width is drawn as a pair of grey edges.
+-        mOutline.setStrokeWidth(
+-                context.getResources().getDimensionPixelSize(R.dimen.pw3_outline_width));
+-        mOutlineRadius = context.getResources().getDimension(R.dimen.pw3_corner_radius);
+     }
+ 
+     @Override
+@@ -72,11 +51,6 @@
+         if (drawable != null && bottom > mClipTopAmount) {
+             drawable.setBounds(0, mClipTopAmount, getWidth(), bottom);
+             drawable.draw(canvas);
+-            // PW3: the outline, on the same rectangle, inset by half its width
+-            // so that it is drawn inside the row and not across its neighbour.
+-            final float inset = mOutline.getStrokeWidth() / 2f;
+-            canvas.drawRoundRect(inset, mClipTopAmount + inset, getWidth() - inset,
+-                    bottom - inset, mOutlineRadius, mOutlineRadius, mOutline);
+         }
+     }
+ 
+@@ -177,12 +151,5 @@
+ 
+     public void setDrawableAlpha(int drawableAlpha) {
+         mBackground.setAlpha(drawableAlpha);
+-        // PW3: the outline is drawn beside the drawable, not inside it, so it
+-        // has to be told. Without this a row that fades its background --
+-        // ActivatableNotificationView does that for a row which cannot be
+-        // dimmed while the shade is dimming -- would keep a solid black frame
+-        // around a fill that is no longer there.
+-        mOutline.setAlpha(drawableAlpha);
+-        invalidate();
+     }
+ }
+--- a/packages/SystemUI/res/values/dimens.xml
++++ b/packages/SystemUI/res/values/dimens.xml
+@@ -352,12 +352,7 @@
+     <dimen name="z_distance_between_notifications">0.5dp</dimen>
+ 
+     <!-- The height of the divider between the individual notifications. -->
+-    <!-- PW3: 0.5dp is one pixel here, and the rows it separates are now outlined,
+-         so two outlines would meet in a single thick line. 4dp of the shade behind
+-         them reads as the gap it is. This is the space between rows, which
+-         StackScrollAlgorithm and NotificationShelf also use; the line drawn inside
+-         a group keeps its own height below. -->
+-    <dimen name="notification_divider_height">4dp</dimen>
++    <dimen name="notification_divider_height">0.5dp</dimen>
+ 
+     <!-- The corner radius of the shadow behind the notification. -->
+     <dimen name="notification_shadow_radius">0dp</dimen>
+@@ -367,10 +362,7 @@
+ 
+     <!-- The height of the divider between the individual notifications in a notification
+          group. -->
+-    <!-- PW3: this one is painted, in notification_divider_color, between the
+-         children of a group, and it followed the space between rows above. It
+-         keeps the height it had. -->
+-    <dimen name="notification_children_container_divider_height">0.5dp</dimen>
++    <dimen name="notification_children_container_divider_height">@dimen/notification_divider_height</dimen>
+ 
+     <!-- The height of the header for a container containing child notifications. -->
+     <dimen name="notification_children_container_header_height">53dp</dimen>

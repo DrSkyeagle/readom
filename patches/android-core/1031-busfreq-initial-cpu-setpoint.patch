@@ -1,0 +1,19 @@
+--- a/arch/arm/mach-mx6/bus_freq.c
++++ b/arch/arm/mach-mx6/bus_freq.c
+@@ -719,6 +719,16 @@
+ 	}
+ 
+ 	cpu_op_tbl = get_cpu_op(&cpu_op_nr);
++	/*
++	 * high_cpu_freq is otherwise only updated when cpufreq raises or
++	 * lowers the CPU clock.  With a governor that never changes the
++	 * frequency, and the CPU already at its top setpoint from the boot
++	 * loader, it stayed 0: the bus was then put into its 24 MHz mode as
++	 * if the CPU were at the lowest setpoint, and leaving that mode left
++	 * the CPU on the 396 MHz clock while cpufreq still reported 996 MHz.
++	 */
++	high_cpu_freq = clk_get_rate(cpu_clk) >
++			cpu_op_tbl[cpu_op_nr - 1].cpu_rate;
+ 	low_bus_freq_mode = 0;
+ 	if (cpu_is_mx6dl()) {
+ 		high_bus_freq_mode = 0;

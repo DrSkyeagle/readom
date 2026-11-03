@@ -1,0 +1,48 @@
+From: PW3 Android port
+Subject: [PW3] SystemUI: the image wallpaper is drawn only when it is shown
+
+ImageWallpaper draws itself whenever its surface is created or changes and
+whenever the wallpaper offsets change, shown or not. On PW3 no window shows
+the wallpaper (Launcher3 and Recents are opaque white, device overlay), and
+no app on the device can set one (nothing handles SET_WALLPAPER): the
+built-in white picture was drawn into a buffer the size of the screen
+(6,063.5 KiB, 1072x1448 RGBA) that SurfaceFlinger then kept for good, and
+drawn again whenever the home screen changed page (Test V40.1).
+
+It is now drawn only while the engine reports it visible (Engine.isVisible(),
+the last visibility WallpaperService reported): from onVisibilityChanged(true)
+once a window shows the wallpaper (the lock screen does, when the user sets
+one up), and from the other callbacks while it is shown. WallpaperService
+itself calls onVisibilityChanged(true) and (false) around a new surface while
+the wallpaper is hidden; that toggle does not count as a showing, and
+mVisible starts false so that the first real showing still draws. Until then
+the surface gets no buffer. WindowManager's wait for the wallpaper at boot
+counts the window drawn once the engine reports finishDrawing, which
+WallpaperService.updateSurface() does after the surface callbacks whether or
+not they drew.
+
+--- a/packages/SystemUI/src/com/android/systemui/ImageWallpaper.java
++++ b/packages/SystemUI/src/com/android/systemui/ImageWallpaper.java
+@@ -112,7 +112,9 @@
+         private Display mDefaultDisplay;
+         private final DisplayInfo mTmpDisplayInfo = new DisplayInfo();
+ 
+-        boolean mVisible = true;
++        // PW3: false at first, so that the first time the wallpaper is shown is a change that
++        // draws it (onVisibilityChanged()); see drawFrame().
++        boolean mVisible = false;
+         boolean mOffsetsChanged;
+         int mLastXTranslation;
+         int mLastYTranslation;
+@@ -309,7 +311,10 @@
+         }
+ 
+         void drawFrame() {
+-            if (!mSurfaceValid) {
++            // PW3: a wallpaper that no window shows is not drawn, so that its buffer, the size
++            // of the screen, is not allocated. isVisible() is what the engine last reported;
++            // the visibility toggle it sends when the surface is created is not a showing.
++            if (!mSurfaceValid || !isVisible()) {
+                 return;
+             }
+             try {

@@ -1,0 +1,287 @@
+From: PW3 Android port
+Subject: [PW3] Launcher3: the home screen goes in the file the image reads
+
+The home screen came up with the browser alone, in a cell nobody would have put
+it in, on a device whose layout had been written out in full
+("依然「首页」只有浏览器，且位置不对", 2026-10-20, V59 on the device). The
+layout was right both times. The file it was written in is one this image never
+reads, and it took reading the built APK back to see that.
+
+Launcher3 chooses the file: InvariantDeviceProfile measures the screen in dp,
+keeps the nearest entries of res/xml/device_profiles.xml and takes
+defaultLayoutId from the nearest one. But the image builds **Launcher3Go**, and
+go/res/xml/device_profiles.xml replaces that whole file with one entry -- "Go
+Device", 4 by 4, defaultLayoutId="@xml/default_workspace_4x4". With one entry
+the dp of this screen decide nothing: it is the nearest of one. And
+default_workspace_4x4.xml opens with
+
+    <include launcher:workspace="@xml/dw_phone_hotseat" />
+
+a dialer, messages, a camera and the market. This device has none of those, so
+one entry of the file resolved -- the browser, in hotseat cell 3 -- and that
+was the home screen. 0010 put the layout in default_workspace_5x6.xml and the
+home screen stayed empty; 0011 made the database seed again and it came up with
+that hotseat. Neither had anything to do with the eleven profiles of the base
+res/xml/device_profiles.xml, which was the file this port kept editing.
+
+So: the layout is default_workspace_pw3.xml, the Go profile names it, and the
+base 5x6 file goes back to what AOSP has, since nothing here reads it. One
+layout, named once, in the one table the image compiles. Which bucket of AOSP's
+dp table this screen would fall into is then not a thing this port has an
+opinion about, and neither is the status bar's height.
+
+Verified on the built image rather than reasoned about: `aapt d xmltree
+Launcher3Go.apk res/xml/device_profiles.xml` has one defaultLayoutId, and it is
+the resource id of default_workspace_pw3.
+
+The grid stays Go's: 4 columns, 4 rows, icons of 60dp. Four applications in
+four columns is what the layout wants; what icon size a 1072 by 1448 panel
+wants is a separate question with its own measurements, and so is the hotseat,
+which this layout leaves empty.
+
+SCHEMA_VERSION moves to 29 with it. loadDefaultFavoritesIfNecessary() fills a
+database that was just created and nothing re-reads the layout afterwards, so a
+release that changes what the first open shows -- the layout, or the profile
+entry that names it -- has to move the version or it reaches nobody who already
+has the system. 0011 moved it to 28 and the seed it produced was the wrong one;
+this moves it again, and the layout file says so at the top of itself, which is
+where somebody changing the home screen is reading.
+
+diff --git a/go/res/xml/device_profiles.xml b/go/res/xml/device_profiles.xml
+index 487c026..944886e 100644
+--- a/go/res/xml/device_profiles.xml
++++ b/go/res/xml/device_profiles.xml
+@@ -17,6 +17,13 @@
+ 
+ <profiles xmlns:launcher="http://schemas.android.com/apk/res-auto/com.android.launcher3" >
+ 
++    <!-- PW3: the layout is default_workspace_pw3.xml. AOSP's 4x4 layout begins
++         by including dw_phone_hotseat, whose dialer, messages, camera and
++         market are not on this device: one entry of it resolved, the browser,
++         and that was the whole home screen. This entry is the only one the
++         image reads, since go/res replaces the eleven of
++         res/xml/device_profiles.xml with it, so it is the only place the
++         layout can be named. -->
+     <profile
+         launcher:name="Go Device"
+         launcher:minWidthDps="296"
+@@ -27,7 +34,7 @@
+         launcher:numFolderColumns="4"
+         launcher:iconSize="60"
+         launcher:iconTextSize="14.0"
+-        launcher:defaultLayoutId="@xml/default_workspace_4x4"
++        launcher:defaultLayoutId="@xml/default_workspace_pw3"
+         />
+ 
+ </profiles>
+\ No newline at end of file
+diff --git a/res/raw/downgrade_schema.json b/res/raw/downgrade_schema.json
+index 988978c..8e2894c 100644
+--- a/res/raw/downgrade_schema.json
++++ b/res/raw/downgrade_schema.json
+@@ -2,10 +2,11 @@
+   // Note: Comments are not supported in JSON schema, but android parser is lenient.
+ 
+   // Maximum DB version supported by this schema
+-  "version" : 28,
++  "version" : 29,
+ 
+-  // PW3: 28 only re-seeds the workspace, it does not change the tables, so a
+-  // database written by it is read by 27 as it stands.
++  // PW3: 28 and 29 only re-seed the workspace, they do not change the tables,
++  // so a database written by either is read by the one before it as it stands.
++  "downgrade_to_28" : [],
+   "downgrade_to_27" : [],
+ 
+   // Downgrade from 27 to 26. Empty array indicates, the DB is compatible
+diff --git a/res/xml/default_workspace_5x6.xml b/res/xml/default_workspace_5x6.xml
+index 0b2f321..8493c26 100644
+--- a/res/xml/default_workspace_5x6.xml
++++ b/res/xml/default_workspace_5x6.xml
+@@ -14,50 +14,24 @@
+      limitations under the License.
+ -->
+ 
+-<!-- PW3: what is on the home screen the first time it is opened. AOSP put a
+-     hotseat of Google applications here, with contacts and the market below
+-     them; this device has none of those, so every entry was dropped and the
+-     home screen came up empty. The first application installed then landed
+-     wherever the launcher found room, which is the row under the search box
+-     and not where someone would put it.
+-
+-     Row 0 of the first screen is the search box (0004), so the applications
+-     start at row 1, in the order they are reached for: read, then the web,
+-     then what is stored, then settings.
+-
+-     The first of them is WeRead before WeRead is installed: the installer own
+-     entry (WeReadInstaller/StatusActivity), under WeRead name and an icon
+-     that says it is a download. Without it nothing on this device says that
+-     WeRead can be had here at all. It takes itself off once WeRead is
+-     installed, and WeRead own icon is placed in the cell it leaves. -->
+ <favorites xmlns:launcher="http://schemas.android.com/apk/res-auto/com.android.launcher3">
+ 
+-    <favorite
+-        launcher:screen="0"
+-        launcher:x="0"
+-        launcher:y="1"
+-        launcher:packageName="org.readom.wereadinstaller"
+-        launcher:className="org.readom.wereadinstaller.StatusActivity" />
+-
+-    <favorite
+-        launcher:screen="0"
+-        launcher:x="1"
+-        launcher:y="1"
+-        launcher:packageName="info.plateaukao.einkbro"
+-        launcher:className="info.plateaukao.einkbro.activity.BrowserActivity" />
++    <!-- Hotseat -->
++    <include launcher:workspace="@xml/dw_tablet_hotseat" />
+ 
++    <!-- Bottom row -->
+     <favorite
+         launcher:screen="0"
+-        launcher:x="2"
+-        launcher:y="1"
+-        launcher:packageName="com.android.documentsui"
+-        launcher:className="com.android.documentsui.LauncherActivity" />
++        launcher:x="0"
++        launcher:y="-1"
++        launcher:uri="#Intent;action=android.intent.action.MAIN;category=android.intent.category.APP_CONTACTS;end" />
+ 
+-    <favorite
++    <resolve
+         launcher:screen="0"
+-        launcher:x="3"
+-        launcher:y="1"
+-        launcher:packageName="com.android.settings"
+-        launcher:className="com.android.settings.Settings" />
++        launcher:x="-1"
++        launcher:y="-1" >
++        <favorite launcher:uri="#Intent;action=android.intent.action.MAIN;category=android.intent.category.APP_MARKET;end" />
++        <favorite launcher:uri="market://details?id=com.android.launcher" />
++    </resolve>
+ 
+ </favorites>
+diff --git a/b/res/xml/default_workspace_pw3.xml b/res/xml/default_workspace_pw3.xml
+new file mode 100644
+index 0000000..4d44ad5
+--- /dev/null
++++ b/res/xml/default_workspace_pw3.xml
+@@ -0,0 +1,82 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- Copyright (C) 2012 The Android Open Source Project
++
++     Licensed under the Apache License, Version 2.0 (the "License");
++     you may not use this file except in compliance with the License.
++     You may obtain a copy of the License at
++
++          http://www.apache.org/licenses/LICENSE-2.0
++
++     Unless required by applicable law or agreed to in writing, software
++     distributed under the License is distributed on an "AS IS" BASIS,
++     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++     See the License for the specific language governing permissions and
++     limitations under the License.
++-->
++
++<!-- PW3: the home screen of this device, and the only one it has.
++
++     Which file is read is the launcher's own decision and this project twice
++     wrote the layout into one it does not read. InvariantDeviceProfile takes
++     defaultLayoutId from the nearest entry of device_profiles.xml, and the
++     image builds Launcher3Go, whose go/res replaces that whole file with a
++     single entry: "Go Device", 4 by 4, naming default_workspace_4x4.xml. That
++     file begins by including dw_phone_hotseat, a dialer, messages, a camera
++     and the market, none of which are on this device; the browser was the one
++     entry of it that resolved, in hotseat cell 3. That was the home screen
++     ("依然「首页」只有浏览器，且位置不对", 2026-10-20, V59 on the device), and
++     before that an empty one (0010). Neither had anything to do with the dp of
++     this screen or with the table of eleven profiles in the base res/, which
++     the Go overlay replaces.
++
++     So the Go profile names this file, and nothing else does. The grid stays
++     Go's 4 by 4: four applications in four columns is what this layout wants,
++     and the icon size for a 1072 by 1448 panel is a separate question with its
++     own measurements.
++
++     Editing this file is half a change. A database that exists is never seeded
++     again at the same version, so SCHEMA_VERSION in LauncherProvider.java
++     moves with every edit here, or the edit reaches nobody who already has the
++     system. That is what happened to 0010 and then, from the other side, to
++     0011.
++
++     Row 0 of the first screen is the search box (0004), so the applications
++     start at row 1, in the order they are reached for: read, then the web,
++     then what is stored, then settings.
++
++     The first of them is WeRead before WeRead is installed: the installer own
++     entry (WeReadInstaller/StatusActivity), under WeRead name and an icon
++     that says it is a download. Without it nothing on this device says that
++     WeRead can be had here at all. It takes itself off once WeRead is
++     installed, and WeRead own icon is placed in the cell it leaves. -->
++<favorites xmlns:launcher="http://schemas.android.com/apk/res-auto/com.android.launcher3">
++
++    <favorite
++        launcher:screen="0"
++        launcher:x="0"
++        launcher:y="1"
++        launcher:packageName="org.readom.wereadinstaller"
++        launcher:className="org.readom.wereadinstaller.StatusActivity" />
++
++    <favorite
++        launcher:screen="0"
++        launcher:x="1"
++        launcher:y="1"
++        launcher:packageName="info.plateaukao.einkbro"
++        launcher:className="info.plateaukao.einkbro.activity.BrowserActivity" />
++
++    <favorite
++        launcher:screen="0"
++        launcher:x="2"
++        launcher:y="1"
++        launcher:packageName="com.android.documentsui"
++        launcher:className="com.android.documentsui.LauncherActivity" />
++
++    <favorite
++        launcher:screen="0"
++        launcher:x="3"
++        launcher:y="1"
++        launcher:packageName="com.android.settings"
++        launcher:className="com.android.settings.Settings" />
++
++</favorites>
+diff --git a/src/com/android/launcher3/LauncherProvider.java b/src/com/android/launcher3/LauncherProvider.java
+index 0e387c4..823b719 100644
+--- a/src/com/android/launcher3/LauncherProvider.java
++++ b/src/com/android/launcher3/LauncherProvider.java
+@@ -85,10 +85,12 @@ public class LauncherProvider extends ContentProvider {
+     /**
+      * Represents the schema of the database. Changes in scheme need not be backwards compatible.
+      */
+-    /* PW3: 28 because the default home screen changed. The version is what
++    /* PW3: 29 because the default home screen changed. The version is what
+      * decides whether a workspace seeded by an older release is carried
+-     * forward or seeded again (onUpgrade below). */
+-    public static final int SCHEMA_VERSION = 28;
++     * forward or seeded again (onUpgrade below), and it moves in every release
++     * that changes what the first open of the home screen shows: the layout
++     * file, and the profile entry that names it. */
++    public static final int SCHEMA_VERSION = 29;
+ 
+     public static final String AUTHORITY = (BuildConfig.APPLICATION_ID + ".settings").intern();
+ 
+@@ -844,6 +846,15 @@ public class LauncherProvider extends ContentProvider {
+                     // in a release that changes the default layout.
+                     break;
+                 case 28:
++                    // PW3: 28 seeded the workspace again and seeded it from the
++                    // wrong file: the layout was in default_workspace_5x6.xml
++                    // and the image reads what the Go profile names, which was
++                    // AOSP's 4x4 layout and its phone hotseat. That is why the
++                    // home screen it produced held a browser alone. Now that
++                    // the profile names this project's layout, the workspace is
++                    // worth seeding once more, for the same reason 27 was.
++                    break;
++                case 29:
+                     // DB Upgraded successfully
+                     return;
+             }

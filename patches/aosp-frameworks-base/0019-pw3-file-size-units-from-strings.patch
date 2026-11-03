@@ -1,0 +1,147 @@
+From: PW3 Android port
+Subject: [PW3] Formatter: file size units from the framework's strings
+
+Android 8 formats kB, MB, GB and TB with ICU's short unit names. In Chinese
+those are words: Settings > Storage shows "吉字节" for GB (user, Test V37:
+"localised too far"); CLDR keeps them through at least ICU 64. Android 9 went
+back to the framework's strings for every unit (kilobyteShort etc., removed in
+8.0); this does the same: the four strings return, with Android 9's default
+values, except KB for Android 9's kB (user, 2026-10-15: "KB, not kB"; the
+value is still 1000 bytes, as in 8.0), and Formatter takes every unit from
+them, as it already did for B and PB. They are not translated: Chinese uses
+the same symbols, and PW3 ships Chinese and English (user, 2026-10-15). Numbers are
+formatted as before (ICU NumberFormat, the same rounding); durations still use
+ICU.
+
+--- a/core/java/android/text/format/Formatter.java
++++ b/core/java/android/text/format/Formatter.java
+@@ -23,8 +23,6 @@
+ import android.icu.text.DecimalFormat;
+ import android.icu.text.MeasureFormat;
+ import android.icu.text.NumberFormat;
+-import android.icu.text.UnicodeSet;
+-import android.icu.text.UnicodeSetSpanner;
+ import android.icu.util.Measure;
+ import android.icu.util.MeasureUnit;
+ import android.net.NetworkUtils;
+@@ -116,12 +114,24 @@
+         return bidiWrap(context, formatRoundedBytesResult(context, res));
+     }
+ 
+-    private static String getSuffixOverride(@NonNull Resources res, MeasureUnit unit) {
++    // Every unit from the framework's strings, as in Android 9: ICU's short
++    // names are words in some languages (Chinese "吉字节" for GB).
++    private static String getSuffix(@NonNull Resources res, MeasureUnit unit) {
++        final int suffix;
+         if (unit == MeasureUnit.BYTE) {
+-            return res.getString(com.android.internal.R.string.byteShort);
++            suffix = com.android.internal.R.string.byteShort;
++        } else if (unit == MeasureUnit.KILOBYTE) {
++            suffix = com.android.internal.R.string.kilobyteShort;
++        } else if (unit == MeasureUnit.MEGABYTE) {
++            suffix = com.android.internal.R.string.megabyteShort;
++        } else if (unit == MeasureUnit.GIGABYTE) {
++            suffix = com.android.internal.R.string.gigabyteShort;
++        } else if (unit == MeasureUnit.TERABYTE) {
++            suffix = com.android.internal.R.string.terabyteShort;
+         } else { // unit == PETABYTE
+-            return res.getString(com.android.internal.R.string.petabyteShort);
++            suffix = com.android.internal.R.string.petabyteShort;
+         }
++        return res.getString(suffix);
+     }
+ 
+     private static NumberFormat getNumberFormatter(Locale locale, int fractionDigits) {
+@@ -137,38 +147,13 @@
+         return numberFormatter;
+     }
+ 
+-    private static String deleteFirstFromString(String source, String toDelete) {
+-        final int location = source.indexOf(toDelete);
+-        if (location == -1) {
+-            return source;
+-        } else {
+-            return source.substring(0, location)
+-                    + source.substring(location + toDelete.length(), source.length());
+-        }
+-    }
+-
+-    private static String formatMeasureShort(Locale locale, NumberFormat numberFormatter,
+-            float value, MeasureUnit units) {
+-        final MeasureFormat measureFormatter = MeasureFormat.getInstance(
+-                locale, MeasureFormat.FormatWidth.SHORT, numberFormatter);
+-        return measureFormatter.format(new Measure(value, units));
+-    }
+-
+-    private static final UnicodeSetSpanner SPACES_AND_CONTROLS =
+-            new UnicodeSetSpanner(new UnicodeSet("[[:Zs:][:Cf:]]").freeze());
+-
+     private static String formatRoundedBytesResult(
+             @NonNull Context context, @NonNull RoundedBytesResult input) {
+         final Locale locale = localeFromContext(context);
+         final NumberFormat numberFormatter = getNumberFormatter(locale, input.fractionDigits);
+-        if (input.units == MeasureUnit.BYTE || input.units == PETABYTE) {
+-            // ICU spells out "byte" instead of "B", and can't format petabytes yet.
+-            final String formattedNumber = numberFormatter.format(input.value);
+-            return context.getString(com.android.internal.R.string.fileSizeSuffix,
+-                    formattedNumber, getSuffixOverride(context.getResources(), input.units));
+-        } else {
+-            return formatMeasureShort(locale, numberFormatter, input.value, input.units);
+-        }
++        final String formattedNumber = numberFormatter.format(input.value);
++        return context.getString(com.android.internal.R.string.fileSizeSuffix,
++                formattedNumber, getSuffix(context.getResources(), input.units));
+     }
+ 
+     /** {@hide} */
+@@ -177,19 +162,7 @@
+         final Locale locale = res.getConfiguration().getLocales().get(0);
+         final NumberFormat numberFormatter = getNumberFormatter(locale, rounded.fractionDigits);
+         final String formattedNumber = numberFormatter.format(rounded.value);
+-        final String units;
+-        if (rounded.units == MeasureUnit.BYTE || rounded.units == PETABYTE) {
+-            // ICU spells out "byte" instead of "B", and can't format petabytes yet.
+-            units = getSuffixOverride(res, rounded.units);
+-        } else {
+-            // Since ICU does not give us access to the pattern, we need to extract the unit string
+-            // from ICU, which we do by taking out the formatted number out of the formatted string
+-            // and trimming the result of spaces and controls.
+-            final String formattedMeasure = formatMeasureShort(
+-                    locale, numberFormatter, rounded.value, rounded.units);
+-            final String numberRemoved = deleteFirstFromString(formattedMeasure, formattedNumber);
+-            units = SPACES_AND_CONTROLS.trim(numberRemoved).toString();
+-        }
++        final String units = getSuffix(res, rounded.units);
+         return new BytesResult(formattedNumber, units, rounded.roundedBytes);
+     }
+ 
+--- a/core/res/res/values/symbols.xml
++++ b/core/res/res/values/symbols.xml
+@@ -616,6 +616,10 @@
+   <java-symbol type="string" name="badPin" />
+   <java-symbol type="string" name="badPuk" />
+   <java-symbol type="string" name="byteShort" />
++  <java-symbol type="string" name="kilobyteShort" />
++  <java-symbol type="string" name="megabyteShort" />
++  <java-symbol type="string" name="gigabyteShort" />
++  <java-symbol type="string" name="terabyteShort" />
+   <java-symbol type="string" name="capability_title_canRequestFilterKeyEvents" />
+   <java-symbol type="string" name="capability_desc_canRequestTouchExploration" />
+   <java-symbol type="string" name="capability_desc_canRetrieveWindowContent" />
+--- a/core/res/res/values/strings.xml
++++ b/core/res/res/values/strings.xml
+@@ -20,6 +20,14 @@
+ <resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+     <!-- Suffix added to a number to signify size in bytes. -->
+     <string name="byteShort">B</string>
++    <!-- Suffix added to a number to signify size in kilobytes (1000 bytes). -->
++    <string name="kilobyteShort">KB</string>
++    <!-- Suffix added to a number to signify size in megabytes. -->
++    <string name="megabyteShort">MB</string>
++    <!-- Suffix added to a number to signify size in gigabytes. -->
++    <string name="gigabyteShort">GB</string>
++    <!-- Suffix added to a number to signify size in terabytes. -->
++    <string name="terabyteShort">TB</string>
+     <!-- Suffix added to a number to signify size in petabytes. -->
+     <string name="petabyteShort">PB</string>
+     <!-- Format string used to add a suffix like "B" or "PB" to a number

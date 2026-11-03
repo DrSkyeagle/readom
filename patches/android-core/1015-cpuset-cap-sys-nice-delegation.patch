@@ -1,0 +1,88 @@
+--- a/include/linux/cgroup.h
++++ b/include/linux/cgroup.h
+@@ -466,6 +466,8 @@
+ 						  struct cgroup *cgrp);
+ 	int (*pre_destroy)(struct cgroup_subsys *ss, struct cgroup *cgrp);
+ 	void (*destroy)(struct cgroup_subsys *ss, struct cgroup *cgrp);
++	/* Optional delegation after the default root/same-uid check fails. */
++	int (*allow_attach)(struct cgroup *cgrp, struct task_struct *tsk);
+ 	int (*can_attach)(struct cgroup_subsys *ss, struct cgroup *cgrp,
+ 			  struct task_struct *tsk);
+ 	int (*can_attach_task)(struct cgroup *cgrp, struct task_struct *tsk);
+--- a/kernel/cgroup.c
++++ b/kernel/cgroup.c
+@@ -2189,6 +2189,27 @@
+  * function to attach either it or all tasks in its threadgroup. Will take
+  * cgroup_mutex; may take task_lock of task.
+  */
++/* All controllers in a hierarchy must explicitly permit delegated attach.
++ * Empty named hierarchies retain the original root/same-uid restriction.
++ * Called with cgroup_mutex and rcu_read_lock held.
++ */
++static int cgroup_allow_attach(struct cgroup *cgrp, struct task_struct *tsk)
++{
++	struct cgroup_subsys *ss;
++	bool checked = false;
++	int ret;
++
++	for_each_subsys(cgrp->root, ss) {
++		if (!ss->allow_attach)
++			return -EACCES;
++		ret = ss->allow_attach(cgrp, tsk);
++		if (ret)
++			return ret;
++		checked = true;
++	}
++	return checked ? 0 : -EACCES;
++}
++
+ static int attach_task_by_pid(struct cgroup *cgrp, u64 pid, bool threadgroup)
+ {
+ 	struct task_struct *tsk;
+@@ -2229,9 +2250,12 @@
+ 		if (cred->euid &&
+ 		    cred->euid != tcred->uid &&
+ 		    cred->euid != tcred->suid) {
+-			rcu_read_unlock();
+-			cgroup_unlock();
+-			return -EACCES;
++			ret = cgroup_allow_attach(cgrp, tsk);
++			if (ret) {
++				rcu_read_unlock();
++				cgroup_unlock();
++				return ret;
++			}
+ 		}
+ 		get_task_struct(tsk);
+ 		rcu_read_unlock();
+--- a/kernel/cpuset.c
++++ b/kernel/cpuset.c
+@@ -23,6 +23,7 @@
+  */
+ 
+ #include <linux/cpu.h>
++#include <linux/capability.h>
+ #include <linux/cpumask.h>
+ #include <linux/cpuset.h>
+ #include <linux/err.h>
+@@ -1365,6 +1366,12 @@
+ 	val = fmp->val;
+ 	spin_unlock(&fmp->lock);
+ 	return val;
++}
++
++/* Scheduling delegation does not bypass the later setscheduler LSM hook. */
++static int cpuset_allow_attach(struct cgroup *cgrp, struct task_struct *task)
++{
++	return capable(CAP_SYS_NICE) ? 0 : -EACCES;
+ }
+ 
+ /* Called by cgroups to determine if a cpuset is usable; cgroup_mutex held */
+@@ -1902,6 +1909,7 @@
+ 	.name = "cpuset",
+ 	.create = cpuset_create,
+ 	.destroy = cpuset_destroy,
++	.allow_attach = cpuset_allow_attach,
+ 	.can_attach = cpuset_can_attach,
+ 	.can_attach_task = cpuset_can_attach_task,
+ 	.pre_attach = cpuset_pre_attach,

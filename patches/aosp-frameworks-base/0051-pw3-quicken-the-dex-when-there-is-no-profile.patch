@@ -1,0 +1,186 @@
+From: PW3 Android port
+Subject: [PW3] without a profile, ask for quicken rather than for all of it
+
+Patch 0047 has the applications in /data compiled from their own usage profile
+on the boot after a system update, and asks installd (frameworks/native patch
+0006) for a different filter where there is no profile to compile from. That
+filter was "speed", on the strength of Test V32: WeRead with no compiled code
+took over two minutes to reach its bookshelf and put up an "isn't responding"
+dialog.
+
+Neither half of that holds now.
+
+The measurement does not reproduce. Six paired rounds, the owner's own data,
+the page cache dropped before every start, nothing compiled inside the loop:
+
+  speed 37.1 s, quicken 41.0 s; paired difference +3.9 s, SD 3.4,
+  t = 2.77 (df 5), p = 0.04, 95% confidence interval +0.3 to +7.5 s
+
+and what the two cost to produce for WeRead 2.1.2 (70.4 MB of bytecode):
+1214 s and 176 MB for "speed", 60 to 93 s and 76 MB for "quicken". A fallback
+that spends twenty minutes of a device somebody has just updated and is waiting
+to use, for a few seconds of a start that is about forty seconds either way, is
+the wrong way round.
+
+And the reason to have a fallback at all is not the one that was written down
+here. "A profile filter with no profile compiles nothing" is about compiled
+methods only: kSpeedProfile has IsQuickeningCompilationEnabled() true
+(art/runtime/compiler_filter.cc), and a method ShouldCompileBasedOnProfile()
+turns down is still passed to MarkForDexToDexCompilation()
+(art/compiler/driver/compiler_driver.cc). The dex is quickened either way, so
+the application is not left with nothing.
+
+What the fallback buys is the time. Asking dex2oat to compile from a profile
+that is not there, measured on this device with WeRead: 147 s, for a
+1,057,192-byte odex and a 208,896-byte application image describing the classes
+of a profile that is empty. Asking for "quicken": 62 s, for a 1,057,192-byte
+odex and no application image. Same result, two and a half times the work.
+
+So the flag keeps its job, changes its answer, and says so in its name:
+DEXOPT_SPEED_IF_NO_PROFILE becomes DEXOPT_QUICKEN_IF_NO_PROFILE. The value is
+unchanged; this half is the declaration in frameworks/base and its callers, and
+frameworks/native patch 0008 is the other half.
+
+--- a/services/core/java/com/android/server/pm/dex/DexoptOptions.java
++++ b/services/core/java/com/android/server/pm/dex/DexoptOptions.java
+@@ -56,9 +56,9 @@
+     // actually shared at runtime.
+     public static final int DEXOPT_AS_SHARED_LIBRARY = 1 << 6;
+ 
+-    // PW3: when set, a compiler filter that compiles from a usage profile compiles
+-    // everything instead if there is no profile, rather than compiling nothing.
+-    public static final int DEXOPT_SPEED_IF_NO_PROFILE = 1 << 7;
++    // PW3: when set, a compiler filter that compiles from a usage profile quickens
++    // the dex instead if there is no profile, rather than compiling nothing.
++    public static final int DEXOPT_QUICKEN_IF_NO_PROFILE = 1 << 7;
+ 
+     // The name of package to optimize.
+     private final String mPackageName;
+@@ -91,7 +91,7 @@
+                 DEXOPT_ONLY_SHARED_DEX |
+                 DEXOPT_DOWNGRADE |
+                 DEXOPT_AS_SHARED_LIBRARY |
+-                DEXOPT_SPEED_IF_NO_PROFILE;
++                DEXOPT_QUICKEN_IF_NO_PROFILE;
+         if ((flags & (~validityMask)) != 0) {
+             throw new IllegalArgumentException("Invalid flags : " + Integer.toHexString(flags));
+         }
+@@ -122,9 +122,9 @@
+         return (mFlags & DEXOPT_BOOT_COMPLETE) != 0;
+     }
+ 
+-    /** PW3: see DEXOPT_SPEED_IF_NO_PROFILE. */
+-    public boolean isSpeedIfNoProfile() {
+-        return (mFlags & DEXOPT_SPEED_IF_NO_PROFILE) != 0;
++    /** PW3: see DEXOPT_QUICKEN_IF_NO_PROFILE. */
++    public boolean isQuickenIfNoProfile() {
++        return (mFlags & DEXOPT_QUICKEN_IF_NO_PROFILE) != 0;
+     }
+ 
+     public boolean isDexoptOnlySecondaryDex() {
+--- a/services/core/java/com/android/server/pm/PackageDexOptimizer.java
++++ b/services/core/java/com/android/server/pm/PackageDexOptimizer.java
+@@ -53,7 +53,7 @@
+ import static com.android.server.pm.Installer.DEXOPT_FORCE;
+ import static com.android.server.pm.Installer.DEXOPT_STORAGE_CE;
+ import static com.android.server.pm.Installer.DEXOPT_STORAGE_DE;
+-import static com.android.server.pm.Installer.DEXOPT_SPEED_IF_NO_PROFILE;
++import static com.android.server.pm.Installer.DEXOPT_QUICKEN_IF_NO_PROFILE;
+ import static com.android.server.pm.InstructionSets.getAppDexInstructionSets;
+ import static com.android.server.pm.InstructionSets.getDexCodeInstructionSets;
+ 
+@@ -199,7 +199,7 @@
+             // Get the dexopt flags after getRealCompilerFilter to make sure we get the correct
+             // flags.
+             final int dexoptFlags = getDexFlags(pkg, compilerFilter, options.isBootComplete(),
+-                    options.isSpeedIfNoProfile());
++                    options.isQuickenIfNoProfile());
+ 
+             for (String dexCodeIsa : dexCodeInstructionSets) {
+                 int newResult = dexOptPath(pkg, path, dexCodeIsa, compilerFilter,
+@@ -339,7 +339,7 @@
+         // Get the dexopt flags after getRealCompilerFilter to make sure we get the correct flags.
+         // Secondary dex files are currently not compiled at boot.
+         int dexoptFlags = getDexFlags(info, compilerFilter, /* bootComplete */ true,
+-                /* speedIfNoProfile */ false)
++                /* quickenIfNoProfile */ false)
+                 | DEXOPT_SECONDARY_DEX;
+         // Check the app storage and add the appropriate flags.
+         if (info.deviceProtectedDataDir != null &&
+@@ -476,12 +476,12 @@
+      * filter.
+      */
+     private int getDexFlags(PackageParser.Package pkg, String compilerFilter,
+-            boolean bootComplete, boolean speedIfNoProfile) {
+-        return getDexFlags(pkg.applicationInfo, compilerFilter, bootComplete, speedIfNoProfile);
++            boolean bootComplete, boolean quickenIfNoProfile) {
++        return getDexFlags(pkg.applicationInfo, compilerFilter, bootComplete, quickenIfNoProfile);
+     }
+ 
+     private int getDexFlags(ApplicationInfo info, String compilerFilter, boolean bootComplete,
+-            boolean speedIfNoProfile) {
++            boolean quickenIfNoProfile) {
+         int flags = info.flags;
+         boolean debuggable = (flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+         // Profile guide compiled oat files should not be public.
+@@ -495,7 +495,7 @@
+                 | (bootComplete ? DEXOPT_BOOTCOMPLETE : 0)
+                 // PW3: only where the filter needs a profile is there anything to fall
+                 // back from.
+-                | (speedIfNoProfile && isProfileGuidedFilter ? DEXOPT_SPEED_IF_NO_PROFILE : 0);
++                | (quickenIfNoProfile && isProfileGuidedFilter ? DEXOPT_QUICKEN_IF_NO_PROFILE : 0);
+         return adjustDexoptFlags(dexFlags);
+     }
+ 
+--- a/services/core/java/com/android/server/pm/Installer.java
++++ b/services/core/java/com/android/server/pm/Installer.java
+@@ -56,8 +56,8 @@
+     public static final int DEXOPT_STORAGE_CE     = 1 << 7;
+     /** Indicates that the dex file passed to dexopt in on DE storage. */
+     public static final int DEXOPT_STORAGE_DE     = 1 << 8;
+-    /** PW3: compile with "speed" if the profile the filter asks for does not exist */
+-    public static final int DEXOPT_SPEED_IF_NO_PROFILE = 1 << 9;
++    /** PW3: compile with "quicken" if the profile the filter asks for does not exist */
++    public static final int DEXOPT_QUICKEN_IF_NO_PROFILE = 1 << 9;
+ 
+     // NOTE: keep in sync with installd
+     public static final int FLAG_CLEAR_CACHE_ONLY = 1 << 8;
+--- a/services/core/java/com/android/server/pm/PackageManagerService.java
++++ b/services/core/java/com/android/server/pm/PackageManagerService.java
+@@ -9976,15 +9976,18 @@
+                 // code in /system was compiled for this boot image.
+                 //
+                 // The filter is pm.dexopt.ab-ota ("speed-profile"), the one AOSP uses
+-                // when a new system means everything has to be compiled again, and not
+-                // pm.dexopt.install ("speed", every method) which is for an application
+-                // that has never run. (This device has no A/B update; the reason is
+-                // named for how AOSP delivers one, and describes exactly this moment.) Measured with WeRead and the profile of eight days'
+-                // reading (Test V52): 181 s to compile instead of 1410 s, 75 MB of
+-                // compiled code instead of 180 MB, and a cold start of 15.8 s instead of
+-                // 17.0 s. An application with no profile yet is compiled with "speed" by
+-                // installd (DEXOPT_SPEED_IF_NO_PROFILE): a filter that compiles from a
+-                // profile, with no profile, compiles nothing at all.
++                // when a new system means everything has to be compiled again. (This
++                // device has no A/B update; the reason is named for how AOSP delivers
++                // one, and describes exactly this moment.) Measured with WeRead and a
++                // profile: 159 s to compile and 78 MB of compiled code, against 1214 s
++                // and 176 MB for "speed" (2026-10-21).
++                // An application with no profile yet is asked for "quicken" instead,
++                // by installd (DEXOPT_QUICKEN_IF_NO_PROFILE): a filter that compiles
++                // from a profile, with no profile, compiles no method but quickens the
++                // dex all the same, so asking for the absent profile only spends 147 s
++                // where quicken spends 62 s for the same odex. Compiling everything
++                // takes 1214 s, and six paired rounds put the cold start that buys
++                // 3.9 s away (95% CI 0.3 to 7.5 s) -- not twenty minutes of waiting.
+                 pkgCompilerFilter = getCompilerFilterForReason(REASON_AB_OTA);
+             }
+             if (useProfileForDexopt) {
+@@ -10008,7 +10011,7 @@
+                 // for a recompilation, and then a boot where nothing else had to be
+                 // compiled would spend three minutes compiling. What dex2oat reads here
+                 // is the reference profile as the idle-and-charging job last left it.
+-                dexoptFlags |= DexoptOptions.DEXOPT_SPEED_IF_NO_PROFILE;
++                dexoptFlags |= DexoptOptions.DEXOPT_QUICKEN_IF_NO_PROFILE;
+             }
+             int primaryDexOptStaus = performDexOptTraced(new DexoptOptions(
+                     pkg.packageName,

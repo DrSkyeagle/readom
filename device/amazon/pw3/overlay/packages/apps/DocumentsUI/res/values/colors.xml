@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- PW3: Files in the e-paper colours (docs/design/eink-ui.md, rules 1 and 2). On the device
+     (Test V40) it had a Blue 700 toolbar the width of the screen with white text, over a grey
+     241 page that the panel cannot tell from white. Now: white page and toolbar (styles.xml),
+     and black where AOSP uses blue: the text and fill of the bottom buttons, the selected
+     location in the side panel, the tint of a selected item in the grid, the cursor and the
+     selection handles in the toolbar's search box (white or light blue on a white toolbar).
+     The selected location is also the toolbar's title, so its colour is not the only cue. -->
+<resources>
+    <color name="window_background">#ffffffff</color>
+    <color name="drawer_background">#ffffffff</color>
+    <color name="directory_background">#ffffffff</color>
+    <color name="primary">#ff000000</color>
+    <color name="accent">#ff000000</color>
+    <color name="text_cursor">#ff000000</color>
+    <color name="text_handle">#ff000000</color>
+    <color name="root_activated_color">#ff000000</color>
+    <color name="item_grid_tint">#ff000000</color>
+</resources>

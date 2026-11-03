@@ -1,0 +1,91 @@
+From: PW3 Android port
+Subject: [PW3] An application that has not drawn yet is not an application that
+ has gone away
+
+Patch 0069 was run on the device the hour it was written (2026-11-03,
+eng.builde.20261103.020021) and it did nothing. Both arms of its own comparison
+-- the behaviour before it, and the behaviour with it -- were the same black
+screen, and mHeldOverClosingApps never appeared in a dump.
+
+The lever it shipped for reaching the branch worked:
+debug.pw3.app_transition_timeout_ms brought the deadline down to 2 s, and at
+2.3 s dumpsys showed the previous screen already gone
+(com.android.launcher3 isOnScreen=false) with no window for the incoming
+application in the list at all. So the branch was reached and the hold was not
+kept.
+
+The cause is one line of 0069:
+
+    gone &= wtoken.findMainWindow() == null;
+
+That is "this application has no window", which is true of an application that
+has lost its windows and equally true of one that has not made them yet -- and
+the second is exactly the application a hold is taken for. So the hold was taken
+at the deadline and dropped as "gone" on the very next surface placement, before
+anything could be seen. The screen was then hidden by the ordinary path, which
+is why it looked like the patch was not in the image.
+
+What is asked instead is whether the window manager still has the token:
+removed, mIsExiting, or no display content. All three are set when an activity
+really goes away, and none of them is set by an activity that is merely slow,
+which is the distinction that was missing.
+
+The second change is why this took a rebuild to find rather than a line of log.
+0069 added no log at all, so what the device had to say about it was a
+screenshot and a dump of a set that is only printed when it is not empty -- that
+is, the evidence for "it held" and the evidence for "it held and let go
+immediately" were the same evidence. Two Slog.i lines are added: one where the
+hold is taken, naming how many screens are kept and how many applications are
+waited for, and one where it is let go, saying which of the two reasons applied.
+A transition that misses its deadline is rare enough that this is not a log that
+repeats.
+
+Not run on the device yet when this patch was written.
+
+--- a/services/core/java/com/android/server/wm/WindowSurfacePlacer.java
++++ b/services/core/java/com/android/server/wm/WindowSurfacePlacer.java
+@@ -557,6 +557,9 @@
+                 return false;
+             }
+         }
++        Slog.i(TAG, "PW3: the deadline passed with nothing to show; keeping "
++                + mService.mClosingApps.size() + " screen(s) until "
++                + mService.mOpeningApps.size() + " application(s) draw");
+         return true;
+     }
+ 
+@@ -564,6 +567,19 @@
+         return wtoken.allDrawn || wtoken.startingDisplayed;
+     }
+ 
++    /* Has this application gone away, as opposed to not having drawn yet?
++     *
++     * Patch 0069 asked findMainWindow() == null, which is true of both, and an
++     * application that has not made its window yet is exactly the one the hold
++     * is for: on the device (2026-11-03) the hold was taken at the deadline and
++     * dropped on the very next surface placement as "gone", so the previous
++     * screen was never kept and the arm with the patch looked the same as the
++     * arm without it. What is asked instead is whether the window manager still
++     * has the token at all. */
++    private static boolean isGone(AppWindowToken wtoken) {
++        return wtoken.removed || wtoken.mIsExiting || wtoken.getDisplayContent() == null;
++    }
++
+     /* Let go of the applications held on the screen past a deadline.
+      *
+      * Released -- hidden for real -- on the first surface placement in which
+@@ -588,11 +604,13 @@
+         for (int i = 0; i < waitingCount; i++) {
+             final AppWindowToken wtoken = mService.mHeldOverOpeningApps.valueAt(i);
+             drawn &= hasSomethingOnScreen(wtoken);
+-            gone &= wtoken.findMainWindow() == null;
++            gone &= isGone(wtoken);
+         }
+         if (!drawn && !gone) {
+             return;
+         }
++        Slog.i(TAG, "PW3: letting go of " + mService.mHeldOverClosingApps.size()
++                + " held screen(s): " + (drawn ? "the application drew" : "the application went away"));
+         if (drawn) {
+             for (int i = mService.mHeldOverClosingApps.size() - 1; i >= 0; i--) {
+                 final AppWindowToken wtoken = mService.mHeldOverClosingApps.valueAt(i);

@@ -1,0 +1,30 @@
+From: PW3 Android port
+Subject: [PW3] WindowManager: no rotation screenshot when the transition
+ scale is 0
+
+When the display rotates, WindowManager freezes it and covers it with a
+screenshot, from which the rotation animation starts. SurfaceFlinger composes
+that screenshot with GLES: on SwiftShader one capture took about 5 s of CPU
+(PW3 Android, Test V48, screencap), so an app that asks for landscape froze
+the device for several seconds on the way in and out. With a transition scale
+of 0 nothing animates from the screenshot. The freeze itself stays (input is
+held until the windows have redrawn); the rotation completes the way it does
+on displays other than the default one, which never get a screenshot.
+
+--- a/services/core/java/com/android/server/wm/WindowManagerService.java
++++ b/services/core/java/com/android/server/wm/WindowManagerService.java
+@@ -6111,7 +6111,13 @@
+         }
+ 
+         // TODO(multidisplay): rotation on non-default displays
+-        if (CUSTOM_SCREEN_ROTATION && displayContent.isDefaultDisplay) {
++        // PW3: with a transition scale of 0 there is no rotation animation to
++        // start from a screenshot, and taking it costs: SurfaceFlinger
++        // composes it with GLES, on SwiftShader about 5 s of CPU (PW3 Android,
++        // Test V48). The rotation then completes as on a display other than
++        // the default one, without a screenshot (stopFreezingDisplayLocked).
++        if (CUSTOM_SCREEN_ROTATION && displayContent.isDefaultDisplay
++                && getTransitionAnimationScaleLocked() != 0) {
+             mExitAnimId = exitAnim;
+             mEnterAnimId = enterAnim;
+             ScreenRotationAnimation screenRotationAnimation =

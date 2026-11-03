@@ -1,0 +1,12 @@
+--- a/compat-wireless/net/wireless/nl80211.c
++++ b/compat-wireless/net/wireless/nl80211.c
+@@ -1485,6 +1485,9 @@
+ 	NLA_PUT_U32(msg, NL80211_ATTR_WIPHY, rdev->wiphy_idx);
+ 	NLA_PUT_STRING(msg, NL80211_ATTR_IFNAME, dev->name);
+ 	NLA_PUT_U32(msg, NL80211_ATTR_IFTYPE, dev->ieee80211_ptr->iftype);
++	/* As mainline does since 3.6; Android 8.1 wificond ignores an
++	 * interface that is reported without its address. */
++	NLA_PUT(msg, NL80211_ATTR_MAC, ETH_ALEN, dev->dev_addr);
+ 
+ 	NLA_PUT_U32(msg, NL80211_ATTR_GENERATION,
+ 		    rdev->devlist_generation ^

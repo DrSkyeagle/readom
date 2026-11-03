@@ -1,0 +1,62 @@
+From: PW3 Android port
+Subject: [PW3] RescueParty: restart instead of wiping on a device whose
+ recovery is another system
+
+When system_server crashes five times in five minutes, RescueParty escalates:
+it resets settings, and at its last level wipes the user's data. On PW3 Android
+Test V50, where a bug of this port crashed system_server every 14 seconds, it
+reached that level 44 times in 18 minutes. The data survived only because this
+device has no /misc partition and no recovery to reboot into ("uncrypt failed
+with status: -1", "Reboot failed (no permissions?)") - by accident, not by
+design.
+
+A wipe is the wrong answer here in any case. This Android runs from a file in
+the Kindle's own storage, started from its library; restarting leaves Android
+and lands in the stock system, where the same install can be repeated or an
+older one put back. The data the wipe would destroy is the user's books and
+accounts, and what broke is a system image that the wipe does not touch.
+
+With ro.rescue_party.no_wipe set, the last level restarts the device instead.
+The settings levels before it are unchanged: a bad persisted setting is still
+worth resetting, and that costs the user nothing.
+
+--- a/services/core/java/com/android/server/RescueParty.java
++++ b/services/core/java/com/android/server/RescueParty.java
+@@ -21,6 +21,7 @@
+ import android.os.Build;
+ import android.os.Environment;
+ import android.os.FileUtils;
++import android.os.PowerManager;
+ import android.os.RecoverySystem;
+ import android.os.SystemClock;
+ import android.os.SystemProperties;
+@@ -56,6 +57,8 @@
+     private static final String PROP_RESCUE_BOOT_COUNT = "sys.rescue_boot_count";
+     private static final String PROP_RESCUE_BOOT_START = "sys.rescue_boot_start";
+     private static final String PROP_VIRTUAL_DEVICE = "ro.hardware.virtual_device";
++    /** Set by a device that has no recovery to wipe with, and another system to return to. */
++    private static final String PROP_NO_WIPE = "ro.rescue_party.no_wipe";
+ 
+     private static final int LEVEL_NONE = 0;
+     private static final int LEVEL_RESET_SETTINGS_UNTRUSTED_DEFAULTS = 1;
+@@ -188,7 +191,19 @@
+                 resetAllSettings(context, Settings.RESET_MODE_TRUSTED_DEFAULTS);
+                 break;
+             case LEVEL_FACTORY_RESET:
+-                RecoverySystem.rebootPromptAndWipeUserData(context, TAG);
++                if (SystemProperties.getBoolean(PROP_NO_WIPE, false)) {
++                    // A device whose recovery is another system on the same
++                    // flash: restarting leaves Android and lands there, where
++                    // the install can be repeated or rolled back. Wiping the
++                    // user's data would destroy what is still good to fix what
++                    // a new system image broke, and there is no recovery
++                    // partition to wipe with in the first place.
++                    Slog.w(TAG, "Restarting instead of wiping user data");
++                    context.getSystemService(PowerManager.class)
++                            .reboot("rescue-party-no-wipe");
++                } else {
++                    RecoverySystem.rebootPromptAndWipeUserData(context, TAG);
++                }
+                 break;
+         }
+     }

@@ -1,0 +1,245 @@
+--- a/drivers/video/mxc/mxc_epdc_fb.c
++++ b/drivers/video/mxc/mxc_epdc_fb.c
+@@ -5996,7 +5996,7 @@
+ 	size_t temp_wfm_buf_len = 0;
+ 	unsigned char *temp_wfm_buf;
+ #ifdef CONFIG_LAB126_ANDROID_EPDC
+-	size_t android_vc_offset = 0, android_vc_length = 0;
++	struct android_wf_view android_waveform;
+ 	fb_data->android_waveform_verified = false;
+ 	/* The private packer emits a canonical gzip without optional name fields. */
+ 	if (fw->size < 18 || fw->data[0] != 0x1f || fw->data[1] != 0x8b ||
+@@ -6020,15 +6020,16 @@
+ 	}
+ 
+ #ifdef CONFIG_LAB126_ANDROID_EPDC
+-	ret = android_wf_layout(temp_wfm_buf, temp_wfm_buf_len,
+-				&android_vc_offset, &android_vc_length);
++	ret = android_wf_container(temp_wfm_buf, temp_wfm_buf_len, &android_waveform);
+ 	if (ret)
+ 		goto error;
+-	ret = android_wf_matches_panel(temp_wfm_buf, temp_wfm_buf_len);
++	ret = android_wf_matches_panel(android_waveform.wbf, android_waveform.wbf_length);
+ 	if (ret)
+ 		goto error;
++	wv_file = (struct mxcfb_waveform_data_file *)android_waveform.wrf;
++#else
++	wv_file = (struct mxcfb_waveform_data_file *)temp_wfm_buf;
+ #endif
+-	wv_file = (struct mxcfb_waveform_data_file *)temp_wfm_buf;
+ 
+ 	fb_data->temp_range_bounds = NULL;
+ 	fb_data->waveform_buffer_virt = NULL;
+@@ -6054,7 +6055,11 @@
+ 
+ 	/* Get offset and size for waveform data */
+ 	wv_data_offs = sizeof(wv_file->wdh) + fb_data->trt_entries + 1;
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	fb_data->waveform_buffer_size = android_waveform.wrf_length - wv_data_offs;
++#else
+ 	fb_data->waveform_buffer_size = temp_wfm_buf_len - wv_data_offs;
++#endif
+ 
+ 	/* Allocate memory for waveform data */
+ 	fb_data->waveform_buffer_virt = dma_alloc_coherent(fb_data->dev,
+@@ -6067,8 +6072,13 @@
+ 		goto error;
+ 	}
+ 
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	memcpy(fb_data->waveform_buffer_virt, android_waveform.wrf + wv_data_offs,
++		fb_data->waveform_buffer_size);
++#else
+ 	memcpy(fb_data->waveform_buffer_virt, (u8 *)(temp_wfm_buf) + wv_data_offs,
+ 		fb_data->waveform_buffer_size);
++#endif
+ 
+ 	/* Read field to determine if 4-bit or 5-bit mode */
+ 	if ((wv_file->wdh.luts & 0xC) == 0x4) {
+@@ -6087,21 +6097,25 @@
+ 		goto error;
+ 	}
+ 	fb_data->wv_header_size = wv_data_offs;
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	memcpy(fb_data->wv_header, android_waveform.wrf, wv_data_offs);
++#else
+ 	memcpy(fb_data->wv_header, temp_wfm_buf, wv_data_offs);
++#endif
+ #endif
+ 
+ 	// 2nd gen waveform firmware file */
+ 	fb_data->waveform_vcd_buffer = NULL;
+ #ifdef CONFIG_LAB126_ANDROID_EPDC
+ 	/* The legacy helper does unchecked offsets and allocation; use bounded data. */
+-	if (android_vc_length) {
+-		fb_data->waveform_vcd_buffer = kmalloc(android_vc_length, GFP_KERNEL);
++	if (android_waveform.vc_length) {
++		fb_data->waveform_vcd_buffer = kmalloc(android_waveform.vc_length, GFP_KERNEL);
+ 		if (!fb_data->waveform_vcd_buffer) {
+ 			ret = -ENOMEM;
+ 			goto error;
+ 		}
+-		memcpy(fb_data->waveform_vcd_buffer, temp_wfm_buf + android_vc_offset,
+-		       android_vc_length);
++		memcpy(fb_data->waveform_vcd_buffer, android_waveform.wrf + android_waveform.vc_offset,
++		       android_waveform.vc_length);
+ 	}
+ 	fb_data->waveform_mc = wv_file->wdh.mc + 1;
+ 	fb_data->waveform_trc = wv_file->wdh.trc + 1;
+@@ -6185,7 +6199,7 @@
+ 
+ #ifdef CONFIG_LAB126_ANDROID_EPDC
+ 	/* A fixed relative name is resolved by Android ueventd under /vendor/firmware. */
+-	strcpy(fb_data->fw_str, "epdc/pw3/waveform.wbf.gz");
++	strcpy(fb_data->fw_str, "epdc/pw3/waveform.pw3.gz");
+ 	wfm_using_builtin = false;
+ 	ret = request_firmware(&fw, fb_data->fw_str, fb_data->dev);
+ 	if (ret)
+--- a/drivers/video/mxc/mxc_epdc_fb_android.h
++++ b/drivers/video/mxc/mxc_epdc_fb_android.h
+@@ -1,5 +1,20 @@
+-/* Android PW3 policy. Included by mxc_epdc_fb.c after the Lab126 helpers. */
++/* Private WBF/WRF envelope. CRCs detect corruption; they are not signatures. */
+ #ifdef CONFIG_LAB126_ANDROID_EPDC
++#define ANDROID_WF_ENVELOPE_SIZE 64
++struct android_wf_view {
++	u8 *wbf;
++	size_t wbf_length;
++	u8 *wrf;
++	size_t wrf_length;
++	size_t vc_offset;
++	size_t vc_length;
++};
++
++static u32 android_wf_le32(const u8 *p)
++{
++	return (u32)p[0] | ((u32)p[1] << 8) | ((u32)p[2] << 16) | ((u32)p[3] << 24);
++}
++
+ static u64 android_wf_le64(const u8 *p)
+ {
+ 	u64 value = 0;
+@@ -9,41 +24,48 @@
+ 	return value;
+ }
+ 
+-/* Only versions with an explicit production table in this source are allowed. */
+-static int android_wf_layout(u8 *data, size_t length, size_t *vc_offset,
+-			     size_t *vc_length)
++/* WRF preserves the WBF header/TRT, but its payload is converted for EPDC. */
++static int android_wrf_layout(struct android_wf_view *view)
+ {
+-	struct waveform_data_header *h = (struct waveform_data_header *)data;
++	struct waveform_data_header *h = (struct waveform_data_header *)view->wbf;
+ 	size_t off, bytes, modes, temps, entries, i, j;
+-	u64 start, end;
++	u64 start, end, pointer;
+ 	u8 *payload;
+-	*vc_offset = *vc_length = 0;
+-	if (sizeof(*h) != WFM_HDR_SIZE || length < WFM_HDR_SIZE ||
+-	    !android_wf_header_valid(h) || h->file_length != length)
++	view->vc_offset = view->vc_length = 0;
++	if (sizeof(*h) != WFM_HDR_SIZE || view->wbf_length < WFM_HDR_SIZE ||
++	    !android_wf_header_valid(h) || h->file_length != view->wbf_length)
+ 		return -EINVAL;
+-	if (eink_get_computed_waveform_checksum(data) != h->checksum)
++	if (eink_get_computed_waveform_checksum(view->wbf) != h->checksum)
+ 		return -EBADMSG;
+ 	modes = h->mc + 1;
+ 	temps = h->trc + 1;
+ 	off = WFM_HDR_SIZE + temps + 1;
+-	if (off >= length || modes < 3 || temps < 2 || h->advanced_wfm_flags > 3)
++	if (off >= view->wbf_length || off >= view->wrf_length ||
++	    modes < 3 || temps < 2 || h->advanced_wfm_flags > 3)
+ 		return -EINVAL;
+-	/* Preserve the original TRT bytes and its existing temperature lookup ABI. */
+-	bytes = length - off;
+-	payload = data + off;
+-	entries = modes;
+-	if (h->advanced_wfm_flags == 1 || h->advanced_wfm_flags == 3)
+-		entries = modes + 2;
++	if (memcmp(view->wbf, view->wrf, off))
++		return -EXDEV;
++	bytes = view->wrf_length - off;
++	payload = view->wrf + off;
++	/* The legacy name helper dereferences this final pointer unconditionally. */
++	entries = modes + h->advanced_wfm_flags + 1;
+ 	if (entries > bytes / 8)
+ 		return -EINVAL;
+-	/* The EPDC-owned waveform encoding is copied unchanged and checked against
+-	 * every physical panel byte. Bound only the offsets dereferenced by this CPU.
++	for (i = 0; i < entries; ++i) {
++		pointer = android_wf_le64(payload + i * 8);
++		if (pointer < entries * 8 || pointer >= bytes)
++			return -EINVAL;
++	}
++	pointer = android_wf_le64(payload + (entries - 1) * 8);
++	if (payload[pointer] > bytes - (size_t)pointer - 1)
++		return -EINVAL;
++	/* Bound every voltage-control record accessed by the CPU. The EPDC
++	 * waveform instruction encoding is copied unchanged, not guessed here.
+ 	 */
+ 	if (h->advanced_wfm_flags == 1 || h->advanced_wfm_flags == 3) {
+ 		start = android_wf_le64(payload + modes * 8);
+ 		end = android_wf_le64(payload + (modes + 1) * 8);
+-		if (start < entries * 8 || start >= end || end > bytes ||
+-		    end - start < modes * temps * sizeof(struct epd_vc_data))
++		if (start >= end || end - start < modes * temps * sizeof(struct epd_vc_data))
+ 			return -EINVAL;
+ 		for (i = 0; i < modes * temps; ++i) {
+ 			u8 sum = 0;
+@@ -53,13 +75,51 @@
+ 			if (sum != record[sizeof(struct epd_vc_data) - 1])
+ 				return -EBADMSG;
+ 		}
+-		*vc_offset = off + (size_t)start;
+-		*vc_length = (size_t)(end - start);
++		view->vc_offset = off + (size_t)start;
++		view->vc_length = (size_t)(end - start);
+ 	}
+ 	return 0;
+ }
+ 
+-/* Compare all bytes with this physical panel, before any EPDC waveform DMA. */
++static int android_wf_container(u8 *data, size_t length, struct android_wf_view *view)
++{
++	static const u8 magic[8] = {'P', 'W', '3', 'W', 'F', 'P', '1', 0};
++	u8 header[ANDROID_WF_ENVELOPE_SIZE];
++	size_t raw_length, wrf_length, wrf_offset, i;
++	memset(view, 0, sizeof(*view));
++	if (length < ANDROID_WF_ENVELOPE_SIZE || length > WFM_TEMP_BUF_LEN ||
++	    memcmp(data, magic, sizeof(magic)) || android_wf_le32(data + 8) != 1 ||
++	    android_wf_le32(data + 12) != ANDROID_WF_ENVELOPE_SIZE)
++		return -EINVAL;
++	for (i = 40; i < ANDROID_WF_ENVELOPE_SIZE; ++i)
++		if (data[i])
++			return -EINVAL;
++	memcpy(header, data, sizeof(header));
++	memset(header + 36, 0, 4);
++	if (crc32(header, sizeof(header)) != android_wf_le32(data + 36))
++		return -EBADMSG;
++	raw_length = android_wf_le32(data + 16);
++	wrf_length = android_wf_le32(data + 20);
++	wrf_offset = android_wf_le32(data + 24);
++	if (raw_length <= WFM_HDR_SIZE || raw_length > 0x70000 - DEFAULT_WFM_ADDR ||
++	    wrf_length <= WFM_HDR_SIZE ||
++	    wrf_offset != ANDROID_WF_ENVELOPE_SIZE + ((raw_length + 7) & ~(size_t)7) ||
++	    wrf_offset > length || wrf_length != length - wrf_offset)
++		return -EINVAL;
++	for (i = ANDROID_WF_ENVELOPE_SIZE + raw_length; i < wrf_offset; ++i)
++		if (data[i])
++			return -EINVAL;
++	view->wbf = data + ANDROID_WF_ENVELOPE_SIZE;
++	view->wbf_length = raw_length;
++	view->wrf = data + wrf_offset;
++	view->wrf_length = wrf_length;
++	if (crc32(view->wbf, raw_length) != android_wf_le32(data + 28) ||
++	    crc32(view->wrf, wrf_length) != android_wf_le32(data + 32))
++		return -EBADMSG;
++	return android_wrf_layout(view);
++}
++
++/* Compare original WBF bytes with physical flash before loading the WRF into DMA. */
+ static int android_wf_matches_panel(const u8 *data, size_t length)
+ {
+ 	struct panel_info *panel;

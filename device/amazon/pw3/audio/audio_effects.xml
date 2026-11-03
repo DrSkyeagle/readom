@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Audio effects of this device: none. The effects factory reads this file
+     first and the older audio_effects.conf after it, and logged an error for
+     each when neither was there. A reader with no speaker and no microphone
+     has nothing to post-process and nothing to pre-process, and no effect
+     library is built for it: an effect named here without its library would
+     be another error. -->
+<audio_effects_conf version="2.0" xmlns="http://schemas.android.com/audio/audio_effects_conf/v2_0">
+    <libraries/>
+    <effects/>
+</audio_effects_conf>

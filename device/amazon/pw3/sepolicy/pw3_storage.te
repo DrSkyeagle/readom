@@ -1,0 +1,28 @@
+# init's symlink builtin does not perform a file_contexts lookup. Label the
+# standard /mnt/sdcard link at creation; existing storage_file permissions
+# suffice, without granting init generic tmpfs symlink creation.
+type_transition init tmpfs:lnk_file storage_file "sdcard";
+
+# Four rules for a pre-init that opened loop backing nodes went on 2026-10-29,
+# with the two device types they named, the ramfs superblock SID in
+# sepolicy-public and BOARD_PLAT_PUBLIC_SEPOLICY_DIR. This port has mapped the
+# images with device-mapper since, so the reasoning said they were dead -- and
+# reasoning is not evidence when being wrong means a device that will not boot.
+# So the kernel was asked, on a userdebug image whose loaded policy was read
+# back with sesearch to confirm the audit was really in it: a full boot and a
+# round of ordinary use (sleep and wake, reading, MTP, installing an APK, the
+# background re-check) produced no "avc: granted" at all, while "avc: denied"
+# records from the same path came through, so the channel was live.
+#
+# What the removal rests on is the block layer rather than that silence. The
+# table is parsed by major:minor (dm-table.c), and dm-linear remaps every bio
+# onto the parent device (dm-linear.c: bio->bi_bdev = lc->dev->bdev), so once
+# pre-init has set the table there is no open file left on an early node, and
+# nothing writes through the FAT filesystem: the sectors dm-2 and dm-3 write
+# lie inside the image file's extents, which is not a vfat:file write. Note
+# what is *not* evidence: today's /dev carries neither type, but pre-init
+# mknods those nodes on its own tmpfs (PreInit.c, node_from_sysfs) and AOSP
+# init mounts a new /dev over them, so their absence now says nothing about
+# whether they existed. If a loop-backed path ever returns, these rules return
+# with it -- such an inode falls back to tmpfs, and kernel has no read on
+# tmpfs:blk_file.

@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Notes for entries whose comment stays AOSP's own: aapt2 copies the comment
+    above an entry into com.android.internal.R as Javadoc, so a different one
+    would change framework.jar and the boot image.
+
+    config_ntpServer: time.android.com does not answer from mainland China
+    (0 of 3 from the PW3's own network, Test V47), and Android 8.1 asks one
+    server only. time.cloudflare.com answered 3 of 3 there (216 ms); it is a
+    free service for any device, anycast worldwide.
+
+    config_networkTransitionTimeout: after the default network goes, Android
+    holds a wake lock until another network connects or this time ends. Wi-Fi
+    is the only network here: switched off with the screen, nothing replaces
+    it, and the system stayed awake the full 60 s (Test V47). A reconnect took
+    1.15-1.26 s, a fresh driver load about 2.2 s; 10 s covers both.
+-->
+<resources>
+    <!-- No physical audio device or microphone exists on this reader. -->
+    <bool name="config_useFixedVolume">true</bool>
+    <bool name="config_voice_capable">false</bool>
+    <bool name="config_supportMicNearUltrasound">false</bool>
+    <bool name="config_supportSpeakerNearUltrasound">false</bool>
+    <!-- The Hall driver reports SW_LID; Android must actually sleep on close. -->
+    <bool name="config_lidControlsSleep">true</bool>
+    <!-- PW3 has no physical Home, Back, or Recents keys. -->
+    <bool name="config_showNavigationBar">true</bool>
+    <bool name="config_automatic_brightness_available">false</bool>
+    <!-- The frontlight has the Kindle's 26 steps (lights/lights.c): 1..255 is
+         spread evenly over them, 0 is off. AOSP's lowest setting of 10 would
+         cut off the faintest step; 225 is step 22, the Kindle's own default. -->
+    <integer name="config_screenBrightnessSettingMinimum">1</integer>
+    <integer name="config_screenBrightnessSettingDefault">225</integer>
+    <bool name="config_dreamsSupported">false</bool>
+    <!-- This product provides STA only; reject AP/LOHS before stopping STA. -->
+    <bool name="config_wifi_softap_supported">false</bool>
+    <!-- Wi-Fi is the only network interface: no cellular modem, Bluetooth or
+         Ethernet. With the "mobile" types gone the framework reports the
+         device as Wi-Fi only, and the status bar, quick settings and
+         Settings drop their SIM, mobile-data and data-plan items. -->
+    <string-array translatable="false" name="networkAttributes">
+        <item>"wifi,1,1,1,-1,true"</item>
+    </string-array>
+    <string-array translatable="false" name="radioAttributes">
+        <item>"1,1"</item>
+    </string-array>
+    <bool name="config_sms_capable">false</bool>
+    <!-- Each redraw of a blinking cursor is a panel update, two a second for
+         as long as a field waits for input; the stock reader's cursor is
+         steady (frameworks/base patch 0016). -->
+    <bool name="config_textCursorBlinks">false</bool>
+    <!-- Internal storage is the system and data images, files on the Kindle's
+         FAT volume: Settings shows their sizes as they are, not rounded up to
+         a flash chip's (frameworks/base patch 0020). -->
+    <bool name="config_primaryStorageSizeExact">true</bool>
+    <!-- No camera: a double press of the power button opens nothing (and
+         Settings has no gesture to offer). -->
+    <bool name="config_cameraDoubleTapPowerGestureEnabled">false</bool>
+    <!-- Remote server that can provide NTP responses. -->
+    <string translatable="false" name="config_ntpServer">time.cloudflare.com</string>
+    <!-- The maximum duration (in milliseconds) we expect a network transition to take -->
+    <integer name="config_networkTransitionTimeout">10000</integer>
+</resources>

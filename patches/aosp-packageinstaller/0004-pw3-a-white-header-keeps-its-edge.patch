@@ -1,0 +1,143 @@
+From: PW3 Android port
+Subject: [PW3] PackageInstaller: a white header keeps its edge
+
+patches/aosp-frameworks-base/0062 makes colorPrimary white, which takes the
+grey 245 band (1072 x 95 px, measured on V86 on 2026-10-27) off the top of
+every install screen. What it does not do is give the header an edge, and on
+this device it never had one: the layouts set
+
+    android:elevation="@dimen/headerElevation"
+
+on the header and let Material's shadow mark where the chrome ends. This port
+draws every window in software (docs/design/performance.md), and software
+rendering draws no elevation shadow, so the only thing that ever separated the
+header from the content was a grey one panel level from white -- which rule 1
+of docs/design/eink-ui.md says is no separation at all.
+
+So the header keeps its lower edge, drawn as rule 3 asks: a 2 px black rule
+under the chrome's own white. Settings got the same treatment in
+patches/aosp-settings/0008, with the same drawable and the same values.
+
+One band per screen carries it -- the last one above the content, so that
+stacked bands are not ruled off from each other:
+
+  install_confirm.xml, install_success.xml, install_failed.xml,
+  install_installing.xml, install_staging.xml   the app_snippet header
+  install_confirm_perm.xml                      the question under the header
+  install_confirm_perm_update.xml               the tab strip under both
+
+The rule's white is ?android:attr/colorPrimary rather than a literal, so the
+band stays whatever the chrome colour is. Names are added in this application
+only, where adding one costs nothing: it is adding one to framework-res that
+moves every resource ID after it, and with them framework.jar and the ART boot
+image.
+
+--- a/res/layout/install_confirm.xml
++++ b/res/layout/install_confirm.xml
+@@ -21,7 +21,7 @@
+     android:orientation="vertical">
+ 
+     <LinearLayout android:id="@+id/app_snippet"
+-        android:background="?android:attr/colorPrimary"
++        android:background="@drawable/pw3_bottom_rule"
+         android:layout_width="match_parent"
+         android:layout_height="?android:attr/actionBarSize"
+         android:orientation="horizontal"
+--- a/res/layout/install_confirm_perm.xml
++++ b/res/layout/install_confirm_perm.xml
+@@ -54,7 +54,7 @@
+     <TextView android:id="@+id/install_confirm_question"
+         android:layout_width="match_parent"
+         android:layout_height="wrap_content"
+-        android:background="?android:attr/colorPrimary"
++        android:background="@drawable/pw3_bottom_rule"
+         android:textAppearance="?android:attr/textAppearanceMedium"
+         android:text="@string/install_confirm_question"
+         android:elevation="@dimen/headerElevation"
+--- a/res/layout/install_confirm_perm_update.xml
++++ b/res/layout/install_confirm_perm_update.xml
+@@ -75,7 +75,7 @@
+                 android:layout_height="match_parent">
+ 
+                 <HorizontalScrollView android:id="@+id/tabscontainer"
+-                    android:background="?android:attr/colorPrimary"
++                    android:background="@drawable/pw3_bottom_rule"
+                     android:layout_width="match_parent"
+                     android:layout_height="wrap_content"
+                     android:fillViewport="true"
+--- a/res/layout/install_success.xml
++++ b/res/layout/install_success.xml
+@@ -21,7 +21,7 @@
+         android:orientation="vertical">
+ 
+     <LinearLayout android:id="@+id/app_snippet"
+-            android:background="?android:attr/colorPrimary"
++            android:background="@drawable/pw3_bottom_rule"
+             android:layout_width="match_parent"
+             android:layout_height="?android:attr/actionBarSize"
+             android:orientation="horizontal"
+--- a/res/layout/install_failed.xml
++++ b/res/layout/install_failed.xml
+@@ -21,7 +21,7 @@
+         android:orientation="vertical">
+ 
+     <LinearLayout android:id="@+id/app_snippet"
+-            android:background="?android:attr/colorPrimary"
++            android:background="@drawable/pw3_bottom_rule"
+             android:layout_width="match_parent"
+             android:layout_height="?android:attr/actionBarSize"
+             android:orientation="horizontal"
+--- a/res/layout/install_installing.xml
++++ b/res/layout/install_installing.xml
+@@ -21,7 +21,7 @@
+         android:orientation="vertical">
+ 
+     <LinearLayout android:id="@+id/app_snippet"
+-            android:background="?android:attr/colorPrimary"
++            android:background="@drawable/pw3_bottom_rule"
+             android:layout_width="match_parent"
+             android:layout_height="?android:attr/actionBarSize"
+             android:orientation="horizontal"
+--- a/res/layout/install_staging.xml
++++ b/res/layout/install_staging.xml
+@@ -30,7 +30,7 @@
+     <LinearLayout android:id="@+id/app_snippet"
+             android:layout_width="match_parent"
+             android:layout_height="?android:attr/actionBarSize"
+-            android:background="?android:attr/colorPrimary"
++            android:background="@drawable/pw3_bottom_rule"
+             android:elevation="@dimen/headerElevation"
+             android:gravity="center_vertical"
+             android:orientation="horizontal">
+--- /dev/null
++++ b/res/values/pw3_eink.xml
+@@ -0,0 +1,8 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- PW3: the e-paper interface rules (docs/design/eink-ui.md) as this application
++     uses them. Settings, SystemUI and Launcher3 write the same values. -->
++<resources>
++    <color name="pw3_outline">#ff000000</color>
++    <!-- 2 px on PW3 (density 1.875, rounded to whole pixels). -->
++    <dimen name="pw3_outline_width">1dp</dimen>
++</resources>
+--- /dev/null
++++ b/res/drawable/pw3_bottom_rule.xml
+@@ -0,0 +1,18 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- PW3: a header band of the page's own white, with the rule that marks its
++     lower edge (docs/design/eink-ui.md). Material tells such a band from the
++     content below it with elevation, and software rendering draws no elevation
++     shadow at all, so without this the header has no edge; rule 3 marks it with
++     the outline instead. -->
++<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
++    <item>
++        <shape android:shape="rectangle">
++            <solid android:color="@color/pw3_outline" />
++        </shape>
++    </item>
++    <item android:bottom="@dimen/pw3_outline_width">
++        <shape android:shape="rectangle">
++            <solid android:color="?android:attr/colorPrimary" />
++        </shape>
++    </item>
++</layer-list>

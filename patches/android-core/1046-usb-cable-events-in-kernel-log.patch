@@ -1,0 +1,54 @@
+--- a/drivers/usb/gadget/arcotg_udc.c
++++ b/drivers/usb/gadget/arcotg_udc.c
+@@ -1518,6 +1518,13 @@
+ {
+ 	u32 usbcmd;
+ 
++	/* One line per call, with the vbus and cable lines below and in usb_dr.c: a
++	 * cable the host does not see can be traced from the kernel log alone (PW3
++	 * Android, Test V45: a cable put back was not seen, nothing in the log said why). */
++	printk(KERN_INFO "pw3-usb: pull-up %s: driver %d connect %d vbus %d session %d%s\n",
++	       can_pullup(udc) ? "on" : "off", udc->driver != NULL, udc->softconnect,
++	       udc->vbus_active, udc->dp_allowed,
++	       udc->stopped ? ", controller stopped" : "");
+ 	if (udc->stopped)
+ 		return;
+ 	usbcmd = fsl_readl(&dr_regs->usbcmd);
+@@ -2385,6 +2392,8 @@
+ 		tmp = fsl_readl(&dr_regs->usbcmd);
+ 		/* check BSV bit to see if fall or rise */
+ 		if (irq_src & OTGSC_B_SESSION_VALID) {
++			printk(KERN_INFO "pw3-usb: vbus on%s\n", udc->suspended ?
++			       ", controller suspended: left to its resume" : "");
+ 			if (udc->suspended) /*let the system pm resume the udc */
+ 				return true;
+ 			udc->vbus_active = true;
+@@ -2395,6 +2404,7 @@
+ 			imx_usb_vbus_connect(&udc->charger);
+ 			pr_debug( "%s: udc out low power mode\n", __func__);
+ 		} else {
++			printk(KERN_INFO "pw3-usb: vbus off\n");
+ 			udc->vbus_active = false;
+ 			__pm_relax(pw3_host_ws);
+ 			udc->dp_allowed = 0;
+--- a/arch/arm/mach-mx6/usb_dr.c
++++ b/arch/arm/mach-mx6/usb_dr.c
+@@ -172,6 +172,8 @@
+ 	lowpower = pdata->lowpower;
+ 	pdata->lowpower = 0;
+ 	spin_unlock_irqrestore(&pdata->lock, flags);
++	printk(KERN_INFO "pw3-usb: cable wakes the controller%s\n",
++	       lowpower ? "" : ": not in low power");
+ 	if (!lowpower)
+ 		return;
+ 	usbotg_clock_gate(true);
+@@ -322,6 +324,9 @@
+ static void arcotg_usb_force_detect(bool detect) {
+ 
+ 	mutex_lock(&udc_phy_force_mutex);
++	/* PW3 Android: see "pw3-usb" in arcotg_udc.c */
++	printk(KERN_INFO "pw3-usb: cable %s%s\n", detect ? "in" : "out",
++	       detect == detect_forced ? ", no change" : "");
+ 
+ 	if (detect != detect_forced) {
+ 		struct regulator *phyreg = regulator_get(NULL, "USB_GADGET_PHY");

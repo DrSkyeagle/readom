@@ -1,0 +1,878 @@
+{
+  "kernel": {
+    "publisher": "Amazon",
+    "source_url": "https://kindledownloads.s3.amazonaws.com/Kindle_src_5.16.2.1.1_4097470002.tar.gz",
+    "member": "gplrelease/linux-3.0.35.tar.gz",
+    "member_sha256": "fa89453deb9947700cbebde2e840230e69969549be2116a0a72331ac5d2fe6c9",
+    "defconfig": "imx60_wario_defconfig",
+    "firmware": "5.16.2.1.1",
+    "kernel_version": "3.0.35"
+  },
+  "cross_compiler": {
+    "publisher": "AOSP",
+    "repository": "https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9",
+    "revision": "0390252b6bcc6217966ade31d07f8b12f6f78f89",
+    "source_tag": "android-7.1.2_r39",
+    "archive_sha256": "c6e5c7a8eb4ce4e7c13a2051f314fac57d1afc76b0d9179ddd244ea2560fe55d",
+    "prefix": "arm-linux-androidkernel-",
+    "execution": "x86_64 Linux binaries through QEMU user emulation in the ARM64 Linux build VM"
+  },
+  "aosp": {
+    "repository": "https://android.googlesource.com/platform/manifest",
+    "tag": "android-8.1.0_r81",
+    "manifest_commit": "d4ab87d25f7aa942e79e4f06b229df1f10a6aceb",
+    "sync_completed": true,
+    "selection_basis": "ARM32 SwiftShader GLES2 support and retained HWC1/gralloc0 paths; target runtime remains unverified",
+    "resolved_manifest": "config/aosp-8.1.0_r81-resolved.xml",
+    "resolved_manifest_sha256": "3f0a7bcaf80fa73969bf8450aea6a3fb87719a78f6e34857946a3aa354737bba",
+    "old_unlisted_projects_quarantined": 44
+  },
+  "scope": "Host compilation inputs only. No device boot or Android runtime validation.",
+  "host_go": {
+    "version": "go1.10.8",
+    "archive_url": "https://go.dev/dl/go1.10.8.linux-amd64.tar.gz",
+    "archive_sha256": "d8626fb6f9a3ab397d88c483b576be41fa81eefcec2fd18562c87626dbb3c39e",
+    "reason": "AOSP Go1.8 omits CLONE_SYSVSEM and cannot create threads under QEMU user; source-based Soong override and Go standard testdeps preserve real tests."
+  },
+  "gralloc_baseline": {
+    "repository": "platform/hardware/libhardware",
+    "tag": "android-8.1.0_r81",
+    "path": "modules/gralloc",
+    "files": {
+      "gr.h": "a19358894c30c7cc71ca91fee219956b80443f911a9d0d3a994c4d554928a79f",
+      "gralloc_priv.h": "41072abce5bbd23438e3f779b6e59e1aa2fc9bd215e971cb6e44e4aab33cca7c",
+      "mapper.cpp": "c58d6d2cd094edab6dce4c03c7278df33c94566e349b351ea6457b19c55b847e",
+      "gralloc.cpp": "f7230537c9e5e85ca83b61e965f849fca00269d3d0b047354bd76c508862ffef"
+    }
+  },
+  "test_libc": {
+    "name": "musl",
+    "version": "1.2.5",
+    "source_url": "https://musl.libc.org/releases/musl-1.2.5.tar.gz",
+    "archive_sha256": "a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4",
+    "release_announcement": "https://www.openwall.com/lists/musl/2024/03/01/2",
+    "scope": "Static ARM programs that run on the stock Kindle system or before Android: the entry's helper with the installer (boot/build_launcher.py), pw3-unpack (installer/build_unpack.py), the boot programs (boot/build_entry.py) and kernel test utilities. Android itself uses AOSP Bionic."
+  },
+  "host_jack_jvm": {
+    "publisher": "Ubuntu OpenJDK",
+    "package_version": "8u504-ga-1ubuntu1~22.04.3",
+    "architecture": "arm64",
+    "source": "Ubuntu jammy-updates/universe arm64 apt package",
+    "scope": "Host Jack, javac and original AOSP Doclava/tools.jar on native Java 8. x86-JNI-dependent Java tools retain the AOSP JVM.",
+    "transport_fix": {
+      "script": "tools/patch-jack-tls.py",
+      "original_server_sha256": "4f0acef6b8e514357ea45441e89eb3fa6d4b273a4fdce6e4e26d7713eeac46dc",
+      "patched_server_sha256": "d2b06cc314a306829d34b578877aa69d119c26db10d9c2e30ca0d02821f73aae",
+      "change": "One class UTF8 constant SSLv3 to TLSv1.2; mTLS certificate and client authentication code retained"
+    }
+  },
+  "kbuild_command_cache_reference": {
+    "reference": "https://raw.githubusercontent.com/torvalds/linux/v6.1/scripts/Kbuild.include",
+    "reference_sha256": "39345826a184dad3958eb083b2bcc7b25eaa48d5ba7bd45e9687719fbc2ef922",
+    "base_sha256": "d41dd83a008e240cb2cefb39fc3522b54683c2ff6cb333cae1f16cf71d84c081",
+    "scope": "Host build command recording only; preserve actual compiler command and flags."
+  },
+  "android_internet_permission": {
+    "patch": "patches/android-core/0600-android-inet-group-permission.patch",
+    "patch_sha256": "a610494f40d6fcc95792a35c8b2e46bc45608964018e39fc445efe8ff24ea746",
+    "reference": "https://android.googlesource.com/kernel/common/+/563897de4a217ee19a4dfbade23d75a0ef024550/net/ipv4/af_inet.c",
+    "contract": "AF_INET/AF_INET6 creation requires effective/supplementary inet group or CAP_NET_RAW; existing LSM and raw socket checks retained",
+    "validation": "Main PW3 kernel and VExpress test kernel compiled; 11 credential cases x16 checks plus parent namespace isolation passed in diskless QEMU. No Android framework or PW3 hardware runtime."
+  },
+  "security_hardening_20261007": {
+    "scope": "Source fixes and isolated host/QEMU regressions; no physical hardware or full Android runtime claim",
+    "network_patches": [
+      {
+        "name": "0810-qtaguid-socket-tag-lifetime.patch",
+        "sha256": "b899f1ddb406675f0f83592b714816cba86cbd5bf66ebfc72e14f76ec2a52caf",
+        "bytes": 9710,
+        "files": {
+          "net/netfilter/xt_qtaguid.c": {
+            "before": "d1f84ea0ab03afd53896949468cb8a29b1f4e234510d8da19ca801e5483fb28a",
+            "after": "b3e7952280da57122fe29e21d4b9949e71e891b7a3fa9f9114aab7473e696106"
+          },
+          "net/netfilter/xt_qtaguid_internal.h": {
+            "before": "86f1df27b1a700d5967906b6fd18af1ac37cc7a6ddc4a1a38623cc831883f947",
+            "after": "93aed3b973be2c120be6d3f39ea05c13b9490be63660d2b42f8f249187a6a173"
+          }
+        },
+        "scope": [
+          "initialize and detach actual list membership across TGIDs",
+          "preserve first tag owner and tag-before-open compatibility",
+          "copy packet tag under lock; no escaped sock_tag reader",
+          "hold UID-tree lock through tag-ref lifetime updates",
+          "release resources according to saved file ownership across passive changes"
+        ]
+      },
+      {
+        "name": "0811-qtaguid-control-reader-privacy.patch",
+        "sha256": "d2118fcc8fddaa5fdaaf8fcd0765c3c831421d0a583f983c9c1078aca57591b2",
+        "bytes": 2710,
+        "files": {
+          "net/netfilter/xt_qtaguid.c": {
+            "before": "b3e7952280da57122fe29e21d4b9949e71e891b7a3fa9f9114aab7473e696106",
+            "after": "4b96cf6337a8f37f75b8404b6466c2ceb50ad8064a246304d4bff9ec3d89e2ab"
+          }
+        },
+        "scope": [
+          "zero-valued sock field contains no kernel pointer",
+          "reuse existing stats read-all privilege; do not reuse write privilege",
+          "filter all socket UIDs before visible pagination; restrict global counters/debug side effect",
+          "preserve tag/untag/delete/counter-set write ABI"
+        ]
+      },
+      {
+        "name": "0812-idletimer-producer-stop-and-work-drain.patch",
+        "sha256": "4d4b3f873ea698e4979985537e37e48e8bc81c63f60a1e237e6bc24fe326fade",
+        "bytes": 3754,
+        "files": {
+          "net/netfilter/xt_IDLETIMER.c": {
+            "before": "2bccbc560bcdb17b09957a0ae07c6cb3c786aef5d3beb7649c8dc5d5d63c8b26",
+            "after": "020f94db0192c7c1255fa70b69be54ee6bd60db558eb7ff7a394b2241cb5f3e1"
+          }
+        },
+        "scope": [
+          "initialize all state before sysfs and asynchronous producers",
+          "sysfs active reference protects show; do not wait on list_mutex",
+          "preserve same-label serialization while removing sysfs",
+          "PM unregister then timer stop then self-requeue-safe work cancel then sysfs removal/free"
+        ]
+      },
+      {
+        "name": "0813-quota2-zero-complete-log-payload.patch",
+        "sha256": "752550a89e36646ea3a7bdda36020d9200c5be476a42d492dbcdc08fc3fb3a32",
+        "bytes": 511,
+        "files": {
+          "net/netfilter/xt_quota2.c": {
+            "before": "08c48a54f7d4da6faddd09c4301eb91e6790ebcc09b5f346927cecb9e28c6e65",
+            "after": "b7ef248a760d915989bf917a769c3740c7ff3a6fa0d336017997760563527fd3"
+          }
+        },
+        "scope": [
+          "zero all fixed ULOG payload fields, string tails and padding",
+          "retain existing message ABI, group, event and quota transition behavior"
+        ]
+      }
+    ],
+    "binder_upstream_sources": [
+      {
+        "repo": "kernel/common",
+        "commit": "f5cb779ba16334b45ba8946d6bfa6d9834d1527f",
+        "url": "https://android.googlesource.com/kernel/common/+/f5cb779ba16334b45ba8946d6bfa6d9834d1527f^!/?format=TEXT",
+        "sha256": "ac2d5de7435e05abaf47e2801165175726791a557005279fc288686893f9ad3d",
+        "bytes": 719
+      },
+      {
+        "repo": "kernel/common",
+        "commit": "5eeb2ca02a2f6084fc57ae5c244a38baab07033a",
+        "url": "https://android.googlesource.com/kernel/common/+/5eeb2ca02a2f6084fc57ae5c244a38baab07033a^!/?format=TEXT",
+        "sha256": "734015248075f304c5278e47a26f743f49989ad00116806fbbd124cec9c33fb3",
+        "bytes": 773
+      },
+      {
+        "repo": "kernel/msm",
+        "commit": "3df8baeedccb6607c08a28533b47b81bbe339f39",
+        "url": "https://android.googlesource.com/kernel/msm/+/3df8baeedccb6607c08a28533b47b81bbe339f39^!/?format=TEXT",
+        "sha256": "547139d6606d3560ceef28e6848a0ee80ea1db3f40d48eb33f3b54a8098b94d2",
+        "bytes": 9037
+      },
+      {
+        "repo": "kernel/common",
+        "commit": "957ccc2bc8f9ebfe8b19112cdc6c2bb20fd7bcf8",
+        "url": "https://android.googlesource.com/kernel/common/+/957ccc2bc8f9ebfe8b19112cdc6c2bb20fd7bcf8^!/?format=TEXT",
+        "sha256": "bae278ba62b54f47a37d0cadcf699283bddd06d65fd2a4e0a7dada11ae82ca3d",
+        "bytes": 702
+      },
+      {
+        "repo": "kernel/common",
+        "commit": "cfd0d84ba28c18b531648c9d4a35ecca89ad9901",
+        "url": "https://android.googlesource.com/kernel/common/+/cfd0d84ba28c18b531648c9d4a35ecca89ad9901^!/?format=TEXT",
+        "sha256": "3e687ec1de7007e04497a197c355b12a263a856ddedff31d6a0efbb3fd75c247",
+        "bytes": 623
+      },
+      {
+        "revision": "74310e06be4d74dcf67cd108366710dee5c576d5",
+        "url": "https://android.googlesource.com/kernel/common/+/74310e06be4d74dcf67cd108366710dee5c576d5^!/?format=TEXT",
+        "file": "74310e06be4d74dcf67cd108366710dee5c576d5.patch",
+        "sha256": "1f444510e9965f6a295eac3fd0f1ef3dd3551c736bba4c3a959db7eea3718616",
+        "bytes": 11634
+      },
+      {
+        "revision": "ae65c8510f3319dfb2114cc48d476b81232e27b3",
+        "url": "https://android.googlesource.com/kernel/common/+/ae65c85^!/?format=TEXT",
+        "file": "ae65c85.patch",
+        "sha256": "4087160227544ade32c3c92bdd7b26d9b6f14ba3a8a2e9569617fc35efa657f0",
+        "bytes": 629,
+        "commit_url": "https://android.googlesource.com/kernel/common/+/ae65c8510f3319dfb2114cc48d476b81232e27b3"
+      },
+      {
+        "revision": "3df8baeedccb6607c08a28533b47b81bbe339f39",
+        "url": "https://android.googlesource.com/kernel/msm/+/3df8baeedccb6607c08a28533b47b81bbe339f39/drivers/staging/android/binder.c?format=TEXT",
+        "file": "msm-after-binder.c",
+        "sha256": "4d6724e8cf36a3e4e1bc672f40c8a700511614312986cb91faf3d681ab4c2c63",
+        "bytes": 124533
+      }
+    ],
+    "binder_patches": {
+      "patches/0900-binder-poll-waitqueue-lifetime.patch": "acc59eb1c235582459d9566b21ac81c240818316951f744411f190c5d1f4a98d",
+      "patches/0901-binder-private-buffer-metadata.patch": "0c7aa3152fba3540f64157ac35f61403248e2b2b720d61212d424a5c014de8a8"
+    },
+    "pmic_patch_sha256": "354e4564bb6b71499651c1f4e17c9a05187dde71c416f021a1e7a580fba187be",
+    "pmic_helper_source_sha256": {
+      "before": "8209887bcd6c4632cbc55254ac6810dd555bd51b32f80678bec94a9005bd6129",
+      "after": "bf1351786a2c12cf48ec872919b19fec16931b5370265c2ba94ebbb413e111cd"
+    }
+  },
+  "optional_native_clang": {
+    "version": "5.0.300080",
+    "llvm_revision": "40629e6d4dbbaa22cf42174790b45a8075ed3971",
+    "clang_revision": "d3aef9bb1abef05fe425b86e8023214d39fe6acd",
+    "local_verified_compiler_sha256": "935b2db8a399ce8084b231a23a31453040e0e8a87dbb2c151c92762b8712b140",
+    "host": "Linux AArch64",
+    "target_backends": [
+      "ARM",
+      "X86",
+      "AArch64"
+    ],
+    "original_aosp_prebuilts_preserved": true,
+    "activation": "PW3_NATIVE_CLANG_BIN overrides only host executable paths after four actual-command code/dependency comparisons; AOSP target runtime and libFuzzer paths are preserved",
+    "test_scope": "ARM C and C++, i386 and x86_64 C++ normalized objects; debug/version metadata excluded; not all possible compiler inputs"
+  },
+  "mmap_aslr": {
+    "patch_sha256": "6f8690e76d4d828a47e9fcbfd0bbcc993905b27dfbad6193feb85518086ffb1d",
+    "upstream_commits": [
+      "d07e22597d1d355829b7b18ac19afa912cf758d1",
+      "e0c25d958f78acfd5c97df5776eeba3e0684101b"
+    ],
+    "scope": "ARM32 bounded sysctl and once-per-exec bottom-up mmap base; disabled in stock config",
+    "runtime_validation": {
+      "platform": "QEMU vexpress-a9, ARM32, 3G/1G virtual-address split",
+      "aslr_checks": 11,
+      "aslr_failures": 0,
+      "completed_exec_samples": 66,
+      "all_prior_interface_suites_passed": true,
+      "result_sha256": "049eff1c037a7660d9aa9b6d9fcc4e2bec5c3f674bcfc6c7bbb357b4d86b7038",
+      "pw3_hardware_verified": false,
+      "statistical_full_entropy_proven": false
+    }
+  },
+  "host_art_low4g": {
+    "art_revision": "019baa4e67376ffd1968ee3c5e9b9a0008cfc014",
+    "patch": "patches/aosp-art/0001-host-x86-low4g-allocation.patch",
+    "patch_sha256": "663c333266f6e8e8ed6e7a825a715bb712fa54f786e2287e8e5920da81d1ac11",
+    "scope": "AOSP existing bounded allocator for Linux x86_64 host only; Android runtime branch unchanged",
+    "reason": "MAP_32BIT returns high addresses under the actual QEMU 6.2 ARM64 build host",
+    "dex2oat_regression": "pending rebuild"
+  },
+  "host_art_qemu_compatibility": {
+    "aosp_art_revision": "019baa4e67376ffd1968ee3c5e9b9a0008cfc014",
+    "qemu_version": "6.2.0 (Debian 1:6.2+dfsg-2ubuntu6.31)",
+    "qemu_source_reference": "https://github.com/qemu/qemu/blob/v6.2.0/linux-user/syscall.c#L11141-L11147",
+    "scope": "Non-Android Linux x86 host ART only; target runtime branches and debug/GC checks retained",
+    "patches": {
+      "patches/aosp-art/0001-host-x86-low4g-allocation.patch": "663c333266f6e8e8ed6e7a825a715bb712fa54f786e2287e8e5920da81d1ac11",
+      "patches/aosp-art/0002-host-x86-explicit-madvise-zeroing.patch": "86728c10972c23d58494c36c576a5f41445da7d6a2a1bc03ecd3c5197f435551"
+    },
+    "probes": {
+      "tools/host-art/madvise-probe.c": "642bd7ba7a4b21650e17b2f1435bc20c6790f169087a5c1b0ef2a848fe8fd902",
+      "tools/host-art/map32-probe.c": "c4ffe25f1ff91b3792c9a7b5220640a9061b168be87821faecde698656149a05"
+    },
+    "observed_contract_failures": [
+      "MAP_32BIT does not keep the emulated x86_64 allocation below 4 GiB",
+      "MADV_DONTNEED returns success but leaves 65536 patterned bytes nonzero in emulated x86_64; native ARM64 clears them"
+    ],
+    "real_boot_image_regression": {
+      "passed": true,
+      "image_files": 45,
+      "receipt_sha256": "3a75f8102c22c10fa4748b16a1f842ed9e53709b6ba42a3f69e87bc4f462c06d",
+      "debug_checks_retained": true,
+      "compiler_threads": 6,
+      "scope": "Host generation of actual ARM boot image; no Android boot"
+    }
+  },
+  "host_jvm_execution_mode": {
+    "mode": "Original AOSP x86 JDK with -Xint; jar with -J-Xint",
+    "scope": "Host tool bytecode execution only; original JDK, JNI, JAR metadata and Android ART settings retained",
+    "reason": "Actual jar and JarJar tasks ran for minutes under emulated HotSpot JIT; original-JDK interpreted runs completed in 3.101 and 21.822 seconds",
+    "comparison_sha256": "3f9e52d62e04f5ddbf913f1238c75ca773dfa07f6b70b8b9e8ee9b1b211f48e0",
+    "comparison_entries": {
+      "jar": 1752,
+      "jarjar": 1087
+    },
+    "full_build_regression": {
+      "passed": true,
+      "scope": "First complete pw3-userdebug systemimage+ramdisk build before separate inode-bitmap producer correction",
+      "log_sha256": "c4fec1ac13464839009673bab144151093d81199f37bb2dff2a61c8db75d372d"
+    },
+    "native_javadoc_candidate": {
+      "validated": true,
+      "activated": true,
+      "comparison_sha256": "13c3bdc22954e61aa3a769e93381f1a7f05ae6e11e307fe1329308ae06e328b3",
+      "matched_outputs": 2990,
+      "required_locale": "LC_ALL=C",
+      "uses_original_tools_jar": true,
+      "activation_wrapper_sha256": "db051c8f00659613fb6611799b8e0dbc1771b4be6336dab4fd3ffd0e80b0a2ee",
+      "current_original_tools_comparison_sha256": "d660ae0f526d953d77c87b42687be29d090e25d4f92a2ff9aaef3de150e9d15d",
+      "production_stub_comparison_sha256": "60b897f459eeb07a1a9bca38b009f953f0f96f904b07795a1c885e6900e14464",
+      "current_scope": "Original AOSP tools.jar on native Java 8 with LC_ALL=C; 2990 output files compared; updated full image builds completed. First activation used native JDK javadoc, proven byte-identical to final original-tools wrapper."
+    }
+  },
+  "ext4_image_producer": {
+    "repository": "platform/system/extras",
+    "revision": "7b6c0c3b1354c09ccdb4b21648a3ce6dea588301",
+    "patch": "patches/aosp-system-extras/0001-ext4-inode-bitmap-padding.patch",
+    "patch_sha256": "232537851ef824f93d6c7e46503ac0a00b0759eee797f8133af56f233c619852",
+    "source_before_sha256": "212d377ea785712f47ecb45874cdc1962a8d49d521eded825e7d587158137375",
+    "source_after_sha256": "3792a41dc0b178e0ba81b4786edd0415164cfce286a906f9979293c77e4bb58a",
+    "contract_reference": "Target Linux fs/ext4/ialloc.c ext4_init_inode_bitmap marks bits past inodes_per_group unavailable",
+    "actual_before_e2fsck_exit": 4,
+    "after_validation": {
+      "actual_system_image_e2fsck_exit": 0,
+      "geometry_regression_cases": 3,
+      "raw_image_sha256": "37e74f1259fe13cd24cd90136bda885095f548087f9a622e966622cf9d37d15e",
+      "inspection_receipt_sha256": "38b15a770649092d6f14214d8b05c5b47f284911135206b5f8c925459f6c40ec"
+    }
+  },
+  "android_runtime_compatibility_20261008": {
+    "patches": {
+      "1011-selinux-genfs-per-file-labels.patch": {
+        "sha256": "5a99c54036ec278e18c82507ceb9a160b35bb80ed56e1bb6d73d2584df344b68",
+        "files": {
+          "security/selinux/hooks.c": {
+            "before": "76dbebfa1457c35754321f8c0e110acb1a231d617f6635b287718fd3eb61aadf",
+            "after": "ae860922f46e547aa09eb7af9881e09bdf4b7f5f2e0346a218a35c9934eb6240"
+          },
+          "security/selinux/include/security.h": {
+            "before": "b3155c7ec5503fe3e54288da2b731be9d372856f1fd88ed50937709240aa5d30",
+            "after": "d56287a2d5df7ee7380a2ac3a75011deb6c06b7b1006693d973009ee2f340752"
+          }
+        }
+      },
+      "1012-signal-allow-self-siginfo.patch": {
+        "sha256": "83cdae44cca59b95c410e1de9932e33af43a67ca657671a219085826b9d016d1",
+        "files": {
+          "kernel/signal.c": {
+            "before": "d91faaddc3b01e1bae4fc907988028b418e4f3692b875a74b9fb720844d3d82e",
+            "after": "8681219c90401b93d551110c63143af12815f30ef7b5e2ef8df957487de7e36d"
+          }
+        }
+      }
+    },
+    "genfs_upstream": [
+      {
+        "file": "8e01472078763ebc1eaea089a1adab75dd982ccd.patch",
+        "url": "https://github.com/torvalds/linux/commit/8e01472078763ebc1eaea089a1adab75dd982ccd.patch",
+        "sha256": "df36baab70b747d87f97289a6f4af8b5d1cdd579d5b3c99d9f7659fd60fa829e"
+      },
+      {
+        "file": "134509d54e4e98888be2697a92cb4b48957b792b.patch",
+        "url": "https://github.com/torvalds/linux/commit/134509d54e4e98888be2697a92cb4b48957b792b.patch",
+        "sha256": "f9f13712f839b34d316edee80b421d0a4ecce958e14138db9cdf010fdb9249dc"
+      },
+      {
+        "file": "v4.2-hooks.c",
+        "url": "https://raw.githubusercontent.com/torvalds/linux/v4.2/security/selinux/hooks.c",
+        "sha256": "676a60cc0ed40a3111ea52fd45450ea35262583840fb1b4c78be341646bcc2ae"
+      }
+    ],
+    "signal_upstream": {
+      "commit": "66dd34ad31e5963d72a700ec3f2449291d322921",
+      "url": "https://github.com/torvalds/linux/commit/66dd34ad31e5963d72a700ec3f2449291d322921",
+      "patch_sha256": "e78405c442f356c3543dafed6e656e9c113041bb50a21713ccc1bdd595262dda"
+    },
+    "main_kernel_compiled": true,
+    "signal_runtime_checks": 26,
+    "signal_runtime_failures": 0,
+    "existing_diskless_suite_passed": true,
+    "genfs_with_actual_aosp_policy": "passed: CPU online node has expected sysfs_devices_system_cpu label with enforcing=1",
+    "physical_device_tested": false
+  },
+  "bionic_cortex_a9_string_copy": {
+    "revision": "fcabaf45b7a17a2b67b3a7cc019da4b396966bce",
+    "patch_sha256": "23cb3fd60c04f2060dc8acfe69c2ce6d668f6549401c6ae29c254340a06a0082",
+    "files": {
+      "libc/arch-arm/cortex-a9/bionic/string_copy.S": {
+        "before": "ec6bad08a2e40e24be28128b890720a34edf3905ff31c05251cfe2dc1d6f6fbb",
+        "after": "2a68c3660c74f91d68c53d96c54be585cc2b6d27565151871ffedec26f13a981"
+      },
+      "libc/arch-arm/cortex-a9/bionic/strcat.S": {
+        "before": "c90efb091c9f0a10d4fc06132f9d589d8418dd50bd53c69f95569c6afabc56bc",
+        "after": "51edde118cffc41b5f9854753e57219fc47dda9f1865fd9c8ce7f657a42fb757"
+      }
+    },
+    "reason": "Replace architecturally unpredictable one-register T32 STM with equivalent STR",
+    "actual_cortex_a9_qemu_cases": 29376,
+    "cases_failed": 0,
+    "physical_device_tested": false
+  },
+  "swiftshader_cortex_a9_division": {
+    "repository": "https://android.googlesource.com/platform/external/swiftshader",
+    "revision": "f62ddedc95c982487dc3f7849329f319f02eb46f",
+    "patch": "patches/aosp-swiftshader/0001-cortex-a9-software-integer-division.patch",
+    "patch_sha256": "4af8fe4fb2b76275c945732f33f52fe9b0d052e0926e40a8fc684d9e788a467b",
+    "reason": "Actual Cortex-A9 SurfaceFlinger fault on JIT SDIV, followed by a separate native Reactor reproduction",
+    "target_scope": "arm:cortex-a9 only; existing NEON-only lowering and direct native i32 div/rem helper addresses",
+    "before_test": "SIGILL on first generated signed divide",
+    "after_test": {
+      "assertions": 33512,
+      "coverage": "signed/unsigned scalar and four-lane vector division/remainder, edge cases and seeded random values",
+      "selinux_enforcing": true,
+      "same_readonly_base_image": true,
+      "console_sha256": "7faef9f9b0881dc304baecd74ec1db4389681b38a76afb767aa0e5d815061c74"
+    },
+    "full_system_compiled": true,
+    "physical_device_tested": false
+  },
+  "software_render_policy": {
+    "surfaceflinger_execmem_reason": "SwiftShader generates code then protects it read/execute; no GPU exists on the selected SoC",
+    "healthd_wake_alarm_reason": "Actual CLOCK_BOOTTIME_ALARM battery polling under the capability2-aware kernel",
+    "files_sha256": {
+      "pw3_render.te": "ea245b53aeeea8184752ee4d0ce9e9aa5315c3f9b9f955e2a007b9501d3ac591",
+      "pw3_healthd.te": "dbceb5d7cfdcd646f037be214f9c01ae63db5ff5591b5ed461f798884c576dee"
+    },
+    "enforcing_preserved": true,
+    "scope": "Narrow domain permissions observed in real ARM startup; not a release security audit"
+  },
+  "process_vm_access": {
+    "baseline": "Linux v3.4.113, native ARM32 only",
+    "baseline_url": "https://raw.githubusercontent.com/gregkh/linux/v3.4.113/mm/process_vm_access.c",
+    "baseline_sha256": "fba338bd7edecd3c60139dd48ada411a1af679868dd01b389d54e314f43316c6",
+    "patches": {
+      "patches/android-core/1013-process-vm-access.patch": "a43f1c0f5ba714024f82257f0ca50c381dad25be7fa89befcca314345e5e6225",
+      "patches/android-core/1014-proc-use-shared-mm-access.patch": "1d17d832f11fa0629fd825a07a38144dfaca70f7d820639d36d6eac4cf9e86e2"
+    },
+    "adaptations": [
+      "reuse shared mm_access with unchanged exec mutex and ATTACH DAC/LSM checks",
+      "six-argument iovec helper with CHECK_IOVEC_ONLY",
+      "bounded native ARM32 page-count arithmetic and partial GUP prefixes",
+      "one-page write bounce prevents old ARM uaccess fault-tail zeroing of remote bytes",
+      "flush and dirty each actually written page before balanced put_page"
+    ],
+    "runtime_test": {
+      "platform": "QEMU Cortex-A9 diskless kernel test",
+      "checks": 1845,
+      "failures": 0,
+      "console_sha256": "9df4e497bbf739586e20f8617601bebf24a1167cd27bf3456a474e177edfe173",
+      "test_build_sha256": "4de214b7e32d040550ea633e6d6ce2cba09b9b0df0e9660700b7176e2ce59ac7",
+      "kernel_sha256": "4d012b0fd154c90af84f0eca2c68fba0a368aa8d42c3108bab7de33448d4ba7f",
+      "kernel_patches_sha256": "18bf8dac8ab2204008a83b2afff61a137e58055500493faa42bdec4bdff3ff7f"
+    },
+    "aosp_selinux_runtime_tested": true,
+    "art_fault_repair_verified": true,
+    "physical_device_tested": false,
+    "physical_cache_coherence_verified": false,
+    "aosp_runtime_test": {
+      "checks": 21,
+      "console_sha256": "3e2f0e8fee216c10bd464759da13a12691b01a6e9e04d94b57ab0f555d0b30fa",
+      "system_image_sha256": "d4c1afd92467d45f42bd82581a74417ead7e9a0b118914374b3ace8ad452ab7e",
+      "source_domain": "shell",
+      "same_uid_dumpable_target_domains": [
+        "shell",
+        "su"
+      ],
+      "same_domain_read_write_allowed": true,
+      "different_domain_read_write_eperm": true,
+      "selinux_enforcing": true,
+      "scope": "userdebug isolated fixture only; no release su allowance is proposed"
+    },
+    "emulated_ext4_writeback": {
+      "checks": 37,
+      "passed": true,
+      "console_sha256": "915b2044abb0fd67c604a284615b506e346a80dce301cf243aba2ad5f18fe3f6",
+      "disk_after_sha256": "8cee84c5e9188be4447640b9995701fc4f3a288dcb280263d21a1b6bc7ee0cc8",
+      "host_file_exact": true,
+      "power_loss_durability_tested": false
+    },
+    "physical_storage_writeback_verified": false
+  },
+  "silent_audio_compatibility": {
+    "scope": "Mandatory Android framework service interfaces backed by AOSP silence sink; no physical playback or capture",
+    "configuration": "device/amazon/pw3/audio/audio_policy_configuration.xml",
+    "configuration_sha256": "e021bff64fa5791448ba512e3222b207b8cefe4ea00552306b3b94d60fe1c21d",
+    "aosp_modules": [
+      "audio.primary.default",
+      "android.hardware.audio@2.0-service",
+      "android.hardware.audio@2.0-impl",
+      "android.hardware.audio.effect@2.0-impl"
+    ],
+    "runtime_verified": true,
+    "boot_complete_reported_in_qemu": true,
+    "diagnosis_receipt_sha256": "d73bf5bbfd6739a35a2e53219e76184867d3dc88dbed2da8bc1a0c1d568aac70",
+    "physical_device_tested": false
+  },
+  "kindle_product_defaults": {
+    "scope": "PW3 product packages and initial settings only; no forced change to existing user values",
+    "removed_packages": [
+      "CtsShimPrebuilt",
+      "CtsShimPrivPrebuilt",
+      "WallpaperBackup",
+      "CompanionDeviceManager"
+    ],
+    "baseline_apk_bytes": 57966,
+    "patch_sha256": {
+      "patches/aosp-launcher3/0001-pw3-unused-product-packages.patch": "eced64437009730ecb35a31741da3b9db2ea1bf0e082e6e5eb233f66c1a97055",
+      "patches/aosp-frameworks-base/0002-global-animation-defaults.patch": "36e0270203f234d34fe2ac5ae7deba9ca3e6e82a7dda896e1ebe12ef9e880ae3"
+    },
+    "baseline_runtime_globals": [
+      "window_animation_scale=null",
+      "transition_animation_scale=null",
+      "animator_duration_scale=null"
+    ],
+    "baseline_console_sha256": "763c8f5de83f05c52c0cc8993dc84f885195e90e08191e62e9bee3942a7dfa48",
+    "full_image_compiled": true,
+    "new_image_package_inventory_verified": true,
+    "new_defaults_runtime_verified": true,
+    "physical_memory_or_battery_gain_measured": false,
+    "new_export_receipt_sha256": "9d462985514a9d245bcbff2523996b3c0f7bbf582f2f3e262459a9d175be2ccf",
+    "new_filesystem_inspection_sha256": "9af8b13c30f3b822fe4cfbdf8d00c19a51928a18bd01445269bd2b92e4df3aa1",
+    "product_trim_receipt_sha256": "12a1b25281b20978b808be68ce253af1baf2869564dcc1619846d42a7d639c2b",
+    "runtime_console_sha256": "bf0329d25b9a131475e8adf9849135f3691d499269460bc21e40fae26605bfe1",
+    "runtime_receipt_sha256": "0aee6a806a091783b2c01b787b6a3e698483086bf035c3f42162b738e3d60ef4",
+    "runtime_limitations": [
+      "Fresh disposable QEMU ext4 data only",
+      "Launcher3 crashed because AppWidgetManager is absent; switching to AOSP Launcher3Go under test",
+      "No memory or battery gain measured"
+    ]
+  },
+  "hwc1_dispsync_initialization": {
+    "scope": "HWC1 path starts and initializes the same DispSync instance as HWC2; no timer bypass or added permission",
+    "patch": "patches/aosp-frameworks-native/0001-hwc1-initialize-dispsync.patch",
+    "patch_sha256": "2c31b9d8e9dccb933989e982c73d6bd5346d6cd1fb22a5275bbfde6d4314ad5d",
+    "source_record_sha256": "dd962bf10daaa224050ea39716005febd3a41314cd8e1db4d2adb7eac422a2ab",
+    "compiled_in_full_image": true,
+    "runtime_verified": true,
+    "baseline": "Repeated EventThread one-second vsync timeouts; old HWC1 constructor never called DispSync.init",
+    "validation_scope": "Actual DispSync thread present and previous one-second EventThread timeout absent in full virtual boot. Does not establish stable UI or physical performance.",
+    "runtime_console_sha256": "5c4e771a57d810e05c305470f3fab316904bc04ddf6628fcc66f1daba605f7fb",
+    "runtime_findings_sha256": "47fab6ac2840b6691013f583623dca53510245b3031e1b6b5165bc475ee751fe"
+  },
+  "mediaextractor_time_compatibility": {
+    "implementation": "Device vendor supplement through standard AOSP minijail merge; base filter unchanged",
+    "policy": "device/amazon/pw3/seccomp/mediaextractor.policy",
+    "policy_sha256": "1a4370c6cab79f522430b2d0e654e4df2ce15b1e2cf328fe0d87c2ef2bf0a0ce",
+    "added_call": "gettimeofday, ARM EABI 78",
+    "test_binary_sha256": "a0e1ae13f8b4e29bb7931599c9cee31fcb811acadd6542c7d86e79a0774df926",
+    "before": {
+      "schema": 1,
+      "passed": false,
+      "qemu_exit": 0,
+      "native_checks_passed": false,
+      "child_crash_detected": true,
+      "android_logs_captured": true,
+      "boot_image_fallback_detected": false,
+      "system_image_unchanged": true,
+      "system_image_sha256": "4633a6f53335c8aad24cfde3cce7bd318bd5b6169bc828842d081dea1069fa81",
+      "console_sha256": "3e82ded47fc66f492307664b433b9cf2764f57e302f88be2314bc3499765366a",
+      "avc_log_lines": 5,
+      "scope": "Actual ARM native executable under enforcing shell domain, RAM data and read-only system image",
+      "android_framework_tested": false,
+      "pw3_hardware_tested": false
+    },
+    "after": {
+      "schema": 1,
+      "passed": true,
+      "qemu_exit": 0,
+      "native_checks_passed": true,
+      "child_crash_detected": false,
+      "android_logs_captured": true,
+      "boot_image_fallback_detected": false,
+      "system_image_unchanged": true,
+      "system_image_sha256": "172c20bb2a5a75392fffe70a4260ed5ff5eeff68c859f8745740cb63a898ff15",
+      "console_sha256": "b13d2e56c766bb7a89b5ed06c7fb0d6b12ba758dae89af94dbd1f2e0f8807723",
+      "avc_log_lines": 5,
+      "scope": "Actual ARM native executable under enforcing shell domain, RAM data and read-only system image",
+      "android_framework_tested": false,
+      "pw3_hardware_tested": false
+    },
+    "seccomp_mode": 2,
+    "no_new_privileges": 1,
+    "ptrace_rejected": true,
+    "full_framework_retest_pending": false,
+    "physical_hardware_tested": false,
+    "full_framework_no_denial_observed": true,
+    "full_framework_console_sha256": "ec850059548038399f9e84cd3733d3fbda074407aa25192cde3e59da94633721"
+  },
+  "no_sync_framework_declaration": {
+    "board_option": "TARGET_RUNNING_WITHOUT_SYNC_FRAMEWORK=true",
+    "configstore_transport": "hwbinder, declared ISurfaceFlingerConfigs/default in device manifest",
+    "reason": "The legacy kernel and framebuffer HAL do not implement sync-file fences",
+    "build_in_progress": false,
+    "runtime_verified": true,
+    "compiled": true,
+    "public_image_sha256": "a67869adaf2e95dc5ed06384c3999139b79ac0e0b27bde3a51aaf95f6800e2de",
+    "changed_paths_from_media_time_image": [
+      "/system/vendor/bin/hw/android.hardware.configstore@1.0-service",
+      "/system/vendor/manifest.xml"
+    ],
+    "verification_scope": "Actual SurfaceFlinger reports RUNNING_WITHOUT_SYNC_FRAMEWORK=1; UI stability remains failed",
+    "console_sha256": "ec850059548038399f9e84cd3733d3fbda074407aa25192cde3e59da94633721"
+  },
+  "cache_transition_physical_register_profile": {
+    "results_sha256": "7193d886ecd4d7028d9a09ff6714c9e71864dd73c154386e0fc9380e7ee604b9",
+    "cases": 17,
+    "physical_profile_report_sha256": "c7d1afc51c0c34234b23e0c9f119ea6b0896dd750ffc2ed0e1a5a87c1fc034ee",
+    "cache_on_control_flow_verified": true,
+    "hardware_cache_coherence_verified": false,
+    "physical_transition_executed": false
+  },
+  "allocator_owned_preparation": {
+    "stock_module": "work/android-port/build-share/loader-stage-stock-v2/pw3_ram_stage.ko",
+    "stock_module_sha256": "722acf26043bcd788e22f1e66e2252b87f5c54270fed0331adb30d05d9fd3c12",
+    "stock_imports_verified": 27,
+    "runtime_receipt_sha256": "30d30219251b6e5ac59e503f6ad600b8290ed56c0597154dcba1cc3726679627",
+    "runtime_checks_passed": 2956,
+    "owned_list_and_inactive_pgdir_verified_in_virtual_kernel": true,
+    "physical_device_tested": false,
+    "boot_footprint_verified": false,
+    "execution_available": false
+  },
+  "system_ui_precompilation": {
+    "build_receipt_sha256": "2c4a10c8bcd7db2fdff7134645bd8bda391d1c70f87c40890618a9bbf1e5c87f",
+    "image_sha256": "f886613b30a39fa3aea190b804c26f62e0fe1d66cf2ea94e3dcf4ec5cfaac924",
+    "compiler_filters": {
+      "SystemUI": "speed",
+      "Launcher3Go": "speed"
+    },
+    "net_regular_file_delta_bytes": 27622693,
+    "apk_membership_changed": false,
+    "ui_stability_verified": false,
+    "scope": "Precompiled binaries confirmed; SystemUI ANR still observed in virtual runtime"
+  },
+  "compiled_kernel_footprint": {
+    "receipt_path": "work/android-port/build-share/kernel-footprint-51/footprint.json",
+    "receipt_sha256": "3003dfb52526e0415e7632ea6df81f5709d2cd691d4d7f43a373f2c5bdf6a8d3",
+    "zimage_sha256": "e9f137c3ea839e5033fbd267a778581c4df284c024d6996a8ffe9db85fea5e56",
+    "zimage_bytes": 3035796,
+    "inflated_image_bytes": 6315180,
+    "footprint_envelope_bytes": 9441280,
+    "actual_gzip_content_matches_Image": true,
+    "decompressor_source_and_real_elf_bound": true,
+    "staged_object_bound": false,
+    "physical_memory_map_bound": false,
+    "execute_allowed": false
+  },
+  "private_device_component_assembly": {
+    "schema": "pw3-private-component-plan-v1",
+    "real_c_validator_passed": true,
+    "actual_acquired_memory_map_bound_offline": true,
+    "exact_component_bytes_bound_offline": true,
+    "dynamic_staged_object_bound": false,
+    "physical_boot_verified": false,
+    "execute_available": false,
+    "atags_bytes": 392,
+    "kernel_bytes": 3035264,
+    "initramfs_bytes": 1481554,
+    "known_limitations": [
+      "userdebug/test signing keys",
+      "physical data profile still temporary RAM storage",
+      "WeRead first screen and physical hardware not validated",
+      "recovery and DMA/cache handoff incomplete"
+    ],
+    "scope": "Private firmware and hardware ATAGs kept local; no installer or hardware execution"
+  },
+  "external_initramfs_gzip": {
+    "missing_config_caught_by_actual_packer": true,
+    "CONFIG_RD_GZIP": "y",
+    "new_kernel_compiled": true,
+    "kernel_build_receipt_sha256": "f8598436b704cf52ec4f01f11323bde44ad7fc37cab25cc1c86065fedc9f8d81",
+    "full_aosp_rebuild_completed": true,
+    "system_and_base_ramdisk_bytes_unchanged": true,
+    "all_nine_hardware_module_bytes_unchanged": true,
+    "private_components_packed_and_checked": true,
+    "physical_boot_tested": false
+  },
+  "protected_internal_recovery_journal": {
+    "schema": 1,
+    "launcher_sha256": "b83a58a662b3ccd9cdf539887a1d036d6490d4ae02e970b5fd2ee5ede7f76c09",
+    "launcher_bytes": 151504,
+    "tests": {
+      "irq-journal-reset-usb-missing-v2": {
+        "checks": 197,
+        "receipt_sha256": "5d12f4b120ded66062ab449f0cd58080c09d65b399488e53c964a062c56addde",
+        "console_sha256": "7966da7b2ad26d7f91bc97283787a46cf7ed27d196d7063d3cf48a3430061ce6"
+      },
+      "irq-journal-orphan-archive-v2": {
+        "checks": 54,
+        "receipt_sha256": "c2049e39ea1b81ec54dee89dae44892b8fcc52e9ecbf23836ffa0ca55b029f4e",
+        "console_sha256": "1196d899b72cc11df058dc4a7942c65149f40699e8c7532760a64946f3858502"
+      },
+      "irq-journal-fallback-v2": {
+        "checks": 266,
+        "receipt_sha256": "5642cc14bd78f0a4ac94ef75cf93d64690d65483be1d4abcd797743bf93f53b5",
+        "console_sha256": "8c3f010451f86393285718e5469bef0640543538211099f97f591244c434ed93"
+      }
+    },
+    "staged": true,
+    "physical_journal_flow_verified": true,
+    "first_invocation_expected": "archive confirmed orphan only; no pause; another invocation required for a new test",
+    "helper_sha256": "b35e2a0b997a15318fc2e364a5f76a3eb3b8285f24208dff929aa12b279368fd",
+    "module_unchanged": "42a2b029a1eaaf05cf0571918fc931e69e619f1fd2cb3c8b2de5c00fb020f75f",
+    "internal_directory": "/var/local/root/pw3-irq-check-*",
+    "requires_internal_ext_filesystem": true,
+    "physical_inspection_import_sha256": "221fb9e11550e818eaf7a33d82523a68c1ed7c3377313085ca3c5375d0b4d2f9",
+    "sequence_fix_review_receipt_sha256": "b99f911e00a111f11ead6cc976247ba3d38b810a387ec59c870847f1ff9f505a",
+    "current_helper": "irq-recovery-helper-stock-v10",
+    "current_launcher": "irq-recovery-launcher-stock-v5",
+    "prior_tests_are_before_sequence_fix": true,
+    "latest_physical_observation": "work/android-port/boot-research/irq-recovery-candidate/physical-observation-v2.json",
+    "latest_physical_observation_sha256": "e81a534058cfb778e4aeab59db59ce9f4cd14d9e63c8285c3ee0d642bf61a5f8"
+  },
+  "cpuset_scheduling_delegation": {
+    "patch": "patches/android-core/1015-cpuset-cap-sys-nice-delegation.patch",
+    "patch_sha256": "8a602e4e1086560fcf7dde7f51761bcc26ac04aa627a220a896adb9cd12ad536",
+    "scope": "cpuset CAP_SYS_NICE delegation only after existing root/same-UID rejection; all other controllers must explicitly opt in",
+    "same_probe_checks_per_kernel": 217,
+    "same_probe_syscall_scenarios": 24,
+    "preserved_denial_scenarios": 18,
+    "smoke_and_android_diagnostic_kernels_red_green_verified": true,
+    "actual_android_policy_runtime_verified": true,
+    "full_android_comparison": "work/android-port/userspace-research/cgroup-compat-candidate/full-android-v18-v19.json",
+    "full_android_comparison_sha256": "a30e36c5a1f0984d11fd86bc31be345aea757cfc3de6f3104d9340870e7cd8ba",
+    "original_sched_eacces_count": 14,
+    "new_sched_eacces_count": 0,
+    "foreground_nice_verified": true,
+    "response_acceptance_passed": false,
+    "main_pw3_kernel_rebuilt": true,
+    "physical_device_tested": false,
+    "main_pw3_kernel_patch_count": 51,
+    "main_pw3_kernel_receipt_sha256": "eba6eb67c3a76f9bce9c407bbfb8b278532ce1260150cbbbdd7234af784ccb17",
+    "main_pw3_kernel_uimage_sha256": "37dc18c8814afef2d29a86aeea9610d58549809691e2652295dd0812ee0f7113",
+    "main_pw3_module_relocation_compatibility_checked": 36,
+    "matching_system_module_export_verified": true,
+    "matching_system_selected_modules": 9,
+    "matching_system_export": "work/android-port/build-share/aosp-images-mainline-launcher-v1"
+  },
+  "provisioning_component_fix": {
+    "source_integrated": true,
+    "component": "AOSP Provision",
+    "candidate_built": true,
+    "runtime_verified": true,
+    "evidence": "work/android-port/userspace-research/v30-home-dispatch/report.md",
+    "root_cause": "Missing Provision leaves user_setup_complete/device_provisioned at 0; PhoneWindowManager rejects HOME even after successful key injection",
+    "verification_must_use_fresh_seed_data": true,
+    "observer_must_not_write_setup_flags": true,
+    "runtime_scope": "Native Provision first boot only; Home/resume interaction failed due to subsequent system_server native crash",
+    "candidate_apk_sha256": "5ff74aa55e98b5b99f35fffe5f9089f804afc5a3050e901d1644a6ddbf02b899",
+    "candidate_system_sha256": "c78d3c810d8cb8e2eeacc287667f759531284cd81efe6fe48b3e3c63cbdab7d3",
+    "first_boot_report": "work/android-port/userspace-research/v31-provision-firstboot/report.md",
+    "first_boot_data_fresh": true,
+    "setup_flags_written_by": "com.android.provision",
+    "setup_component_self_disabled": true,
+    "closed_data_persistence_verified": true,
+    "home_resume_verified": false
+  },
+  "retained_kernel_50_footprint": {
+    "receipt_sha256": "9c21542daf77267db70e815144bdc995874a7bbff35ae03c7961cf352afebaf5",
+    "zimage_sha256": "d2cbbaf6e1e56fec10e6473f5e341b4dc7fb224d82ebf74e9dbb6533e5d09c30",
+    "zimage_bytes": 3035264,
+    "inflated_image_bytes": 6315148,
+    "footprint_envelope_bytes": 9441280,
+    "actual_gzip_content_matches_Image": true,
+    "decompressor_source_and_real_elf_bound": true,
+    "staged_object_bound": false,
+    "physical_memory_map_bound": false,
+    "execute_allowed": false,
+    "artifacts": "work/android-port/build-share/android-core-kernel-pre-cpuset-51"
+  },
+  "epdc_sleepable_dma_allocation": {
+    "patch": "patches/android-core/1020-epdc-sleepable-dma-allocation.patch",
+    "patch_sha256": "c3ff74366f9994f4e2c4a3eff88ef7b93211933f57b5ada1781dcd8739b365e3",
+    "kernel_build_receipt_sha256": "b9d76933e36bafcb19655e2ca37634cad9b1b94a7fcac90f8067123a62fe17a5",
+    "kernel_patch_count": 52,
+    "zimage_unchanged": true,
+    "new_epdc_module_sha256": "81360bc15d742cea9123f7054027b0a288821086cd57636421cec4e2dba8b9cb",
+    "allocation_flags_numeric": 209,
+    "same_source_allocator_comparison_passed": true,
+    "comparison_sha256": "4aee10fbdd12bcf19cbe4bf8b7b4ad1a3e7f54f9061bf230496e1a79ad25610f",
+    "test_kernel_has_compaction_and_order11": true,
+    "test_has_pw3_dma_zone": false,
+    "physical_display_verified": false,
+    "extra_retry_flag_added": false
+  },
+  "epdc_platform_dma_allocation": {
+    "patch": "patches/android-core/1021-epdc-honor-device-dma-mask.patch",
+    "patch_sha256": "10cfd659d6022e791d582e7642e48d9e4487115a1657beffab53d468dbc9f702",
+    "kernel_build_receipt_sha256": "facb4429f28b6e9a10e161245e91f84897998a418c71411bf8791329e4600f24",
+    "kernel_patch_count": 53,
+    "zimage_unchanged": true,
+    "new_epdc_module_sha256": "61c89469117307094eb8a4eef231139acc4502e0b1a041205f196d5462064cdd",
+    "allocation_flags_numeric": 208,
+    "device_dma_mask_unchanged": true,
+    "device_dma_mask_bits": 32,
+    "source_evidence_sha256": "0002056d2b06c46cb450ee4a2b974422a37ca301afae727894ff2e2abfe808a0",
+    "fragmented_dma_zone_api_comparison_passed": true,
+    "cache_pressure_dma_api_comparison_passed": true,
+    "comparison_sha256": "8446ff0e13c181b62af698f64b7fd0cabfbda6e8d8d2230eaccf16d391b4810e",
+    "physical_display_verified": false
+  },
+  "epdc_checker_dac_and_diagnostics": {
+    "service_rc_sha256": "47d652eeb98d97e575ab8823cd961597b937881b60b9827ba2bdb071bf5737e8",
+    "checker_source_sha256": "759cdc61e0ff9eacf481f53dd4ddf381d8275e68897e1fad4f0579deb040cdcb",
+    "checker_binary_sha256": "67c6638f3a3a86f695e524920ccf955add25d946605d4d30c9fc8f37f53588cd",
+    "supplemental_group": "graphics",
+    "selinux_policy_unchanged": true,
+    "query_only_write_remains_denied_in_actual_arm_test": true,
+    "hardware_contract_not_faked": true,
+    "test_scope": "Real AOSP init and production query function; explicit unsupported character-device fixture. No real display success asserted.",
+    "comparison_sha256": "6b16ae635df2e522af9c7869d6925d8fdd6ef787be67ec37f7ca2f98a963e5e0",
+    "physical_fix_verified": true,
+    "horizontal_line_cause_confirmed": false,
+    "physical_service_group_applied": true,
+    "physical_read_access_verified": true,
+    "physical_fix_verification_scope": "Production hardware checker passed EPDC geometry/startup contract; pixel output remains abnormal.",
+    "physical_fix_verified_in_revision": 11
+  },
+  "preinit_system_scan_cache_release": {
+    "source_sha256": "b708b341728b3b057f1d695873530f202307bc7751e563ab45b2388cd0874399",
+    "preinit_binary_sha256": "2f83b367db1d0d4e5190e8842a96a5fded79a1aa6ee741a45b5967608fa0e232",
+    "operation": "image-only POSIX_FADV_DONTNEED after complete successful SHA256, before system loop attachment",
+    "integrity_and_readonly_checks_retained": true,
+    "global_drop_caches_used": false,
+    "advisory_success_not_hardware_acceptance": true,
+    "comparison_passed": true,
+    "comparison_sha256": "f0f02c6410c05ae11fa28c65b8d823d5fa4a8f7b7ce69d790790e3cb5f968fca",
+    "scope": "MUSL-based production-function harness reproduced actual order11 failure after nested loop/FAT complete image scan; same binary with image-only discard passed. Actual AOSP Bionic/libcrypto discard path passed separately; Bionic baseline not claimed as red. 512MiB ARM virtual hardware only.",
+    "physical_fix_verified": false,
+    "public_and_private_ramdisk_only_changed_member": "pw3-preinit",
+    "physical_image_reused_after_file_equivalence_and_fresh_uncached_readback": true,
+    "new_full_build_export": "work/android-port/build-share/aosp-images-preinit-cache-v1",
+    "chosen_component_set": "work/android-port/build-share/aosp-components-preinit-cache-v1",
+    "not_a_single_build_export": true,
+    "first_epdc_allocation_physically_passed_in_revision": 11,
+    "cache_discard_acceptance_inferred_from_required_control_flow": true,
+    "explicit_cache_release_log_retained": false,
+    "physical_display_output_verified": false
+  },
+  "functionfs_checker_access": {
+    "current_production_source_change": [
+      "rootdir/init.pw3.rc: checker supplementary shell group",
+      "rootdir/init.pw3.usb.rc: FunctionFS rmode=0550"
+    ],
+    "endpoint_mode_remains_owner_only_0600": true,
+    "selinux_policy_unchanged": true,
+    "capability_bypass_not_added": true,
+    "local_usb_loopback_comparison_passed": true,
+    "comparison_sha256": "fe9846ca2709cd67b7f167ea46d4ca01d7fe709e78c966ab330c46e986c4ced5",
+    "negative_checks": 11,
+    "positive_checks": 16,
+    "actual_authentication_and_shell_verified_in_loopback": true,
+    "physical_verified": true,
+    "physical_verification_scope": "Checker passes, descriptors accepted and authenticated host connects; subsequent automatic restart means connection stability is not passed."
+  },
+  "installer_zstd": {
+    "name": "zstd",
+    "version": "1.5.6",
+    "source_url": "https://github.com/facebook/zstd/releases/download/v1.5.6/zstd-1.5.6.tar.gz",
+    "archive_sha256": "8c29e06cf42aacc1eafc4077ae2ec6c6fcb96a626157e0593d5e82a34fd403c1",
+    "license": "BSD-3-Clause OR GPL-2.0-only",
+    "scope": "Decompression library only (lib/common, lib/decompress), linked statically into the installer's pw3-unpack (installer/build_unpack.py) and the entry's helper (boot/build_launcher.py --installer)."
+  },
+  "installer_ca_bundle": {
+    "name": "Mozilla CA certificate store, as extracted by curl (cacert.pem)",
+    "version": "2026-09-25",
+    "source_url": "https://curl.se/ca/cacert-2026-09-25.pem",
+    "sha256": "a41b5d356aea97a529fe27e0f7316d2f9d946d75927476cf9cf1b90637d00505",
+    "license": "MPL-2.0",
+    "scope": "Carried in the entry; the installer gives it to the stock curl (--cacert) to download the system payload from GitHub Releases. Checked 2026-10-15: github.com (Sectigo E46 via USERTrust ECC) and release-assets.githubusercontent.com (Let's Encrypt YR1 via ISRG Root X1) verify against it alone."
+  }
+}

@@ -1,0 +1,22 @@
+--- a/cmd/microfactory/microfactory.bash
++++ b/cmd/microfactory/microfactory.bash
+@@ -25,7 +25,7 @@
+ # Ensure GOROOT is set to the in-tree version.
+ case $(uname) in
+     Linux)
+-        export GOROOT="${TOP}/prebuilts/go/linux-x86/"
++        export GOROOT="${PW3_BUILD_GOROOT:-${TOP}/prebuilts/go/linux-x86/}"
+         ;;
+     Darwin)
+         export GOROOT="${TOP}/prebuilts/go/darwin-x86/"
+--- a/bootstrap.bash
++++ b/bootstrap.bash
+@@ -33,7 +33,7 @@
+ 	;;
+     *) echo "unknown OS:" $(uname) && exit 1;;
+ esac
+-export GOROOT="${SRCDIR}/prebuilts/go/$PREBUILTOS/"
++export GOROOT="${PW3_BUILD_GOROOT:-${SRCDIR}/prebuilts/go/$PREBUILTOS/}"
+ export GOARCH="amd64"
+ export GOCHAR="6"
+ 

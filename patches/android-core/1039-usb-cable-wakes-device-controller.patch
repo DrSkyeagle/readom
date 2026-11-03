@@ -1,0 +1,61 @@
+--- a/arch/arm/mach-mx6/usb_dr.c
++++ b/arch/arm/mach-mx6/usb_dr.c
+@@ -145,6 +145,40 @@
+ 
+ static bool usbmode_is_host = 0; 
+ 
++#ifdef CONFIG_USB_GADGET_ARC
++/* PW3 Android: VBUS reaches the controller only through the session override
++ * set below, when the PMIC reports a cable; the PHY's own VBUS-change wake-up,
++ * which brings the device controller out of low power for a cable, is never
++ * raised by it. With no cable the controller is in low power (clocks gated, PHY
++ * suspended), so the session-valid interrupt that starts the gadget never came
++ * either (Test V40: a cable plugged in after start was not seen by the host;
++ * with the PHY kept active it was, within a second). So a cable reported by the
++ * PMIC wakes the controller as that wake-up would (plat-mxc usb_wakeup.c): a
++ * clock reference for the controller, then the device wake-up handler takes the
++ * PHY out of low power. The controller returns to low power, and drops that
++ * reference, by itself when the session ends. */
++static struct fsl_usb2_platform_data *dr_udc_pdata;
++static void device_wakeup_handler(struct fsl_usb2_platform_data *pdata);
++
++static void usbotg_wake_for_cable(void)
++{
++	struct fsl_usb2_platform_data *pdata = dr_udc_pdata;
++	unsigned long flags;
++	bool lowpower;
++
++	if (!pdata)
++		return;
++	spin_lock_irqsave(&pdata->lock, flags);
++	lowpower = pdata->lowpower;
++	pdata->lowpower = 0;
++	spin_unlock_irqrestore(&pdata->lock, flags);
++	if (!lowpower)
++		return;
++	usbotg_clock_gate(true);
++	device_wakeup_handler(pdata);
++}
++#endif
++
+ extern int max77696_charger_set_otg(int enable);
+ extern int max77696_uic_is_otg_connected(void);
+ extern int max77696_uic_is_otg_connected_irq(void);
+@@ -294,6 +328,9 @@
+ 		if (!IS_ERR(phyreg)) {
+ 			if (detect) {
+ 				__pm_wakeup_event(usb_attach_ws, USB_ATTACH_HOLD_MS);
++#ifdef CONFIG_USB_GADGET_ARC
++				usbotg_wake_for_cable();
++#endif
+ 				regulator_enable(phyreg);
+ 				usbotg_force_bsession(true);
+ 			} else {
+@@ -1266,6 +1303,7 @@
+ 	dr_utmi_config.platform_phy_power_on = dr_platform_phy_power_on;
+ 	pdev[i] = imx6q_add_fsl_usb2_udc(&dr_utmi_config);
+ 	dr_wakeup_config.usb_pdata[i] = pdev[i]->dev.platform_data;
++	dr_udc_pdata = pdev[i]->dev.platform_data;
+ 	i++;
+ #endif
+ 	devnum = i;

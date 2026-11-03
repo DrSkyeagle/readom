@@ -1,0 +1,45 @@
+From: PW3 Android port
+Subject: [PW3] Settings: the rule under a title bar is two pixels
+
+Measured on the device on 2026-10-27, on V89, by scanning the rows of a raw
+framebuffer grab: the black rule that patches/0008 puts under the title bar is **one** row
+of pixels, not the two the design asks for (docs/design/eink-ui.md rule 3,
+"1dp, which is 2 px on this panel").
+
+The cause is in how the two kinds of width are read. A `<stroke>` width goes
+through `getDimensionPixelSize()`, which rounds: 1dp x 1.875 = 1.875 becomes
+2 px, which is why patch 0004's card outlines are 2 px. A layer-list item's
+inset goes through `getDimensionPixelOffset()`, which truncates, so the same
+1dp becomes 1 px (LayerDrawable.java, updateLayerFromTypedArray).
+
+So the inset is named in whole pixels instead. This panel has one density and
+the design document already states the value as 2 px, so there is nothing for
+a dp to be independent of here. The stroke width keeps its dp: it rounds
+correctly, and the two are checked against each other by both being 2.
+
+--- a/res/values/pw3_eink.xml
++++ b/res/values/pw3_eink.xml
+@@ -5,5 +5,12 @@
+     <color name="pw3_outline">#ff000000</color>
+     <!-- 2 px on PW3 (density 1.875, rounded to whole pixels). -->
+     <dimen name="pw3_outline_width">1dp</dimen>
++    <!-- The same width again, in whole pixels, for a layer-list inset. An
++         inset is read with getDimensionPixelOffset(), which truncates:
++         1dp x 1.875 is 1.875 and becomes 1 px, where a stroke is read with
++         getDimensionPixelSize(), rounds, and becomes 2. Measured on the device
++         on 2026-10-27: the rule under a title bar was one row of black.
++         Density on this panel is fixed, so the pixels can be named. -->
++    <dimen name="pw3_rule_inset">2px</dimen>
+     <dimen name="pw3_corner_radius">4dp</dimen>
+ </resources>
+--- a/res/drawable/pw3_bottom_rule.xml
++++ b/res/drawable/pw3_bottom_rule.xml
+@@ -10,7 +10,7 @@
+             <solid android:color="@color/pw3_outline" />
+         </shape>
+     </item>
+-    <item android:bottom="@dimen/pw3_outline_width">
++    <item android:bottom="@dimen/pw3_rule_inset">
+         <shape android:shape="rectangle">
+             <solid android:color="?android:attr/colorBackground" />
+         </shape>

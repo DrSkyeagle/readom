@@ -1,0 +1,87 @@
+From: PW3 Android port
+Subject: [PW3] No starting window; opaque surfaces for software-drawn opaque windows
+
+Both come from a CPU profile of a cold start of Settings on Test V32
+(simpleperf, system-wide): 18% of the application's main thread was kernel
+page allocation for new window buffers, 6% a libc memset and 10% Skia's
+memset32, i.e. every frame was filled twice before anything was drawn.
+
+1. ro.pw3.disable_starting_window: ActivityRecord.showStartingWindow() does
+   nothing. A preview window costs its own buffers (6 MB each), a full-screen
+   draw and an e-paper update of 134 ms or more, only to be replaced by the
+   application's first frame. The previous screen stays until that frame.
+
+2. WindowStateAnimator: with the software canvas for every process (the
+   properties ActivityThread uses), FLAG_HARDWARE_ACCELERATED no longer forces
+   a TRANSLUCENT surface. An opaque window gets an opaque (RGBX) surface, so
+   its canvas is opaque and ViewRootImpl.drawSoftware() does not clear the
+   dirty area before each frame.
+
+Not run on the device yet when this patch was written.
+
+--- a/services/core/java/com/android/server/am/ActivityRecord.java
++++ b/services/core/java/com/android/server/am/ActivityRecord.java
+@@ -2166,6 +2166,13 @@
+             // We don't show starting window for overlay activities.
+             return;
+         }
++        if (SystemProperties.getBoolean("ro.pw3.disable_starting_window", false)) {
++            // PW3: an e-paper update takes 134 ms or more and every window
++            // buffer is 6 MB of fresh pages. A preview window would be
++            // allocated, drawn and shown only to be replaced by the
++            // application's first frame; the previous screen stays instead.
++            return;
++        }
+ 
+         final CompatibilityInfo compatInfo =
+                 service.compatibilityInfoForPackageLocked(info.applicationInfo);
+--- a/services/core/java/com/android/server/wm/WindowStateAnimator.java
++++ b/services/core/java/com/android/server/wm/WindowStateAnimator.java
+@@ -55,6 +55,7 @@
+ import android.graphics.RectF;
+ import android.graphics.Region;
+ import android.os.Debug;
++import android.os.SystemProperties;
+ import android.os.Trace;
+ import android.util.Slog;
+ import android.view.DisplayInfo;
+@@ -620,6 +621,21 @@
+         }
+     }
+ 
++    /**
++     * Whether the window's surface needs an alpha channel for its renderer.
++     * PW3: with the software canvas for every process (the same properties as
++     * in ActivityThread) FLAG_HARDWARE_ACCELERATED creates no renderer. An
++     * opaque window then gets an opaque surface, its canvas is opaque, and
++     * ViewRootImpl does not clear the dirty area before drawing each frame.
++     */
++    private static boolean usesRenderer(LayoutParams attrs) {
++        if ((attrs.flags & FLAG_HARDWARE_ACCELERATED) == 0) {
++            return false;
++        }
++        return !SystemProperties.getBoolean("debug.pw3.software_canvas",
++                SystemProperties.getBoolean("ro.pw3.software_canvas", false));
++    }
++
+     WindowSurfaceController createSurfaceLocked(int windowType, int ownerUid) {
+         final WindowState w = mWin;
+         if (w.restoreSavedSurface()) {
+@@ -674,7 +690,7 @@
+         // Set up surface control with initial size.
+         try {
+ 
+-            final boolean isHwAccelerated = (attrs.flags & FLAG_HARDWARE_ACCELERATED) != 0;
++            final boolean isHwAccelerated = usesRenderer(attrs);
+             final int format = isHwAccelerated ? PixelFormat.TRANSLUCENT : attrs.format;
+             if (!PixelFormat.formatHasAlpha(attrs.format)
+                     // Don't make surface with surfaceInsets opaque as they display a
+@@ -1735,7 +1751,7 @@
+             return false;
+         }
+         final LayoutParams attrs = mWin.getAttrs();
+-        final boolean isHwAccelerated = (attrs.flags & FLAG_HARDWARE_ACCELERATED) != 0;
++        final boolean isHwAccelerated = usesRenderer(attrs);
+         final int format = isHwAccelerated ? PixelFormat.TRANSLUCENT : attrs.format;
+         if (format == mSurfaceFormat) {
+             setOpaqueLocked(!PixelFormat.formatHasAlpha(attrs.format));

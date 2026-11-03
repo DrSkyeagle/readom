@@ -1,0 +1,244 @@
+From: PW3 Android port
+Subject: [PW3] installd compiles everything when the profile cannot be read either
+
+Patch 0006 asks: is there a reference profile with something in it? If not, the
+compilation that was going to be profile-guided is done with "speed" instead,
+because a profile-guided filter with no profile compiles nothing and an
+application with no compiled code is unusable on this CPU.
+
+That question has a second answer the check does not cover: there is a profile,
+and dex2oat cannot read it. A profile is written by the merge that runs when the
+device is idle on the charger, to the reference profile's own file, truncating
+it first; a reboot or a power loss inside that window leaves a file that is not
+empty and not a profile. dex2oat does not then fall back to compiling
+everything -- it stops ("Failed to process profile file", dex2oat/dex2oat.cc,
+after ProfileCompilationInfo::Load returns false) -- and installd reports the
+dexopt as failed, which leaves the application with exactly the no-compiled-code
+patch 0006 exists to prevent, by the other road.
+
+So the compilation becomes an attempt that can be made twice: where the caller
+set DEXOPT_SPEED_IF_NO_PROFILE and the profile-guided attempt failed, the second
+one compiles with "speed" and no profile. The loop is around the whole body, not
+around the dex2oat call, because each attempt opens its own output oat, output
+vdex, application image and swap file, and the Dex2oatFileWrapper of a failed
+attempt unlinks what it wrote when the iteration ends; the second attempt then
+starts from nothing. (The input vdex is gone by then, since opening the output
+vdex recreated the path it is read from, so the second attempt re-verifies the
+dex file. That costs time on a boot that is already compiling, and it is what
+compiling with no usable prior work means.)
+
+The retry is not limited to the profile being the reason, because installd
+cannot tell from the exit status which reason it was, and there is no failure of
+a profile-guided dexopt whose better answer here is to leave the application
+without compiled code. It is limited to callers that asked for the fallback --
+the recompilation after a system update -- and to one retry, so a dex2oat that
+fails for a reason of its own fails twice at most.
+
+--- a/cmds/installd/dexopt.cpp
++++ b/cmds/installd/dexopt.cpp
+@@ -1646,102 +1646,123 @@
+                   << " with speed instead of " << compiler_filter;
+         compiler_filter = "speed";
+         profile_guided = false;
+-    }
+-
+-    // Open the input file.
+-    unique_fd input_fd(open(dex_path, O_RDONLY, 0));
+-    if (input_fd.get() < 0) {
+-        ALOGE("installd cannot open '%s' for input during dexopt\n", dex_path);
+-        return -1;
+-    }
+-
+-    // Create the output OAT file.
+-    char out_oat_path[PKG_PATH_MAX];
+-    Dex2oatFileWrapper out_oat_fd = open_oat_out_file(dex_path, oat_dir, is_public, uid,
+-            instruction_set, is_secondary_dex, out_oat_path);
+-    if (out_oat_fd.get() < 0) {
+-        return -1;
+     }
+ 
+-    // Open vdex files.
+-    Dex2oatFileWrapper in_vdex_fd;
+-    Dex2oatFileWrapper out_vdex_fd;
+-    if (!open_vdex_files(dex_path, out_oat_path, dexopt_needed, instruction_set, is_public, uid,
+-            is_secondary_dex, profile_guided, &in_vdex_fd, &out_vdex_fd)) {
+-        return -1;
+-    }
++    // PW3: the compilation is an attempt, because it may be worth making twice;
++    // see the DEXOPT_SPEED_IF_NO_PROFILE branch at the end of it. Each attempt
++    // opens its own files so that a failed one leaves nothing of itself behind.
++    for (int attempt = 1; ; ++attempt) {
++        // Open the input file.
++        unique_fd input_fd(open(dex_path, O_RDONLY, 0));
++        if (input_fd.get() < 0) {
++            ALOGE("installd cannot open '%s' for input during dexopt\n", dex_path);
++            return -1;
++        }
+ 
+-    // Ensure that the oat dir and the compiler artifacts of secondary dex files have the correct
+-    // selinux context (we generate them on the fly during the dexopt invocation and they don't
+-    // fully inherit their parent context).
+-    // Note that for primary apk the oat files are created before, in a separate installd
+-    // call which also does the restorecon. TODO(calin): unify the paths.
+-    if (is_secondary_dex) {
+-        if (selinux_android_restorecon_pkgdir(oat_dir, se_info, uid,
+-                SELINUX_ANDROID_RESTORECON_RECURSE)) {
+-            LOG(ERROR) << "Failed to restorecon " << oat_dir;
++        // Create the output OAT file.
++        char out_oat_path[PKG_PATH_MAX];
++        Dex2oatFileWrapper out_oat_fd = open_oat_out_file(dex_path, oat_dir, is_public, uid,
++                instruction_set, is_secondary_dex, out_oat_path);
++        if (out_oat_fd.get() < 0) {
+             return -1;
+         }
+-    }
+ 
+-    // Create a swap file if necessary.
+-    unique_fd swap_fd = maybe_open_dexopt_swap_file(out_oat_path);
++        // Open vdex files.
++        Dex2oatFileWrapper in_vdex_fd;
++        Dex2oatFileWrapper out_vdex_fd;
++        if (!open_vdex_files(dex_path, out_oat_path, dexopt_needed, instruction_set, is_public, uid,
++                is_secondary_dex, profile_guided, &in_vdex_fd, &out_vdex_fd)) {
++            return -1;
++        }
+ 
+-    // Create the app image file if needed.
+-    Dex2oatFileWrapper image_fd =
+-            maybe_open_app_image(out_oat_path, profile_guided, is_public, uid, is_secondary_dex);
++        // Ensure that the oat dir and the compiler artifacts of secondary dex files have the correct
++        // selinux context (we generate them on the fly during the dexopt invocation and they don't
++        // fully inherit their parent context).
++        // Note that for primary apk the oat files are created before, in a separate installd
++        // call which also does the restorecon. TODO(calin): unify the paths.
++        if (is_secondary_dex) {
++            if (selinux_android_restorecon_pkgdir(oat_dir, se_info, uid,
++                    SELINUX_ANDROID_RESTORECON_RECURSE)) {
++                LOG(ERROR) << "Failed to restorecon " << oat_dir;
++                return -1;
++            }
++        }
+ 
+-    // Open the reference profile if needed.
+-    Dex2oatFileWrapper reference_profile_fd = maybe_open_reference_profile(
+-            pkgname, dex_path, profile_guided, is_public, uid, is_secondary_dex);
++        // Create a swap file if necessary.
++        unique_fd swap_fd = maybe_open_dexopt_swap_file(out_oat_path);
+ 
+-    ALOGV("DexInv: --- BEGIN '%s' ---\n", dex_path);
++        // Create the app image file if needed.
++        Dex2oatFileWrapper image_fd =
++                maybe_open_app_image(out_oat_path, profile_guided, is_public, uid, is_secondary_dex);
+ 
+-    pid_t pid = fork();
+-    if (pid == 0) {
+-        /* child -- drop privileges before continuing */
+-        drop_capabilities(uid);
++        // Open the reference profile if needed.
++        Dex2oatFileWrapper reference_profile_fd = maybe_open_reference_profile(
++                pkgname, dex_path, profile_guided, is_public, uid, is_secondary_dex);
+ 
+-        SetDex2OatScheduling(boot_complete);
+-        if (flock(out_oat_fd.get(), LOCK_EX | LOCK_NB) != 0) {
+-            ALOGE("flock(%s) failed: %s\n", out_oat_path, strerror(errno));
+-            _exit(67);
+-        }
++        ALOGV("DexInv: --- BEGIN '%s' ---\n", dex_path);
++
++        pid_t pid = fork();
++        if (pid == 0) {
++            /* child -- drop privileges before continuing */
++            drop_capabilities(uid);
+ 
+-        run_dex2oat(input_fd.get(),
+-                    out_oat_fd.get(),
+-                    in_vdex_fd.get(),
+-                    out_vdex_fd.get(),
+-                    image_fd.get(),
+-                    dex_path,
+-                    out_oat_path,
+-                    swap_fd.get(),
+-                    instruction_set,
+-                    compiler_filter,
+-                    debuggable,
+-                    boot_complete,
+-                    reference_profile_fd.get(),
+-                    class_loader_context);
+-        _exit(68);   /* only get here on exec failure */
+-    } else {
+-        int res = wait_child(pid);
+-        if (res == 0) {
+-            ALOGV("DexInv: --- END '%s' (success) ---\n", dex_path);
+-        } else {
+-            ALOGE("DexInv: --- END '%s' --- status=0x%04x, process failed\n", dex_path, res);
+-            return res;
+-        }
+-    }
++            SetDex2OatScheduling(boot_complete);
++            if (flock(out_oat_fd.get(), LOCK_EX | LOCK_NB) != 0) {
++                ALOGE("flock(%s) failed: %s\n", out_oat_path, strerror(errno));
++                _exit(67);
++            }
+ 
+-    update_out_oat_access_times(dex_path, out_oat_path);
+-
+-    // We've been successful, don't delete output.
+-    out_oat_fd.SetCleanup(false);
+-    out_vdex_fd.SetCleanup(false);
+-    image_fd.SetCleanup(false);
+-    reference_profile_fd.SetCleanup(false);
++            run_dex2oat(input_fd.get(),
++                        out_oat_fd.get(),
++                        in_vdex_fd.get(),
++                        out_vdex_fd.get(),
++                        image_fd.get(),
++                        dex_path,
++                        out_oat_path,
++                        swap_fd.get(),
++                        instruction_set,
++                        compiler_filter,
++                        debuggable,
++                        boot_complete,
++                        reference_profile_fd.get(),
++                        class_loader_context);
++            _exit(68);   /* only get here on exec failure */
++        } else {
++            int res = wait_child(pid);
++            if (res == 0) {
++                ALOGV("DexInv: --- END '%s' (success) ---\n", dex_path);
++            } else {
++                ALOGE("DexInv: --- END '%s' --- status=0x%04x, process failed\n", dex_path, res);
++                // PW3: the second half of DEXOPT_SPEED_IF_NO_PROFILE. A profile that
++                // is there but cannot be read -- truncated by a reboot in the middle
++                // of the merge that writes it, say -- does not make dex2oat compile
++                // nothing, it makes it fail ("Failed to process profile file",
++                // dex2oat.cc), and the application is left with no compiled code
++                // just the same. Everything this attempt opened has its cleanup run
++                // when the iteration ends, the half-written oat and vdex included,
++                // so the next one starts from nothing.
++                if (attempt == 1 && profile_guided
++                        && (dexopt_flags & DEXOPT_SPEED_IF_NO_PROFILE) != 0) {
++                    LOG(WARNING) << "dexopt: compiling " << dex_path << " from the profile of "
++                                 << pkgname << " failed; compiling it with speed instead";
++                    compiler_filter = "speed";
++                    profile_guided = false;
++                    continue;
++                }
++                return res;
++            }
++        }
++
++        update_out_oat_access_times(dex_path, out_oat_path);
+ 
+-    return 0;
++        // We've been successful, don't delete output.
++        out_oat_fd.SetCleanup(false);
++        out_vdex_fd.SetCleanup(false);
++        image_fd.SetCleanup(false);
++        reference_profile_fd.SetCleanup(false);
++
++        return 0;
++    }
+ }
+ 
+ // Try to remove the given directory. Log an error if the directory exists

@@ -1,0 +1,50 @@
+# The host tests (tools/run-tests.py) on every push to main and every pull
+# request. Linux, so the tests that need its headers run; the zstd release the
+# installer links against, so the installer's own tests run. What still needs
+# the build VM, a built image or the device is listed as skipped, with why.
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host:
+    name: host tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # private-data-history checks every version of every file; a shallow
+          # clone would hand it one commit and a pass that means nothing.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install zstd
+        run: command -v zstd || { sudo apt-get update && sudo apt-get install -y --no-install-recommends zstd; }
+
+      # Not qemu-user-static: with it, run-tests.py would try installer-unpack,
+      # which builds with the build VM's ARM toolchain and refuses to run elsewhere.
+      - name: Fetch the zstd release pinned in source-lock.json
+        run: |
+          read -r url sum < <(python3 -c 'import json; z = json.load(open("source-lock.json"))["installer_zstd"]; print(z["source_url"], z["archive_sha256"])')
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/zstd.tar.gz" "$url"
+          echo "$sum  $RUNNER_TEMP/zstd.tar.gz" | sha256sum -c -
+
+      - name: Run the host tests
+        run: python3 tools/run-tests.py --cc gcc --cxx g++ --zstd-archive "$RUNNER_TEMP/zstd.tar.gz"
+
+      # THIRD_PARTY.md says `reuse lint` passes; this is what keeps that true.
+      # tools/tests/test_reuse.py checks REUSE.toml's own properties, but not
+      # every SPDX line in every file the way the reference tool does.
+      - name: REUSE compliance
+        run: pipx run --spec 'reuse[charset-normalizer]==6.2.0' reuse lint

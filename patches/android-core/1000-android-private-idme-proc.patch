@@ -1,0 +1,69 @@
+From: PW3 Android port
+Subject: [PATCH] Restrict legacy factory identity proc accessors in Android
+
+The factory board ID, serial and MAC-secret accessors were world-readable.
+The Android profile keeps their kernel values and symbols for driver routing,
+but requires root to open the legacy proc files. No values are copied, wiped,
+logged or changed by this patch. The stock configuration retains mode 0444.
+---
+--- a/arch/arm/mach-mx6/boardid.c
++++ b/arch/arm/mach-mx6/boardid.c
+@@ -185,20 +185,28 @@
+ }
+ EXPORT_SYMBOL(bootmode_is_diags);
+ 
++/* The Android profile does not expose factory identity to applications.
++ * In-kernel board routing still uses the same values and exported symbols. */
++#ifdef CONFIG_LAB126_ANDROID_PRIVATE_IDENTIFIERS
++#define BOARDID_PROC_MODE S_IRUSR
++#else
++#define BOARDID_PROC_MODE S_IRUGO
++#endif
++
+ int __init lab126_idme_vars_init(void)
+ {
+ 	/* initialize the proc accessors */
+-	struct proc_dir_entry *proc_usid = create_proc_entry(BOARDID_USID_PROCNAME, S_IRUGO, NULL);
+-	struct proc_dir_entry *proc_board_id = create_proc_entry(BOARDID_PROCNAME_BOARDID, S_IRUGO, NULL);
+-	struct proc_dir_entry *proc_panel_id = create_proc_entry(BOARDID_PROCNAME_PANELID, S_IRUGO, NULL);
+-	struct proc_dir_entry *proc_mac_address = create_proc_entry(BOARDID_PROCNAME_MACADDR, S_IRUGO, NULL);
+-	struct proc_dir_entry *proc_mac_secret = create_proc_entry(BOARDID_PROCNAME_MACSEC, S_IRUGO, NULL);
+-	struct proc_dir_entry *proc_btmac_address = create_proc_entry(BOARDID_PROCNAME_BTMACADDR, S_IRUGO, NULL);
+-	struct proc_dir_entry *proc_bootmode = create_proc_entry(BOARDID_PROCNAME_BOOTMODE, S_IRUGO, NULL);
+-	struct proc_dir_entry *proc_postmode = create_proc_entry(BOARDID_PROCNAME_POSTMODE, S_IRUGO, NULL);
+-#ifdef CONFIG_FALCON
+-	struct proc_dir_entry *proc_oldboot = create_proc_entry(BOARDID_PROCNAME_OLDBOOT, S_IRUGO, NULL);
+-	struct proc_dir_entry *proc_qbcount = create_proc_entry(BOARDID_PROCNAME_QBCOUNT, S_IRUGO, NULL);
++	struct proc_dir_entry *proc_usid = create_proc_entry(BOARDID_USID_PROCNAME, BOARDID_PROC_MODE, NULL);
++	struct proc_dir_entry *proc_board_id = create_proc_entry(BOARDID_PROCNAME_BOARDID, BOARDID_PROC_MODE, NULL);
++	struct proc_dir_entry *proc_panel_id = create_proc_entry(BOARDID_PROCNAME_PANELID, BOARDID_PROC_MODE, NULL);
++	struct proc_dir_entry *proc_mac_address = create_proc_entry(BOARDID_PROCNAME_MACADDR, BOARDID_PROC_MODE, NULL);
++	struct proc_dir_entry *proc_mac_secret = create_proc_entry(BOARDID_PROCNAME_MACSEC, BOARDID_PROC_MODE, NULL);
++	struct proc_dir_entry *proc_btmac_address = create_proc_entry(BOARDID_PROCNAME_BTMACADDR, BOARDID_PROC_MODE, NULL);
++	struct proc_dir_entry *proc_bootmode = create_proc_entry(BOARDID_PROCNAME_BOOTMODE, BOARDID_PROC_MODE, NULL);
++	struct proc_dir_entry *proc_postmode = create_proc_entry(BOARDID_PROCNAME_POSTMODE, BOARDID_PROC_MODE, NULL);
++#ifdef CONFIG_FALCON
++	struct proc_dir_entry *proc_oldboot = create_proc_entry(BOARDID_PROCNAME_OLDBOOT, BOARDID_PROC_MODE, NULL);
++	struct proc_dir_entry *proc_qbcount = create_proc_entry(BOARDID_PROCNAME_QBCOUNT, BOARDID_PROC_MODE, NULL);
+ #endif
+ 	if (proc_usid != NULL) {
+ 		proc_usid->data = NULL;
+--- a/drivers/staging/android/Kconfig
++++ b/drivers/staging/android/Kconfig
+@@ -7,6 +7,16 @@
+ 	  Enable Android platform drivers imported from the AOSP 3.0 common kernel.
+ 
+ if ANDROID
++
++config LAB126_ANDROID_PRIVATE_IDENTIFIERS
++	bool "Restrict Lab126 identity proc files to root"
++	depends on LAB126
++	default n
++	help
++	  Create the Lab126 IDME proc accessors with mode 0400. The kernel
++	  still receives the required board and Wi-Fi parameters, but normal
++	  applications cannot read serials, MAC secrets, or board identity
++	  through these legacy factory interfaces. Stock mode is unchanged.
+ 
+ config ANDROID_BINDER_IPC
+ 	bool "Android Binder IPC Driver"

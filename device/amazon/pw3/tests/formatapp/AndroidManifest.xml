@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A layer in each shape the composer has to take, so that the device can be
+     asked whether it took them. Test only: never in the system image. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.readom.formattest">
+    <application android:label="Format test" android:hasCode="true">
+        <activity android:name=".FormatActivity"
+            android:theme="@android:style/Theme.NoTitleBar.Fullscreen"
+            android:screenOrientation="portrait">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

@@ -1,0 +1,41 @@
+From: PW3 Android port
+Subject: [PATCH] Drop inherited compositor worker CPU weight to normal
+
+Desktop native-resolution observation found inherited nice -8 workers taking
+about 85% of one virtual CPU while startup services timed out. For workers
+that inherit realtime scheduling only, also drop negative nice to zero.
+Keep compositor threads and existing non-realtime worker priorities unchanged.
+This is a candidate requiring complete normal-build runtime verification.
+
+--- a/src/Renderer/Renderer.cpp
++++ b/src/Renderer/Renderer.cpp
+@@ -727,11 +727,18 @@
+ 	if(inheritedRealtime)
+ 	{
+ 		// Software rendering must not inherit the compositor's realtime policy.
+-		// pid 0 addresses this worker only; sched_setscheduler does not change nice.
++		// pid 0 addresses this worker only; keep the compositor thread unchanged.
+ 		sched_param normal = {};
+ 		if(sched_setscheduler(0, SCHED_OTHER, &normal) == -1)
+ 		{
+ 			rendererWorkerSchedulingFailure("set_other", threadIndex, errno);
++		}
++		// CFS with nice -8 still dominates a single core during UI startup.
++		// Give inherited-RT software work normal CPU weight; never raise a
++		// background thread's priority or alter other processes' workers.
++		if(niceBefore < 0 && setpriority(PRIO_PROCESS, 0, 0) == -1)
++		{
++			rendererWorkerSchedulingFailure("set_normal_nice", threadIndex, errno);
+ 		}
+ 	}
+ 
+@@ -745,7 +752,8 @@
+ 	const bool policyValid = inheritedRealtime
+ 	    ? policyAfter == SCHED_OTHER && paramAfter.sched_priority == 0
+ 	    : policyAfter == policyBefore && paramAfter.sched_priority == paramBefore.sched_priority;
+-	if(!policyValid || niceAfter != niceBefore)
++	const int expectedNice = inheritedRealtime && niceBefore < 0 ? 0 : niceBefore;
++	if(!policyValid || niceAfter != expectedNice)
+ 	{
+ 		rendererWorkerSchedulingFailure("verify_policy_and_nice", threadIndex, 0);
+ 	}

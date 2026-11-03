@@ -1,0 +1,28 @@
+--- a/Android.mk
++++ b/Android.mk
+@@ -55,12 +55,6 @@
+ LOCAL_PACKAGE_NAME := Launcher3
+ LOCAL_PRIVILEGED_MODULE := true
+ LOCAL_OVERRIDES_PACKAGES := Home Launcher2
+-# PW3 has no companion setup/backup feature and does not ship CTS shim APKs.
+-# Keep this list with the launcher actually selected by the PW3 product.
+-ifeq ($(TARGET_DEVICE),pw3)
+-LOCAL_OVERRIDES_PACKAGES += \
+-    CtsShimPrebuilt CtsShimPrivPrebuilt WallpaperBackup CompanionDeviceManager
+-endif
+ 
+ LOCAL_FULL_LIBS_MANIFEST_FILES := $(LOCAL_PATH)/AndroidManifest-common.xml
+ 
+@@ -108,6 +102,12 @@
+ LOCAL_PACKAGE_NAME := Launcher3Go
+ LOCAL_PRIVILEGED_MODULE := true
+ LOCAL_OVERRIDES_PACKAGES := Home Launcher2 Launcher3
++# PW3 has no companion setup/backup feature and does not ship CTS shim APKs.
++# Keep this list with the launcher actually selected by the PW3 product.
++ifeq ($(TARGET_DEVICE),pw3)
++LOCAL_OVERRIDES_PACKAGES += \
++    CtsShimPrebuilt CtsShimPrivPrebuilt WallpaperBackup CompanionDeviceManager
++endif
+ 
+ LOCAL_FULL_LIBS_MANIFEST_FILES := \
+     $(LOCAL_PATH)/AndroidManifest.xml \

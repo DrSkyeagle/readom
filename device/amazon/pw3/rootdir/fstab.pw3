@@ -1,0 +1,5 @@
+# RAM validation profile metadata. init.pw3.rc mounts these explicitly.
+# The independently verified, read-only system/factory volumes are not
+# writable maintenance targets. This file does not authorize formatting.
+tmpfs /data tmpfs nosuid,nodev,size=128m notrim
+tmpfs /cache tmpfs nosuid,nodev,size=16m notrim

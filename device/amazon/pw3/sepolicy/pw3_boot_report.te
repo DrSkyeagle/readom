@@ -1,0 +1,36 @@
+type pw3_boot_report, domain;
+typeattribute pw3_boot_report coredomain;
+type pw3_boot_report_exec, exec_type, file_type;
+init_daemon_domain(pw3_boot_report)
+
+# The report area: 64 KiB of a file on the owner's store, mapped by PID 1 as
+# dm-3 after it has checked that the file is one of ours and nobody else's
+# (preinit/TestFileInit.h). A type of its own rather than userdata_block_device
+# -- which dm-2 carries -- because this is the one block device this domain
+# writes, and nothing that writes /data has any business in it.
+type pw3_report_block_device, dev_type;
+allow pw3_boot_report pw3_report_block_device:blk_file { getattr open read write };
+# And the directory the node sits in. /dev/block is block_device, labelled by
+# AOSP's own file_contexts, so a rule for the node alone is not enough: the open
+# walks the path first. On 2026-10-21 V66 started fine and then this:
+#   avc: denied { search } comm="pw3-boot-report" name="block"
+#     scontext=u:r:pw3_boot_report:s0 tcontext=u:object_r:block_device:s0
+#     tclass=dir permissive=0
+# -- the report area was never written on any start, and the service still
+# exited 0. pw3_init_check has carried this rule all along; this domain did not.
+allow pw3_boot_report block_device:dir search;
+
+# The executable reads fixed status paths and emits bounded summaries; apart
+# from the area above it cannot alter devices, properties, mounts or modules.
+r_dir_file(pw3_boot_report, proc)
+r_dir_file(pw3_boot_report, proc_meminfo)
+r_dir_file(pw3_boot_report, sysfs)
+allow pw3_boot_report graphics_device:dir search;
+allow pw3_boot_report graphics_device:chr_file { getattr open read ioctl };
+allowxperm pw3_boot_report graphics_device:chr_file ioctl { 0x4600 0x4602 0x4680 };
+allow pw3_boot_report kmsg_device:chr_file { open write };
+get_prop(pw3_boot_report, default_prop)
+get_prop(pw3_boot_report, system_prop)
+get_prop(pw3_boot_report, pw3_boot_prop)
+get_prop(pw3_boot_report, ffs_prop)
+read_logd(pw3_boot_report)

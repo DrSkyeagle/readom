@@ -1,0 +1,92 @@
+From: PW3 Android port
+Subject: [PATCH] ptrace, proc: a thread may reach its own process's /proc/self/fd
+
+Backport of mainline 96d0df79f264 ("proc: make proc_fd_permission()
+thread-friendly") and 73af963f9f30 ("ptrace: __ptrace_may_access() should
+not deny sub-threads"), both from 3.9. Each replaces a comparison against
+the current *task* with one against the current *thread group*, on the
+reasoning Oleg Nesterov gives in the second: between tasks that share an
+->mm there is nothing to protect, so a check that distinguishes them is not
+security, only a surprise.
+
+Without them an application cannot be installed on this device at all. The
+path is the same for adb install, for the package installer and for this
+port's WeRead entry, and it ends here:
+
+    PackageInstallerSession.openWriteInternal()
+      Libcore.os.open(target, O_CREAT | O_WRONLY, 0644)
+      StorageManager.allocateBytes(fd, lengthBytes, ...)    // size declared
+        ParcelFileDescriptor.getFile(fd)
+          Os.readlink("/proc/self/fd/" + fd)   -> EACCES
+
+and the caller reports "failed to write; readlink failed: EACCES
+(Permission denied)" (PW3 Android, V80 on the device, 2026-10-23;
+reproduced outside the port's own code with `cmd package install-write -S`).
+The install paths that do not declare a size skip allocateBytes and have
+always worked, which is why this went unseen until the WeRead entry, which
+knows the length, first reached its install step.
+
+Two checks deny it, and both are in these two commits:
+
+  * system_server changes uid at startup, so commit_creds() sets it not
+    dumpable, and pid_revalidate() therefore gives every /proc/<pid> inode
+    to root rather than to the process (the device shows `dr-x------ root
+    root /proc/1281/fd`). A binder thread of uid 1000 fails
+    generic_permission() on that directory, and proc_fd_permission()'s
+    second chance, `task_pid(current) == proc_pid(inode)`, is the thread's
+    own pid against the group leader's -- false for every thread but one.
+
+  * Had it got that far, proc_pid_readlink() asks
+    proc_fd_access_allowed() -> ptrace_may_access(), whose first line is
+    `if (task == current) return 0;` -- again the leader, not this thread.
+    It then reaches `if (!dumpable && !task_ns_capable(task,
+    CAP_SYS_PTRACE))` and returns -EPERM, which proc_pid_readlink() reports
+    as -EACCES.
+
+Android 8.1 is written against kernels that carry both commits, which is
+why this is a 3.0 problem and not an AOSP one: the framework may ask a
+worker thread to readlink a write-only descriptor of its own process, and
+on any kernel from 3.9 onwards it may.
+
+Adapted to 3.0: proc_fd_permission() still takes the RCU-walk `flags` and
+passes NULL for the ACL hook, and ptrace.c's local is `dumpable` rather
+than mainline's later form. Nesting rcu_read_lock() inside an RCU-walk is
+allowed; the function's existing habit of turning a -ECHILD from
+generic_permission() into 0 for the owning process is left as it is, which
+is what the pinned tree already does for the leader.
+
+--- a/fs/proc/base.c
++++ b/fs/proc/base.c
+@@ -2111,11 +2111,19 @@
+  */
+ static int proc_fd_permission(struct inode *inode, int mask, unsigned int flags)
+ {
+-	int rv = generic_permission(inode, mask, flags, NULL);
++	struct task_struct *p;
++	int rv;
++
++	rv = generic_permission(inode, mask, flags, NULL);
+ 	if (rv == 0)
+ 		return 0;
+-	if (task_pid(current) == proc_pid(inode))
++
++	rcu_read_lock();
++	p = pid_task(proc_pid(inode), PIDTYPE_PID);
++	if (p && same_thread_group(p, current))
+ 		rv = 0;
++	rcu_read_unlock();
++
+ 	return rv;
+ }
+
+--- a/kernel/ptrace.c
++++ b/kernel/ptrace.c
+@@ -146,7 +146,7 @@
+ 	 */
+ 	int dumpable = 0;
+ 	/* Don't let security modules deny introspection */
+-	if (task == current)
++	if (same_thread_group(task, current))
+ 		return 0;
+ 	rcu_read_lock();
+ 	tcred = __task_cred(task);

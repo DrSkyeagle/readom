@@ -1,0 +1,39 @@
+From: PW3 Android port
+Subject: [PW3] Notice files: the nearest one above a module that has none
+
+The image's legal notices (/system/etc/NOTICE.html.gz, Settings > About >
+Legal information) list a module only if its own directory holds a NOTICE
+file. Most modules sit below the directory that does, the project's: in the
+PW3 image (Test V38) SurfaceFlinger, installd, the HIDL services, the
+SwiftShader libraries and every PW3 module were missing, 878 installed files
+in all.
+
+A module without a NOTICE of its own now takes the nearest NOTICE in a
+directory above it, else the nearest licence file: SwiftShader has only a
+LICENSE.txt, libjpeg-turbo a LICENSE.md (its IJG terms ask for a notice with
+every binary), VIXL a LICENCE, strace a COPYING. Only modules installed on
+the device are looked up so: the notices are for what the device carries. A
+module with a licence of its own below such a project has to name it, as
+before (LOCAL_NOTICE_FILE or its own NOTICE). Projects with no licence file
+anywhere above a module (system/vold, frameworks/rs and a few others of
+AOSP's own, all Apache-2.0) stay unlisted, as in AOSP.
+
+--- a/core/notice_files.mk
++++ b/core/notice_files.mk
+@@ -8,6 +8,16 @@
+ else
+ notice_file:=$(strip $(wildcard $(LOCAL_PATH)/NOTICE))
+ endif
++# An installed module without one of its own: the project's, the nearest
++# above the module.
++ifdef LOCAL_INSTALLED_MODULE
++ifeq ($(notice_file),)
++notice_file:=$(firstword $(call find-parent-file,$(LOCAL_PATH),NOTICE))
++endif
++ifeq ($(notice_file),)
++notice_file:=$(firstword $(call find-parent-file,$(LOCAL_PATH),LICENSE LICENSE.txt LICENSE.md LICENCE COPYING))
++endif
++endif
+ 
+ ifeq ($(LOCAL_MODULE_CLASS),GYP)
+   # We ignore NOTICE files for modules of type GYP.

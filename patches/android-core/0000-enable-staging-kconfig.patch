@@ -1,0 +1,9 @@
+--- a/drivers/Kconfig
++++ b/drivers/Kconfig
+@@ -127,4 +127,6 @@
+ source "drivers/mxc/Kconfig"
+ 
+ source "drivers/falcon/Kconfig"
++source "drivers/staging/Kconfig"
++
+ endmenu

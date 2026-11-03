@@ -1,0 +1,146 @@
+--- a/compat-wireless/drivers/net/wireless/ath/ath6kl/Kconfig
++++ b/compat-wireless/drivers/net/wireless/ath/ath6kl/Kconfig
+@@ -12,6 +12,17 @@
+ 	  choose to build it as a module, it will be called ath6kl_sdio.
+ 	  Please note that AR6002 and AR6001 are not supported by this
+ 	  driver.
++
++config LAB126_ANDROID_ATH6KL_FIRMWARE
++	bool "Relative firmware names and explicit board data for Android Wario"
++	depends on LAB126 && ATH6KL_SDIO
++	default n
++	help
++	  Use firmware names relative to Android's vendor firmware directory.
++	  Require an explicit relative board_data_file module parameter and
++	  reject generic board-data fallback when that exact file is missing.
++	  Enable only after the device's correct calibration file has been
++	  identified and packaged with the Android image. Keep N for stock.
+ 
+ config ATH6KL_USB
+ 	tristate "Atheros ath6kl USB support"
+--- a/compat-wireless/drivers/net/wireless/ath/ath6kl/core.h
++++ b/compat-wireless/drivers/net/wireless/ath/ath6kl/core.h
+@@ -202,18 +202,23 @@
+ /* LAB126: changed per Wario path */
+ /* AR6003 3.0 definitions */  
+ #define AR6003_HW_2_1_1_VERSION                 0x30000582
++#ifdef CONFIG_LAB126_ANDROID_ATH6KL_FIRMWARE
++#define AR6003_HW_2_1_1_FW_DIR			"ath6k/AR6003/hw2.1.1"
++int ath6kl_android_validate_board_data(void);
++#else
+ #define AR6003_HW_2_1_1_FW_DIR			"/opt/ar6k/target/AR6003/hw2.1.1/bin"
++#endif
+ #define AR6003_HW_2_1_1_OTP_FILE		"otp.bin"
+ #define AR6003_HW_2_1_1_FIRMWARE_FILE		"athwlan.bin"
+ #define AR6003_HW_2_1_1_TCMD_FIRMWARE_FILE	"athtcmd_ram.bin"
+ #define AR6003_HW_2_1_1_UTF_FIRMWARE_FILE	"utf.bin"
+ #define AR6003_HW_2_1_1_TESTSCRIPT_FILE	"nullTestFlow.bin"
+ #define AR6003_HW_2_1_1_PATCH_FILE		"data.patch.bin"
+-#define AR6003_HW_2_1_1_BOARD_DATA_FILE "/opt/ar6k/target/AR6003/hw2.1.1/bin/bdata.bin"
++#define AR6003_HW_2_1_1_BOARD_DATA_FILE AR6003_HW_2_1_1_FW_DIR "/bdata.bin"
+ #define AR6003_HW_2_1_1_DEFAULT_BOARD_DATA_FILE	\
+-			"/opt/ar6k/target/AR6003/hw2.1.1/bin/bdata.SD31.bin"
+-
+-#define AR6003_REV3_BOARD_DATA_FILE		"/opt/ar6k/target/AR6003/hw2.1.1/bin/AR6803_default.bin"
++			AR6003_HW_2_1_1_FW_DIR "/bdata.SD31.bin"
++
++#define AR6003_REV3_BOARD_DATA_FILE		AR6003_HW_2_1_1_FW_DIR "/AR6803_default.bin"
+ 
+ /* AR6004 1.0 definitions */
+ #define AR6004_HW_1_0_VERSION                 0x30000623
+--- a/compat-wireless/drivers/net/wireless/ath/ath6kl/init.c
++++ b/compat-wireless/drivers/net/wireless/ath/ath6kl/init.c
+@@ -29,10 +29,53 @@
+ #ifdef CONFIG_LAB126
+ #include <mach/boardid.h>
+ #define BOARD_DATA_FILE_NAME_SIZE  256
++#ifdef CONFIG_LAB126_ANDROID_ATH6KL_FIRMWARE
++/* No guessed calibration default in the Android image. */
++char board_data_file[BOARD_DATA_FILE_NAME_SIZE];
++#else
+ char board_data_file[BOARD_DATA_FILE_NAME_SIZE] = AR6003_REV3_BOARD_DATA_FILE;
++#endif
++#ifdef CONFIG_LAB126_ANDROID_ATH6KL_FIRMWARE
++module_param_string(board_data_file, board_data_file, BOARD_DATA_FILE_NAME_SIZE, 0444);
++#else
+ module_param_string(board_data_file, board_data_file, BOARD_DATA_FILE_NAME_SIZE, 0644);
++#endif
+ 
+ #endif /* CONFIG_LAB126 */
++
++#ifdef CONFIG_LAB126_ANDROID_ATH6KL_FIRMWARE
++int ath6kl_android_validate_board_data(void)
++{
++	const char *p = board_data_file;
++	const char *component = p;
++
++	if (strncmp(p, "ath6k/", 6))
++		goto invalid;
++	for (;;) {
++		char c = *p;
++
++		if (!c || c == '/') {
++			size_t len = p - component;
++
++			if (!len || (len == 1 && component[0] == '.') ||
++			    (len == 2 && component[0] == '.' && component[1] == '.'))
++				goto invalid;
++			if (!c)
++				return 0;
++			component = p + 1;
++		} else if (!((c >= 'a' && c <= 'z') ||
++			     (c >= 'A' && c <= 'Z') ||
++			     (c >= '0' && c <= '9') ||
++			     c == '_' || c == '-' || c == '.')) {
++			goto invalid;
++		}
++		p++;
++	}
++invalid:
++	ath6kl_err("Android requires an explicit relative ath6k board_data_file\n");
++	return -EINVAL;
++}
++#endif
+ 
+ unsigned int debug_mask;
+ static unsigned int testmode;
+@@ -760,6 +803,12 @@
+ 		return 0;
+ 	}
+ 
++#ifdef CONFIG_LAB126_ANDROID_ATH6KL_FIRMWARE
++	/* Never substitute a generic calibration after an exact-file failure. */
++	ath6kl_err("Required Android board calibration could not be loaded\n");
++	return ret;
++#endif
++
+ 	if (check_device_tree(ar)) {
+ 		/* got board file from device tree */
+ 		return 0;
+--- a/compat-wireless/drivers/net/wireless/ath/ath6kl/sdio.c
++++ b/compat-wireless/drivers/net/wireless/ath/ath6kl/sdio.c
+@@ -1412,7 +1412,13 @@
+ static int __init ath6kl_sdio_init(void)
+ {
+ 	int ret;
+-	
++
++#ifdef CONFIG_LAB126_ANDROID_ATH6KL_FIRMWARE
++	ret = ath6kl_android_validate_board_data();
++	if (ret)
++		return ret;
++#endif
++
+     if (wifi_card_enable() != 0) {
+                printk(KERN_ERR "ar6003 driver could not enable wifi chip\n");
+ 		return -ENODEV;
+@@ -1421,6 +1427,9 @@
+ 	ret = sdio_register_driver(&ath6kl_sdio_driver);
+ 	if (ret) {
+ 		ath6kl_err("sdio driver registration failed: %d\n", ret);
++#ifdef CONFIG_LAB126_ANDROID_ATH6KL_FIRMWARE
++		wifi_card_disable();
++#endif
+ 	}
+ 
+ 	return ret;

@@ -1,0 +1,174 @@
+From: PW3 Android port
+Subject: [PW3] a gap in scheduling cannot be read as a change of the clock
+
+UsageStatsService decides that somebody set the clock by reading the two clocks
+one statement after the other and comparing how far they have moved apart:
+
+    final long actualSystemTime = System.currentTimeMillis();
+    final long actualRealtime = SystemClock.elapsedRealtime();
+    final long expectedSystemTime = (actualRealtime - mRealTimeSnapshot) + mSystemTimeSnapshot;
+    final long diffSystemTime = actualSystemTime - expectedSystemTime;
+
+Nothing holds the two reads together. If the thread is taken off the CPU for D
+between them, the wall clock is read at t and the monotonic clock at t+D, so
+diffSystemTime comes out at about -D and a gap of more than two seconds reads
+as a clock change. The skewed pair is then stored as the new snapshot, which
+makes the next undisturbed call come out at about +D, and the skew is carried
+into the timestamp of every event recorded until the next correction
+(convertToSystemTimeLocked). On a phone this cannot happen: no thread waits two
+seconds between two adjacent statements. On one 1 GHz Cortex-A9 with a
+compilation running it can, and what the service does about it -- reload the
+whole of the usage statistics and post another check of the idle states -- costs
+the core it is already short of.
+
+This device logged exactly that on 2026-10-20 while dex2oat had the core:
+
+    Time changed in UsageStats by 2 seconds
+    Time changed in UsageStats by -3 seconds
+    Time changed in UsageStats by 4 seconds
+
+and system_server held 85% of the core for over thirty minutes, with the thread
+dump (SIGQUIT, /data/anr/trace_NN) in UsageStatsService.onStatsReloaded calling
+postOneTimeCheckIdleStates. That the gaps are what started it is the reading
+that fits -- the alternating signs are what a skewed snapshot produces, and the
+machine was at 100% CPU throughout -- but one log and one thread dump do not
+establish it, and a real clock being set is not ruled out. What this patch
+fixes is the part that is certain from the source: the comparison cannot tell
+the two apart, and acts anyway.
+
+The wall clock is read somewhere between the two readings of the monotonic one,
+so the offset between the clocks is known only to within the width of that
+pair. Reading the monotonic clock on both sides gives the interval the offset
+lies in -- and the snapshot it is compared against was taken the same way, so
+it has an interval too and the comparison is between two of them. The snapshot
+therefore has to carry its own width; comparing a fresh interval against a
+point that pretends to be exact reintroduces the fault one step later, which is
+what a first version of this patch did:
+
+    a real jump of 10 s seen through a 6 s wide sample gives [4, 10], correctly
+    acted on; the midpoint then stores an offset 3 s short of the truth, and the
+    next undisturbed call reads that 3 s as a second clock change.
+
+With both widths carried, the test is whether the whole difference interval is
+past the threshold:
+
+  - A gap in scheduling, with no clock change, always leaves zero inside the
+    difference, whichever side of either wall-clock read the gap falls on and
+    however wide either sample is. It is never acted on.
+  - A clock somebody set by more than the threshold plus both widths lies
+    outside the interval entirely and is acted on at once. This is why the test
+    is an interval rather than a maximum width: a rule that threw wide samples
+    away would, on a device whose samples are always wide, never correct a clock
+    that really was set.
+  - What is left is a change between the threshold and the threshold plus the
+    widths, which waits for a reading narrow enough to show it.
+
+So that waiting ends, a call that finds no change and a tighter reading than the
+snapshot carries re-anchors the snapshot to it. The snapshot only ever narrows
+there, and a wide one left in place would go on hiding changes a narrow one
+would show. The point value kept for converting event timestamps
+(convertToSystemTimeLocked) is the middle of the interval, which is the estimate
+with the smallest worst-case error.
+
+--- a/services/usage/java/com/android/server/usage/UsageStatsService.java
++++ b/services/usage/java/com/android/server/usage/UsageStatsService.java
+@@ -151,6 +151,13 @@
+     private File mUsageStatsDir;
+     long mRealTimeSnapshot;
+     long mSystemTimeSnapshot;
++    /**
++     * PW3: how far apart the two readings that took the snapshot above were. The
++     * wall clock was read somewhere inside that span, so the offset the snapshot
++     * stands for is known only to within it, and checkAndGetTimeLocked() has to
++     * carry that forward or it will read its own imprecision as a clock change.
++     */
++    long mRealTimeSnapshotSpread;
+ 
+     boolean mAppIdleEnabled;
+     boolean mAppIdleTempParoled;
+@@ -223,8 +230,11 @@
+             mAppIdleHistory = new AppIdleHistory(SystemClock.elapsedRealtime());
+         }
+ 
+-        mRealTimeSnapshot = SystemClock.elapsedRealtime();
++        final long beforeRealtime = SystemClock.elapsedRealtime();
+         mSystemTimeSnapshot = System.currentTimeMillis();
++        final long afterRealtime = SystemClock.elapsedRealtime();
++        mRealTimeSnapshot = beforeRealtime + (afterRealtime - beforeRealtime) / 2;
++        mRealTimeSnapshotSpread = afterRealtime - beforeRealtime;
+ 
+         publishLocalService(UsageStatsManagerInternal.class, new LocalService());
+         publishBinderService(Context.USAGE_STATS_SERVICE, new BinderService());
+@@ -669,12 +679,30 @@
+      * This should be the only way to get the time from the system.
+      */
+     private long checkAndGetTimeLocked() {
++        // PW3: the wall clock is read between these two readings of the monotonic
++        // one, so the offset between the two clocks is known only to within the
++        // width of the pair -- and on this hardware a thread can be off the CPU
++        // for seconds between two statements.
++        final long beforeRealtime = SystemClock.elapsedRealtime();
+         final long actualSystemTime = System.currentTimeMillis();
+-        final long actualRealtime = SystemClock.elapsedRealtime();
+-        final long expectedSystemTime = (actualRealtime - mRealTimeSnapshot) + mSystemTimeSnapshot;
+-        final long diffSystemTime = actualSystemTime - expectedSystemTime;
+-        if (Math.abs(diffSystemTime) > TIME_CHANGE_THRESHOLD_MILLIS
++        final long afterRealtime = SystemClock.elapsedRealtime();
++        // The snapshot was taken the same way and carries its own width, so what
++        // is compared are two intervals. Their difference always contains zero
++        // when the clock did not change, whatever either width is; a clock that
++        // was set by more than the threshold and both widths falls outside it.
++        final long snapshotHalf = mRealTimeSnapshotSpread / 2;
++        final long diffAtLatest = (actualSystemTime - snapshotHalf)
++                - ((afterRealtime - mRealTimeSnapshot) + mSystemTimeSnapshot);
++        final long diffAtEarliest = (actualSystemTime + snapshotHalf)
++                - ((beforeRealtime - mRealTimeSnapshot) + mSystemTimeSnapshot);
++        if ((diffAtLatest > TIME_CHANGE_THRESHOLD_MILLIS
++                        || diffAtEarliest < -TIME_CHANGE_THRESHOLD_MILLIS)
+                 && ENABLE_TIME_CHANGE_CORRECTION) {
++            final long actualRealtime =
++                    beforeRealtime + (afterRealtime - beforeRealtime) / 2;
++            final long expectedSystemTime =
++                    (actualRealtime - mRealTimeSnapshot) + mSystemTimeSnapshot;
++            final long diffSystemTime = actualSystemTime - expectedSystemTime;
+             // The time has changed.
+             Slog.i(TAG, "Time changed in UsageStats by " + (diffSystemTime / 1000) + " seconds");
+             final int userCount = mUserState.size();
+@@ -684,6 +712,37 @@
+             }
+             mRealTimeSnapshot = actualRealtime;
+             mSystemTimeSnapshot = actualSystemTime;
++            mRealTimeSnapshotSpread = afterRealtime - beforeRealtime;
++        } else if (afterRealtime - beforeRealtime < mRealTimeSnapshotSpread) {
++            // PW3: nothing changed, and this reading is tighter than the one the
++            // snapshot carries. Take it: the snapshot only ever narrows here, and
++            // a wide one left in place would go on hiding changes that a narrow
++            // one would show.
++            //
++            // Re-measured, and what that costs is worth writing down. The pair is
++            // what convertToSystemTimeLocked() turns a monotonic event time into a
++            // wall time with, and onTimeChanged() -- which is not called on this
++            // path -- is what moves the statistics already stored. So taking the
++            // wall clock just read moves the first without the second, by however
++            // much this reading implies, and nothing afterwards makes it up.
++            //
++            // It is still right, because that difference is the correction. A
++            // reading taken across a wide gap leaves the pair off by up to half
++            // that width; the firing that took it told the statistics an amount
++            // off by the same half-width, so pair and statistics agreed. This
++            // branch takes the error out of the pair, which is what keeps the next
++            // comparison honest, and leaves it in the statistics, bounded by half
++            // the widest reading there has been -- seconds, once.
++            //
++            // Carrying the offset across instead, so that the pair never moves
++            // without a correction, was tried on 2026-10-21 and is worse: the
++            // error stays in the pair, the next narrow reading sees it as a
++            // difference of half the old width, and the detector fires on it. That
++            // is a false detection per narrowing, and a false detection is a flush
++            // of every user's statistics -- the thing this patch exists to stop.
++            mRealTimeSnapshot = beforeRealtime + (afterRealtime - beforeRealtime) / 2;
++            mSystemTimeSnapshot = actualSystemTime;
++            mRealTimeSnapshotSpread = afterRealtime - beforeRealtime;
+         }
+         return actualSystemTime;
+     }

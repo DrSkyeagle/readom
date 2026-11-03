@@ -1,0 +1,13 @@
+# Blank issues stay open: SECURITY.md and CODE_OF_CONDUCT.md both ask for an
+# issue that says only "something to discuss privately", which fits no form.
+blank_issues_enabled: true
+contact_links:
+  - name: 提问和想法 / Questions and ideas
+    url: https://github.com/hbyxabc/readom/discussions
+    about: '怎么用、想要什么，到讨论区聊。/ How to use it, what you would like: bring it to Discussions.'
+  - name: 安装教程 / Install guide
+    url: https://readom.app/#guide
+    about: 官网上的图文教程，也可以让 AI 带你一步步装。/ The illustrated guide on the website, or have an AI walk you through it.
+  - name: 安全问题 / Security issues
+    url: https://github.com/hbyxabc/readom/blob/main/SECURITY.md
+    about: 先别公开写细节，看这里怎么报。/ Do not post the details publicly; read how to report first.

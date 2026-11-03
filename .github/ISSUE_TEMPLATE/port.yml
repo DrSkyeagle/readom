@@ -1,0 +1,57 @@
+name: 移植 / Port
+description: 你正在把 Readom 移植到另一台 Kindle / You are porting Readom to another Kindle
+labels: [port]
+title: "移植 / Port: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        给正在动手的人：在这里记进度、提问题，想帮忙的人也能找到你。开始前先读[移植文档](https://github.com/hbyxabc/readom/blob/main/docs/design/porting-to-other-models.md)。在自己的 fork 里发布也完全可以；做稳定了，欢迎提 Pull Request 合回来。
+        For people doing the work: keep your progress and questions here, so others who want to help can find you. Read the [porting notes](https://github.com/hbyxabc/readom/blob/main/docs/design/porting-to-other-models.en.md) first. Releasing from your own fork is fine; once it is stable, a pull request to bring it back is welcome.
+  - type: input
+    id: model
+    attributes:
+      label: 机型 / Model
+      placeholder: Kindle Voyage
+    validations:
+      required: true
+  - type: input
+    id: firmware
+    attributes:
+      label: 系统版本 / Firmware version
+      placeholder: 5.x.x
+    validations:
+      required: true
+  - type: input
+    id: kernel
+    attributes:
+      label: 原厂内核版本 / Stock kernel version
+      description: 亚马逊这个固件的 GPL 源码包里的 Linux 版本，或者设备上 `uname -r` 的结果。/ The Linux version in Amazon's GPL source for this firmware, or `uname -r` on the device.
+      placeholder: 3.0.35
+  - type: input
+    id: soc
+    attributes:
+      label: 芯片和屏幕控制器 / SoC and display controller
+      placeholder: i.MX6SL, EPDC
+  - type: input
+    id: fork
+    attributes:
+      label: 你的 fork / Your fork
+      placeholder: https://github.com/<you>/<repo>
+  - type: checkboxes
+    id: progress
+    attributes:
+      label: 到哪一步了 / How far it has got
+      options:
+        - label: 有能用的越狱 / A working jailbreak
+        - label: 拿到了这个固件的亚马逊 GPL 源码 / Amazon's GPL source for this firmware
+        - label: 内核编出来了 / The kernel builds
+        - label: 能从原厂系统交接到新内核 / The handover from the stock system to the new kernel works
+        - label: 能进 Android 桌面 / It reaches the Android home screen
+        - label: 显示、触摸、Wi‑Fi 都能用 / Display, touch and Wi-Fi work
+  - type: textarea
+    id: stuck
+    attributes:
+      label: 卡在哪里，需要什么帮助 / Where you are stuck, and what would help
+    validations:
+      required: true

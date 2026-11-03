@@ -1,0 +1,28 @@
+From: PW3 Android port
+Subject: [PW3] Settings: the system's storage as counted, without a 1 GB floor
+
+Settings > Storage shows as "System" what the apps, media and files do not
+account for, but at least 1 GB, a phone's system partition. On PW3 the system
+image is 576 MiB and is counted in the total (frameworks/base 0020): the floor
+would show more than there is. The value is shown as counted, and not below
+zero.
+
+--- a/src/com/android/settings/deviceinfo/storage/StorageItemPreferenceController.java
++++ b/src/com/android/settings/deviceinfo/storage/StorageItemPreferenceController.java
+@@ -22,7 +22,6 @@
+ import android.content.Intent;
+ import android.content.res.TypedArray;
+ import android.graphics.drawable.Drawable;
+-import android.net.TrafficStats;
+ import android.os.Bundle;
+ import android.os.UserHandle;
+ import android.os.storage.VolumeInfo;
+@@ -284,7 +283,7 @@
+                         - otherData.externalStats.appBytes;
+             }
+ 
+-            final long systemSize = Math.max(TrafficStats.GB_IN_BYTES, mUsedBytes - attributedSize);
++            final long systemSize = Math.max(0, mUsedBytes - attributedSize);
+             mSystemPreference.setStorageSize(systemSize, mTotalSize);
+         }
+     }

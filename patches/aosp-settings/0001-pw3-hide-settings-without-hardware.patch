@@ -1,0 +1,155 @@
+--- a/src/com/android/settings/SettingsActivity.java
++++ b/src/com/android/settings/SettingsActivity.java
+@@ -813,6 +813,13 @@
+                         Settings.PowerUsageSummaryActivity.class.getName()),
+                 mBatteryPresent, isAdmin) || somethingChanged;
+ 
++        // Volume, ringtones and do-not-disturb sounds: nothing to set on a
++        // device that cannot output audio.
++        somethingChanged = setTileEnabled(new ComponentName(packageName,
++                        Settings.SoundSettingsActivity.class.getName()),
++                pm.hasSystemFeature(PackageManager.FEATURE_AUDIO_OUTPUT), isAdmin)
++                || somethingChanged;
++
+         somethingChanged = setTileEnabled(new ComponentName(packageName,
+                         Settings.UserSettingsActivity.class.getName()),
+                 UserHandle.MU_ENABLED && UserManager.supportsMultipleUsers()
+@@ -824,9 +831,18 @@
+                 !UserManager.isDeviceInDemoMode(this), isAdmin)
+                 || somethingChanged;
+ 
++        // Bluetooth, NFC, USB mode, printing and cast are all this page holds.
++        // Without any of them it is empty, and without the USB service
++        // (started only for USB host or accessory support) it cannot even
++        // open: UsbBackend dereferences the missing UsbManager.
++        final boolean hasConnections = pm.hasSystemFeature(PackageManager.FEATURE_BLUETOOTH)
++                || pm.hasSystemFeature(PackageManager.FEATURE_NFC)
++                || pm.hasSystemFeature(PackageManager.FEATURE_PRINTING)
++                || getSystemService(Context.USB_SERVICE) != null
++                || WifiDisplaySettings.isAvailable(this);
+         somethingChanged = setTileEnabled(new ComponentName(packageName,
+                         Settings.ConnectedDeviceDashboardActivity.class.getName()),
+-                !UserManager.isDeviceInDemoMode(this), isAdmin)
++                hasConnections && !UserManager.isDeviceInDemoMode(this), isAdmin)
+                 || somethingChanged;
+ 
+         somethingChanged = setTileEnabled(new ComponentName(packageName,
+--- a/src/com/android/settings/bluetooth/BluetoothMasterSwitchPreferenceController.java
++++ b/src/com/android/settings/bluetooth/BluetoothMasterSwitchPreferenceController.java
+@@ -17,6 +17,7 @@
+ 
+ import android.app.Fragment;
+ import android.content.Context;
++import android.content.pm.PackageManager;
+ import android.os.UserHandle;
+ import android.support.v7.preference.Preference;
+ import android.support.v7.preference.PreferenceScreen;
+@@ -75,6 +76,10 @@
+     @Override
+     public void displayPreference(PreferenceScreen screen) {
+         super.displayPreference(screen);
++        if (!isAvailable()) {
++            // The row was removed above; onStart() and onStop() accept a missing enabler.
++            return;
++        }
+         mBtPreference = (MasterSwitchPreference) screen.findPreference(KEY_TOGGLE_BLUETOOTH);
+         mBluetoothEnabler = new BluetoothEnabler(mContext,
+                 new MasterSwitchController(mBtPreference),
+@@ -95,7 +100,7 @@
+ 
+     @Override
+     public boolean isAvailable() {
+-        return true;
++        return mContext.getPackageManager().hasSystemFeature(PackageManager.FEATURE_BLUETOOTH);
+     }
+ 
+     @Override
+--- a/src/com/android/settings/connecteddevice/ConnectedDeviceDashboardFragment.java
++++ b/src/com/android/settings/connecteddevice/ConnectedDeviceDashboardFragment.java
+@@ -108,7 +108,11 @@
+         @Override
+         public void setListening(boolean listening) {
+             if (listening) {
+-                if (mNfcPreferenceController.isAvailable()) {
++                if (!mContext.getPackageManager().hasSystemFeature(
++                        PackageManager.FEATURE_BLUETOOTH)) {
++                    // "Bluetooth, Cast" would name two things this page does not have.
++                    mSummaryLoader.setSummary(this, mContext.getString(R.string.usb_pref));
++                } else if (mNfcPreferenceController.isAvailable()) {
+                     mSummaryLoader.setSummary(this,
+                             mContext.getString(R.string.connected_devices_dashboard_summary));
+                 } else {
+--- a/src/com/android/settings/network/AirplaneModePreferenceController.java
++++ b/src/com/android/settings/network/AirplaneModePreferenceController.java
+@@ -27,6 +27,7 @@
+ import com.android.internal.telephony.TelephonyIntents;
+ import com.android.internal.telephony.TelephonyProperties;
+ import com.android.settings.AirplaneModeEnabler;
++import com.android.settings.Utils;
+ import com.android.settings.core.PreferenceControllerMixin;
+ import com.android.settings.core.instrumentation.MetricsFeatureProvider;
+ import com.android.settings.overlay.FeatureFactory;
+@@ -91,7 +92,12 @@
+     }
+ 
+     public static boolean isAvailable(Context context) {
+-        return !context.getPackageManager().hasSystemFeature(PackageManager.FEATURE_TELEVISION);
++        final PackageManager pm = context.getPackageManager();
++        // With Wi-Fi as the only radio the switch does what the Wi-Fi switch does.
++        final boolean otherRadio = !Utils.isWifiOnly(context)
++                || pm.hasSystemFeature(PackageManager.FEATURE_BLUETOOTH)
++                || pm.hasSystemFeature(PackageManager.FEATURE_NFC);
++        return otherRadio && !pm.hasSystemFeature(PackageManager.FEATURE_TELEVISION);
+     }
+ 
+     @Override
+@@ -100,16 +106,20 @@
+     }
+ 
+     public void onResume() {
+-        mAirplaneModeEnabler.resume();
++        if (mAirplaneModeEnabler != null) {
++            mAirplaneModeEnabler.resume();
++        }
+     }
+ 
+     @Override
+     public void onPause() {
+-        mAirplaneModeEnabler.pause();
++        if (mAirplaneModeEnabler != null) {
++            mAirplaneModeEnabler.pause();
++        }
+     }
+ 
+     public void onActivityResult(int requestCode, int resultCode, Intent data) {
+-        if (requestCode == REQUEST_CODE_EXIT_ECM) {
++        if (requestCode == REQUEST_CODE_EXIT_ECM && mAirplaneModeEnabler != null) {
+             Boolean isChoiceYes = data.getBooleanExtra(EXIT_ECM_RESULT, false);
+             // Set Airplane mode based on the return value and checkbox state
+             mAirplaneModeEnabler.setAirplaneModeInECM(isChoiceYes,
+--- a/src/com/android/settings/location/LocationPreferenceController.java
++++ b/src/com/android/settings/location/LocationPreferenceController.java
+@@ -19,6 +19,7 @@
+ import android.content.Context;
+ import android.content.Intent;
+ import android.content.IntentFilter;
++import android.content.pm.PackageManager;
+ import android.location.LocationManager;
+ import android.provider.Settings.Secure;
+ import android.support.annotation.VisibleForTesting;
+@@ -94,11 +95,13 @@
+ 
+     @Override
+     public boolean isAvailable() {
+-        return true;
++        return mContext.getPackageManager().hasSystemFeature(PackageManager.FEATURE_LOCATION);
+     }
+ 
+     public void updateSummary() {
+-        updateState(mPreference);
++        if (mPreference != null) {
++            updateState(mPreference);
++        }
+     }
+ 
+     public static String getLocationSummary(Context context) {

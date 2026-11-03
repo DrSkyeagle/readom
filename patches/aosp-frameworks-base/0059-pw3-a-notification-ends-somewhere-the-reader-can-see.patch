@@ -1,0 +1,196 @@
+From: PW3 Android port
+Subject: [PW3] SystemUI: a notification ends somewhere the reader can see
+
+With three notifications in the shade on V85, nothing marks where one ends and
+the next begins. Measured off the screenshot, down one column:
+
+  * every card is `#FFFFFF`, and so is the shade behind them;
+  * the only thing between two cards is a single row of `#EEEEEE`;
+  * the low priority row at the bottom is `#F5F5F5`, and the action row
+    (「分享 删除」) inside the first card is `#EEEEEE`.
+
+`#F5F5F5` is 10 of 255 from white and `#EEEEEE` is 17: one step of the sixteen
+this panel has, which is why rule 1 of docs/design/eink-ui.md names those two
+values and says they cannot be used to tell regions apart here.
+
+What separates notifications in AOSP is not any of those -- it is the
+elevation shadow each row casts on the one below. This SystemUI draws in
+software (patch 0003), where no shadow is drawn at all: `FakeShadowView` only
+sets `translationZ` and hands the renderer an outline, and the software
+renderer has nothing to do with either. Rule 3 was written for exactly this --
+「软件绘制根本不画 elevation 阴影，白色浮层落在白底上就没有边界」 -- and its
+answer is a solid outline, the same one the dialogs, menus, toasts, task cards
+and search boxes already carry.
+
+The outline is drawn by `NotificationBackgroundView` rather than put in the
+background drawable, because `setTint()` paints that drawable through a
+`SRC_ATOP` colour filter: a media notification with a background colour of its
+own, or a row being interpolated towards one, would take the outline with it
+and the boundary would disappear again for exactly the row that has it least.
+Drawn in `draw()`, after the background and on the same rectangle inset by half
+its width, no tint can reach it. The drawable keeps the same
+`pw3_corner_radius`, so the fill and the line follow the same curve, to within
+the part of a pixel by which an inset arc of the same radius differs. The one
+thing an outline outside the drawable does not get for free is the drawable's
+own alpha, which `setDrawableAlpha()` sets -- `ActivatableNotificationView`
+fades the normal background of a row that cannot be dimmed while the shade
+dims -- so that setter hands the alpha to the outline as well; a black frame
+around a fill that is no longer there would be worse than no frame.
+
+Three values follow:
+
+  * the space between rows was 0.5dp, one pixel, which would put two outlines
+    together into a single thick line. 4dp of shade between them reads as the
+    gap it is. `notification_divider_height` is that space, which
+    `StackScrollAlgorithm` and `NotificationShelf` also use;
+  * `notification_children_container_divider_height` followed it, and it is
+    not a space -- it is a line, painted in `notification_divider_color`
+    between the children of an expanded group. It keeps the height it had;
+  * the low priority background becomes white. It was `#F5F5F5`, invisible,
+    and white is also the value `ActivatableNotificationView
+    .setBackgroundTintColor()` compares against to decide to apply no colour
+    filter at all.
+
+The `#EEEEEE` action row inside a card is in framework-res and is left alone
+here; it is a tint within one card, not the boundary between two.
+
+--- a/packages/SystemUI/res/drawable/notification_material_bg.xml
++++ b/packages/SystemUI/res/drawable/notification_material_bg.xml
+@@ -20,6 +20,9 @@
+     <item>
+         <shape>
+             <solid android:color="@color/notification_material_background_color" />
++            <!-- PW3: the corners of the outline NotificationBackgroundView
++                 draws over this (docs/design/eink-ui.md rule 3). -->
++            <corners android:radius="@dimen/pw3_corner_radius" />
+         </shape>
+     </item>
+ </ripple>
+\ No newline at end of file
+--- a/packages/SystemUI/res/drawable/notification_material_bg_dim.xml
++++ b/packages/SystemUI/res/drawable/notification_material_bg_dim.xml
+@@ -18,6 +18,9 @@
+     <item>
+         <shape>
+             <solid android:color="@color/notification_material_background_dimmed_color" />
++            <!-- PW3: the corners of the outline NotificationBackgroundView
++                 draws over this (docs/design/eink-ui.md rule 3). -->
++            <corners android:radius="@dimen/pw3_corner_radius" />
+         </shape>
+     </item>
+ </ripple>
+--- a/packages/SystemUI/res/values/colors.xml
++++ b/packages/SystemUI/res/values/colors.xml
+@@ -80,7 +80,11 @@
+     <color name="notification_material_background_dark_color">#ff333333</color>
+ 
+     <!-- The color of the material notification background when low priority -->
+-    <color name="notification_material_background_low_priority_color">#fff5f5f5</color>
++    <!-- PW3: grey 96 against white is 10 of 255, one level of the 16 this panel
++         has, so it told the reader nothing. White is also what
++         ActivatableNotificationView.setBackgroundTintColor() compares against:
++         equal to the normal colour, it applies no colour filter at all. -->
++    <color name="notification_material_background_low_priority_color">#ffffffff</color>
+ 
+     <!-- The color of the dividing line between grouped notifications. -->
+     <color name="notification_divider_color">#FF616161</color>
+--- a/packages/SystemUI/res/values/dimens.xml
++++ b/packages/SystemUI/res/values/dimens.xml
+@@ -352,7 +352,12 @@
+     <dimen name="z_distance_between_notifications">0.5dp</dimen>
+ 
+     <!-- The height of the divider between the individual notifications. -->
+-    <dimen name="notification_divider_height">0.5dp</dimen>
++    <!-- PW3: 0.5dp is one pixel here, and the rows it separates are now outlined,
++         so two outlines would meet in a single thick line. 4dp of the shade behind
++         them reads as the gap it is. This is the space between rows, which
++         StackScrollAlgorithm and NotificationShelf also use; the line drawn inside
++         a group keeps its own height below. -->
++    <dimen name="notification_divider_height">4dp</dimen>
+ 
+     <!-- The corner radius of the shadow behind the notification. -->
+     <dimen name="notification_shadow_radius">0dp</dimen>
+@@ -362,7 +367,10 @@
+ 
+     <!-- The height of the divider between the individual notifications in a notification
+          group. -->
+-    <dimen name="notification_children_container_divider_height">@dimen/notification_divider_height</dimen>
++    <!-- PW3: this one is painted, in notification_divider_color, between the
++         children of a group, and it followed the space between rows above. It
++         keeps the height it had. -->
++    <dimen name="notification_children_container_divider_height">0.5dp</dimen>
+ 
+     <!-- The height of the header for a container containing child notifications. -->
+     <dimen name="notification_children_container_header_height">53dp</dimen>
+--- a/packages/SystemUI/src/com/android/systemui/statusbar/NotificationBackgroundView.java
++++ b/packages/SystemUI/src/com/android/systemui/statusbar/NotificationBackgroundView.java
+@@ -19,6 +19,7 @@
+ import android.content.Context;
+ import android.content.res.ColorStateList;
+ import android.graphics.Canvas;
++import android.graphics.Paint;
+ import android.graphics.ColorFilter;
+ import android.graphics.PorterDuff;
+ import android.graphics.drawable.Drawable;
+@@ -26,6 +27,8 @@
+ import android.util.AttributeSet;
+ import android.view.View;
+ 
++import com.android.systemui.R;
++
+ /**
+  * A view that can be used for both the dimmed and normal background of an notification.
+  */
+@@ -36,9 +39,27 @@
+     private int mActualHeight;
+     private int mClipBottomAmount;
+     private int mTintColor;
++    // PW3: what separates one notification from the next in AOSP is the
++    // elevation shadow each row casts on the one below, and this SystemUI is
++    // drawn in software, where no shadow is drawn at all (FakeShadowView only
++    // sets translationZ). White rows on a white shade then have no edge.
++    // Rule 3 of docs/design/eink-ui.md: a solid outline instead. It is drawn
++    // here rather than put in the background drawable because setTint() below
++    // paints that drawable through a SRC_ATOP colour filter -- a media
++    // notification with a background colour of its own would take the outline
++    // with it.
++    private final Paint mOutline;
++    private final float mOutlineRadius;
+ 
+     public NotificationBackgroundView(Context context, AttributeSet attrs) {
+         super(context, attrs);
++        mOutline = new Paint(Paint.ANTI_ALIAS_FLAG);
++        mOutline.setStyle(Paint.Style.STROKE);
++        mOutline.setColor(context.getColor(R.color.pw3_outline));
++        // Whole pixels: a fractional width is drawn as a pair of grey edges.
++        mOutline.setStrokeWidth(
++                context.getResources().getDimensionPixelSize(R.dimen.pw3_outline_width));
++        mOutlineRadius = context.getResources().getDimension(R.dimen.pw3_corner_radius);
+     }
+ 
+     @Override
+@@ -51,6 +72,11 @@
+         if (drawable != null && bottom > mClipTopAmount) {
+             drawable.setBounds(0, mClipTopAmount, getWidth(), bottom);
+             drawable.draw(canvas);
++            // PW3: the outline, on the same rectangle, inset by half its width
++            // so that it is drawn inside the row and not across its neighbour.
++            final float inset = mOutline.getStrokeWidth() / 2f;
++            canvas.drawRoundRect(inset, mClipTopAmount + inset, getWidth() - inset,
++                    bottom - inset, mOutlineRadius, mOutlineRadius, mOutline);
+         }
+     }
+ 
+@@ -151,5 +177,12 @@
+ 
+     public void setDrawableAlpha(int drawableAlpha) {
+         mBackground.setAlpha(drawableAlpha);
++        // PW3: the outline is drawn beside the drawable, not inside it, so it
++        // has to be told. Without this a row that fades its background --
++        // ActivatableNotificationView does that for a row which cannot be
++        // dimmed while the shade is dimming -- would keep a solid black frame
++        // around a fill that is no longer there.
++        mOutline.setAlpha(drawableAlpha);
++        invalidate();
+     }
+ }

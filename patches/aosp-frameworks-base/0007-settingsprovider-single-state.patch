@@ -1,0 +1,104 @@
+From: PW3 Android port
+Subject: [PW3] SettingsProvider: additional instances share the first one's state
+
+ActivityThread constructs a provider instance for whichever system thread
+asks for "settings" first and another one in installSystemProviders(); it
+keeps one, but onCreate() has run on both. Each instance owned a separate
+in-memory copy of the settings and the same files, and the "settings"
+service was registered by whichever onCreate() finished last. On PW3 Test
+V29 the ActivityManager thread and the main thread both created one
+(two SettingsProvider threads, two "No settings state" lines 33 ms apart):
+cmd settings wrote 1800000 to screen_off_timeout while PowerManager kept
+reading 60000 from the other copy, so the screen slept every minute.
+
+Further instances now adopt the lock and state of the first. They wait at
+most 20 s for it, then fall back to the previous behaviour. onCreate() logs
+its stack so the early caller can be identified.
+
+diff --git a/packages/SettingsProvider/src/com/android/providers/settings/SettingsProvider.java b/packages/SettingsProvider/src/com/android/providers/settings/SettingsProvider.java
+index 7d7f9ae7..db100f08 100644
+--- a/packages/SettingsProvider/src/com/android/providers/settings/SettingsProvider.java
++++ b/packages/SettingsProvider/src/com/android/providers/settings/SettingsProvider.java
+@@ -89,6 +89,8 @@ import java.util.Arrays;
+ import java.util.Collection;
+ import java.util.HashSet;
+ import java.util.List;
++import java.util.concurrent.CountDownLatch;
++import java.util.concurrent.TimeUnit;
+ import java.util.Locale;
+ import java.util.Map;
+ import java.util.Set;
+@@ -258,7 +260,22 @@ public class SettingsProvider extends ContentProvider {
+         Settings.System.getCloneFromParentOnValueSettings(sSystemCloneFromParentOnDependency);
+     }
+ 
+-    private final Object mLock = new Object();
++    // PW3: the system process can construct this provider twice. ActivityThread
++    // creates an instance for the first thread that asks for "settings" and
++    // another one in installSystemProviders(); it keeps one of them, but both
++    // have run onCreate(). Each used to own a separate copy of the settings in
++    // memory, and the "settings" service (cmd settings) could belong to the one
++    // nobody else reads. Seen on PW3 Test V29: values written by cmd settings
++    // never reached PowerManager. Every further instance now shares the lock
++    // and state of the first.
++    private static final Object sInstanceLock = new Object();
++    @GuardedBy("sInstanceLock")
++    private static SettingsProvider sFirstInstance;
++    private static final CountDownLatch sFirstInstanceReady = new CountDownLatch(1);
++    private static final long FIRST_INSTANCE_WAIT_SECONDS = 20;
++
++    // Assigned once, in onCreate(), before any other use.
++    private Object mLock = new Object();
+ 
+     @GuardedBy("mLock")
+     private SettingsRegistry mSettingsRegistry;
+@@ -315,6 +332,39 @@ public class SettingsProvider extends ContentProvider {
+     @Override
+     public boolean onCreate() {
+         Settings.setInSystemServer();
++        final SettingsProvider first;
++        synchronized (sInstanceLock) {
++            first = sFirstInstance;
++            if (first == null) {
++                sFirstInstance = this;
++            }
++        }
++        // The stack shows which caller constructed the instance.
++        Slog.i(LOG_TAG, "PW3: onCreate " + (first == null ? "first" : "additional") + " instance on thread "
++                + Thread.currentThread().getName(), new Throwable());
++        if (first != null) {
++            boolean ready = false;
++            try {
++                ready = sFirstInstanceReady.await(FIRST_INSTANCE_WAIT_SECONDS, TimeUnit.SECONDS);
++            } catch (InterruptedException e) {
++                Thread.currentThread().interrupt();
++            }
++            if (ready) {
++                mLock = first.mLock;
++                synchronized (mLock) {
++                    mUserManager = first.mUserManager;
++                    mPackageManager = first.mPackageManager;
++                    mHandlerThread = first.mHandlerThread;
++                    mHandler = first.mHandler;
++                    mSettingsRegistry = first.mSettingsRegistry;
++                }
++                // Receivers and the "settings" service belong to the first instance.
++                return true;
++            }
++            // Never block the caller forever: fall back to a separate state, as before.
++            Slog.e(LOG_TAG, "PW3: first instance not ready after " + FIRST_INSTANCE_WAIT_SECONDS
++                    + " s; this instance keeps a separate settings state");
++        }
+         synchronized (mLock) {
+             mUserManager = UserManager.get(getContext());
+             mPackageManager = AppGlobals.getPackageManager();
+@@ -324,6 +374,9 @@ public class SettingsProvider extends ContentProvider {
+             mHandler = new Handler(mHandlerThread.getLooper());
+             mSettingsRegistry = new SettingsRegistry();
+         }
++        if (first == null) {
++            sFirstInstanceReady.countDown();
++        }
+         mHandler.post(() -> {
+             registerBroadcastReceivers();
+             startWatchingUserRestrictionChanges();

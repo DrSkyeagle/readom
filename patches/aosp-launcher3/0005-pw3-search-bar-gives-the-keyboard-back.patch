@@ -1,0 +1,86 @@
+From: PW3 Android port
+Subject: [PW3] Launcher3: the search bar gives the keyboard back
+
+With 0004 the search bar is a text field on the home screen. A tap on it
+brings up the keyboard, and only the back key took it away again: a tap
+elsewhere on the home screen left it up ("the keyboard does not go down if I
+tap a blank part of the screen", user, Test V37).
+
+The bar around the field takes the window's first focus, so the field is
+edited only once touched: it took the focus when the home screen started, and
+then the first touch elsewhere only ended an editing that had not begun.
+
+The field is Launcher's ExtendedEditText now, and is handled as Launcher
+handles the text field of a folder being renamed: a touch outside it while it
+is being edited hides the keyboard, ends the editing and goes no further (no
+app starts by accident). The back key and a search sent with the keyboard's
+search key end the editing as well.
+
+--- a/res/layout/qsb_default_view.xml
++++ b/res/layout/qsb_default_view.xml
+@@ -25,9 +25,10 @@
+         android:layout_gravity="center_vertical"
+         android:background="@drawable/round_rect_primary"
+         android:elevation="2dp"
++        android:focusableInTouchMode="true"
+         android:orientation="horizontal">
+ 
+-        <EditText
++        <com.android.launcher3.ExtendedEditText
+             android:layout_width="0dp"
+             android:id="@+id/btn_qsb_search"
+             android:layout_height="match_parent"
+--- a/src/com/android/launcher3/qsb/QsbWidgetHostView.java
++++ b/src/com/android/launcher3/qsb/QsbWidgetHostView.java
+@@ -28,6 +28,7 @@
+ import android.widget.RemoteViews;
+ import android.widget.TextView;
+ 
++import com.android.launcher3.ExtendedEditText;
+ import com.android.launcher3.Launcher;
+ import com.android.launcher3.R;
+ 
+@@ -81,7 +82,16 @@
+         View v = LayoutInflater.from(parent.getContext())
+                 .inflate(R.layout.qsb_default_view, parent, false);
+         // A search typed here goes to the application that searches the web.
+-        TextView field = (TextView) v.findViewById(R.id.btn_qsb_search);
++        final ExtendedEditText field = (ExtendedEditText) v.findViewById(R.id.btn_qsb_search);
++        // Back (and a touch outside, see DragLayer) ends the editing; the
++        // keyboard handles the key itself and goes down.
++        field.setOnBackKeyListener(new ExtendedEditText.OnBackKeyListener() {
++            @Override
++            public boolean onBackKey() {
++                field.clearFocus();
++                return false;
++            }
++        });
+         field.setOnEditorActionListener(new TextView.OnEditorActionListener() {
+             @Override
+             public boolean onEditorAction(TextView view, int actionId, KeyEvent event) {
+@@ -92,7 +102,7 @@
+                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                 if (Launcher.getLauncher(view.getContext()).startActivitySafely(view, intent, null)) {
+                     view.setText("");
+-                    view.clearFocus();
++                    field.dispatchBackKey();
+                 }
+                 return true;
+             }
+--- a/src/com/android/launcher3/dragndrop/DragLayer.java
++++ b/src/com/android/launcher3/dragndrop/DragLayer.java
+@@ -181,6 +181,14 @@
+     }
+ 
+     private boolean handleTouchDown(MotionEvent ev, boolean intercept) {
++        // The home screen's search field being edited: a touch elsewhere ends
++        // that and nothing else, as for the name of a folder below.
++        View focus = mLauncher.getCurrentFocus();
++        if (intercept && focus instanceof ExtendedEditText && focus.getId() == R.id.btn_qsb_search
++                && !isEventOverView(focus, ev)) {
++            ((ExtendedEditText) focus).dispatchBackKey();
++            return true;
++        }
+         AbstractFloatingView topView = AbstractFloatingView.getTopOpenView(mLauncher);
+         if (topView != null && intercept) {
+             ExtendedEditText textView = topView.getActiveTextView();

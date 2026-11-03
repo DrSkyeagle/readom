@@ -1,0 +1,55 @@
+name: 申请支持你的机型 / Ask for your model
+description: 想在自己的 Kindle 上用 Readom / You would like Readom on your Kindle
+labels: [device-request]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        每个机型都是一次真正的移植，要有一台机器和愿意动手的人。各机型离 PW3 多远，见[移植文档](https://github.com/hbyxabc/readom/blob/main/docs/design/porting-to-other-models.md)。同一个机型已经有人申请了，就去那里点个 👍，不用再开一个：点赞的人数就是排先后的依据。
+        Every model is a real port that needs a device and someone to do it. How far each model is from the PW3 is in the [porting notes](https://github.com/hbyxabc/readom/blob/main/docs/design/porting-to-other-models.en.md). If your model is already asked for, add a 👍 there instead of opening another: the count is what decides the order.
+  - type: dropdown
+    id: model
+    attributes:
+      label: 机型 / Model
+      options:
+        - Kindle Voyage
+        - Kindle Oasis（第 1 代 / 1st gen）
+        - Kindle（第 8 代 / 8th gen）
+        - Kindle Paperwhite（第 10 代，PW4 / 10th gen, PW4）
+        - Kindle（第 10 代 / 10th gen）
+        - Kindle Oasis（第 2、3 代 / 2nd, 3rd gen）
+        - Kindle Paperwhite（第 11 代，PW5 及以后 / 11th gen, PW5 and later）
+        - Kindle（第 11 代及以后 / 11th gen and later）
+        - Kindle Scribe
+        - 其他 / Other
+    validations:
+      required: true
+  - type: input
+    id: firmware
+    attributes:
+      label: 系统版本 / Firmware version
+      description: 设置 → 设备选项 → 设备信息。/ Settings → Device Options → Device Info.
+      placeholder: 5.16.2.1.1
+    validations:
+      required: true
+  - type: dropdown
+    id: jailbreak
+    attributes:
+      label: 越狱了吗 / Jailbroken
+      options:
+        - 已越狱 / Yes
+        - 没有 / No
+        - 不知道 / Not sure
+    validations:
+      required: true
+  - type: checkboxes
+    id: help
+    attributes:
+      label: 能帮上什么 / How you could help
+      options:
+        - label: 我愿意在自己的机器上帮忙测试。/ I can test on my own device.
+        - label: 我想自己动手移植（那就用「移植」模板开一个）。/ I want to do the port myself (open one with the "Port" template then).
+  - type: textarea
+    id: notes
+    attributes:
+      label: 还想说的 / Anything else

@@ -1,0 +1,5 @@
+#!/bin/bash
+# Retain AOSP's exact x86 JVM/JNI libraries; avoid HotSpot JIT stalls in QEMU.
+# This changes only the host JVM execution mode, not Android ART compilation.
+set -euo pipefail
+exec /src/prebuilts/jdk/jdk8/linux-x86/bin/java -Xint "$@"

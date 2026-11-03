@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+        package="org.readom.wereadinstaller">
+
+    <uses-sdk android:minSdkVersion="27" android:targetSdkVersion="27" />
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.INSTALL_PACKAGES" />
+    <!-- To hand this entry's cell on the home screen to the application it
+         installed (HomeScreenCell). The launcher exports its workspace table
+         with these two permissions: the read is `normal`, the write is
+         signatureOrSystem, and this application carries the launcher's signing
+         key and is privileged. -->
+    <uses-permission android:name="com.android.launcher3.permission.READ_SETTINGS" />
+    <uses-permission android:name="com.android.launcher3.permission.WRITE_SETTINGS" />
+
+    <application android:label="@string/app_name"
+            android:allowBackup="false"
+            android:usesCleartextTraffic="false">
+        <!-- The home screen entry, under WeRead's name and an icon that says
+             it is a download. It disables itself once WeRead is installed
+             (StatusActivity.retire), so the home screen then has WeRead's own
+             icon and not two. Light theme with no action bar: this port's
+             pages are a white sheet with black text
+             (docs/design/eink-ui.md). -->
+        <activity android:name=".StatusActivity"
+                android:label="@string/entry_name"
+                android:icon="@drawable/ic_weread"
+                android:theme="@android:style/Theme.Material.Light.NoActionBar"
+                android:excludeFromRecents="true"
+                android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <receiver android:name=".BootReceiver">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+        <!-- The entry exists exactly while WeRead is not installed, and this is
+             the moment the second half of that becomes true. -->
+        <receiver android:name=".RemovalReceiver">
+            <intent-filter>
+                <action android:name="android.intent.action.PACKAGE_FULLY_REMOVED" />
+                <data android:scheme="package" />
+            </intent-filter>
+        </receiver>
+        <receiver android:name=".ResultReceiver" android:exported="false" />
+        <service android:name=".InstallJob"
+                android:permission="android.permission.BIND_JOB_SERVICE" />
+    </application>
+</manifest>

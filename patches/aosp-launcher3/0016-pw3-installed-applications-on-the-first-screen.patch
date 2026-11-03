@@ -1,0 +1,116 @@
+From: PW3 Android port
+Subject: [PW3] Launcher3: an application just installed is on the screen in front of you
+
+An application installed on this device went onto a page that did not exist
+until it was made for it, which on this device is a page nobody can find.
+
+AddWorkspaceItemsTask looks for a cell from screen index 1 upward, and never
+offers screen 0 one. On a phone that is right: there are several screens, and
+screen 0 is the one the search box and the widgets are on. Here there is one
+screen (0012), so the search found nothing, made a second page at the end and
+put the application there -- and the way to that page is a sideways swipe that
+nothing on the screen suggests. The caret above the hotseat is out (0006), the
+line AOSP draws under the pages sits at alpha 0 until a scroll moves it, so it
+answers a swipe rather than inviting one, and an indicator is not wanted ("那个
+指示器我让去掉了", user, 2026-10-22). The requirement is the plain one: an
+application you install is on the home screen ("只要安装后应用程序出现在首页也
+保留", user, 2026-10-22).
+
+So the search starts at screen 0. The layout leaves seven of its twelve cells
+free (0014), and what fills them is what the reader installs.
+
+Row 0 of that screen is the search box and not an item of the model, so the
+search marks it occupied, the way LoaderCursor does when it reads the
+workspace. Without that, the first application installed would be written into
+the cell behind the box and dropped by the next load rather than shown -- a
+question AOSP never had to answer here, having never placed anything on this
+screen.
+
+Nothing else changes. If screen 0 is full the search goes on to the screens
+after it exactly as before, and still makes one at the end when they are all
+full.
+
+This is the second half of what the user asked for. The first is that the
+application takes the place of the entry that installed it, wherever that entry
+is (WeReadInstaller/HomeScreenCell.java); this is where everything else goes,
+and neither of them is about any particular application.
+
+diff --git a/src/com/android/launcher3/model/AddWorkspaceItemsTask.java b/src/com/android/launcher3/model/AddWorkspaceItemsTask.java
+--- a/src/com/android/launcher3/model/AddWorkspaceItemsTask.java
++++ b/src/com/android/launcher3/model/AddWorkspaceItemsTask.java
+@@ -36,6 +36,8 @@
+ import com.android.launcher3.LauncherSettings;
+ import com.android.launcher3.ShortcutInfo;
+ import com.android.launcher3.Utilities;
++import com.android.launcher3.Workspace;
++import com.android.launcher3.config.FeatureFlags;
+ import com.android.launcher3.util.GridOccupancy;
+ import com.android.launcher3.util.ManagedProfileHeuristic.UserFolderInfo;
+ import com.android.launcher3.util.Provider;
+@@ -260,11 +262,24 @@
+ 
+         int screenCount = workspaceScreens.size();
+         // First check the preferred screen.
+-        int preferredScreenIndex = workspaceScreens.isEmpty() ? 0 : 1;
++        /* PW3: the first screen, where AOSP prefers the second.
++         *
++         * AOSP keeps an install off screen 0 because a phone has several
++         * screens and screen 0 is the one the search box and the widgets are
++         * on. This device has one screen (0012), and the way to a second is a
++         * sideways swipe that nothing suggests: the caret above the hotseat is
++         * out (0006), the line AOSP draws under the pages sits at alpha 0 until
++         * a scroll moves it, so it answers a swipe rather than inviting one,
++         * and an indicator is not wanted ("那个指示器我让去掉了", user,
++         * 2026-10-22). So the cell AOSP would have found was always on a page
++         * that had just been made for it, and the application was somewhere the
++         * reader had no way of looking. Screen 0 has seven free cells after the
++         * layout (0014); what fills them is what the reader installs. */
++        int preferredScreenIndex = 0;
+         if (preferredScreenIndex < screenCount) {
+             screenId = workspaceScreens.get(preferredScreenIndex);
+             found = findNextAvailableIconSpaceInScreen(
+-                    app, screenItems.get(screenId), cordinates, spanX, spanY);
++                    app, screenId, screenItems.get(screenId), cordinates, spanX, spanY);
+         }
+ 
+         if (!found) {
+@@ -272,7 +287,7 @@
+             for (int screen = 1; screen < screenCount; screen++) {
+                 screenId = workspaceScreens.get(screen);
+                 if (findNextAvailableIconSpaceInScreen(
+-                        app, screenItems.get(screenId), cordinates, spanX, spanY)) {
++                        app, screenId, screenItems.get(screenId), cordinates, spanX, spanY)) {
+                     // We found a space for it
+                     found = true;
+                     break;
+@@ -292,7 +307,7 @@
+ 
+             // If we still can't find an empty space, then God help us all!!!
+             if (!findNextAvailableIconSpaceInScreen(
+-                    app, screenItems.get(screenId), cordinates, spanX, spanY)) {
++                    app, screenId, screenItems.get(screenId), cordinates, spanX, spanY)) {
+                 throw new RuntimeException("Can't find space to add the item");
+             }
+         }
+@@ -300,11 +315,20 @@
+     }
+ 
+     private boolean findNextAvailableIconSpaceInScreen(
+-            LauncherAppState app, ArrayList<ItemInfo> occupiedPos,
++            LauncherAppState app, long screenId, ArrayList<ItemInfo> occupiedPos,
+             int[] xy, int spanX, int spanY) {
+         InvariantDeviceProfile profile = app.getInvariantDeviceProfile();
+ 
+         GridOccupancy occupied = new GridOccupancy(profile.numColumns, profile.numRows);
++        if (screenId == Workspace.FIRST_SCREEN_ID) {
++            /* PW3: row 0 of the first screen is the search box, which is not an
++             * item of the model and so not in occupiedPos. LoaderCursor marks
++             * the same row when it reads the workspace, so an application
++             * written into the cell behind the box is dropped by the next load
++             * rather than shown -- a question AOSP never had to answer here,
++             * having never placed anything on this screen. */
++            occupied.markCells(0, 0, profile.numColumns, 1, FeatureFlags.QSB_ON_FIRST_SCREEN);
++        }
+         if (occupiedPos != null) {
+             for (ItemInfo r : occupiedPos) {
+                 occupied.markCells(r, true);

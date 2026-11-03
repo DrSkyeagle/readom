@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- PW3 has CPU GLES rather than an application graphics accelerator. -->
+    <bool name="config_enableThreadedRenderer">false</bool>
+    <!-- Quick settings for the hardware this reader has. AOSP's list also
+         offers Bluetooth, do-not-disturb, flashlight, rotation, mobile data,
+         aeroplane mode, cast, location, hotspot, colour inversion, work
+         profile and night light: no radio, sensor, speaker or colour panel
+         for any of them here. The frontlight slider above the tiles stays. -->
+    <!-- The slider stops on the frontlight's own steps: 0..24 as on the
+         Kindle, and one more for the Kindle's "max" switch. -->
+    <integer name="config_brightnessSliderSteps">25</integer>
+    <!-- 16 grey levels: the gradients behind the notification shade, the
+         recents screen and the power menu come out as bands (Test V34). They
+         are plain white instead, and the shade's is fully opaque (dimens.xml)
+         so that nothing of what is below shows through faintly, which on
+         e-paper reads as ghosting. -->
+    <bool name="config_gradientColors">false</bool>
+    <!-- Every change of a bar's background or icon colour is a slow e-paper
+         update that leaves traces: the bars look the same over every window
+         (colors.xml: white, black icons). -->
+    <bool name="config_opaqueSystemBars">true</bool>
+    <!-- One pull from the status bar opens quick settings fully, frontlight
+         slider included, as the Kindle's own panel shows it at once
+         (frameworks/base patch 0017; user, Test V36: "hidden too deep"). -->
+    <bool name="config_quickSettingsOnFirstPull">true</bool>
+    <!-- No speaker and no volume keys: no volume dialog, and the volume
+         controller it registers with the audio service is not made either
+         (VolumeUI returns at once; StatusBar handles its absence). -->
+    <bool name="enable_volume_ui">false</bool>
+    <string name="quick_settings_tiles_default" translatable="false">wifi</string>
+    <string name="quick_settings_tiles_stock" translatable="false">wifi,battery</string>
+</resources>

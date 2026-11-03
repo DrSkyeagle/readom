@@ -1,0 +1,137 @@
+[
+  {
+    "role": "provided-kernel-source",
+    "path": "<project>/work/android-port/kernel-research/amazon-5.16.2.1.1/linux-3.0.35/include/linux/netlink.h",
+    "sha256": "6492cddf1898e9bbb9c65118d4ec4ddc18f59c015e84a1f5261900ccfe0db69e"
+  },
+  {
+    "role": "provided-kernel-source",
+    "path": "<project>/work/android-port/kernel-research/amazon-5.16.2.1.1/linux-3.0.35/include/linux/rtnetlink.h",
+    "sha256": "20c9231ecc6644e3a682e4170c67119538096dea2396dffe227ab2578c029ad2"
+  },
+  {
+    "role": "provided-kernel-source",
+    "path": "<project>/work/android-port/kernel-research/amazon-5.16.2.1.1/linux-3.0.35/include/linux/if_link.h",
+    "sha256": "0b2d37ac549c62c152fef9c196a18a2a94ce00e7a9cc9df287dbcd4310f3a84d"
+  },
+  {
+    "role": "provided-kernel-source",
+    "path": "<project>/work/android-port/kernel-research/amazon-5.16.2.1.1/linux-3.0.35/include/linux/if_addr.h",
+    "sha256": "075c02901f3b344faffe64afeed0b66aef07d9a4a03b0b6e15cd6fafe77bf88b"
+  },
+  {
+    "role": "provided-kernel-source",
+    "path": "<project>/work/android-port/kernel-research/amazon-5.16.2.1.1/linux-3.0.35/include/linux/netfilter/x_tables.h",
+    "sha256": "33add50019f6e2535622a31675bbd2752baee69355bce89752473a3a80b09f6c"
+  },
+  {
+    "role": "provided-kernel-source",
+    "path": "<project>/work/android-port/kernel-research/amazon-5.16.2.1.1/linux-3.0.35/include/linux/netfilter_ipv4/ip_tables.h",
+    "sha256": "7298e6d9a3a1f0d6a451321e7ef0e7d054450cc90320fb8c582dbf5bfb1694a4"
+  },
+  {
+    "role": "provided-kernel-source",
+    "path": "<project>/work/android-port/kernel-research/amazon-5.16.2.1.1/linux-3.0.35/include/linux/netfilter_ipv6/ip6_tables.h",
+    "sha256": "7b6e90e15363e44cc1132dbe02ddca3bb204e02dcaedf5e2eaf6c26f642726cc"
+  },
+  {
+    "role": "provided-kernel-source",
+    "path": "<project>/work/android-port/kernel-research/amazon-5.16.2.1.1/linux-3.0.35/net/netfilter/x_tables.c",
+    "sha256": "b731fea6a6128da7e1f10912d56f21ecad4112b67f68ede6d0c8a314d324dd6d"
+  },
+  {
+    "role": "provided-kernel-source",
+    "path": "<project>/work/android-port/kernel-research/amazon-5.16.2.1.1/linux-3.0.35/net/ipv4/netfilter/ip_tables.c",
+    "sha256": "8935a8b267de821dc888387b88f34c4a57d4151455667a09fafe66c29c782258"
+  },
+  {
+    "role": "provided-kernel-source",
+    "path": "<project>/work/android-port/kernel-research/amazon-5.16.2.1.1/linux-3.0.35/lib/nlattr.c",
+    "sha256": "f4d476c7479ebbe7c9e9c2831e1c5531647f1867b99249b82c0f53f173b337d6"
+  },
+  {
+    "role": "provided-kernel-source",
+    "path": "<project>/work/android-port/kernel-research/amazon-5.16.2.1.1/linux-3.0.35/drivers/net/dummy.c",
+    "sha256": "e4d179ce0ce5647c5d0af8613de5565555cdf8535b9fd95cc8397de70b314278"
+  },
+  {
+    "role": "provided-kernel-source",
+    "path": "<project>/work/android-port/kernel-research/amazon-5.16.2.1.1/linux-3.0.35/net/ipv6/addrconf.c",
+    "sha256": "dca8dcb72af194fd7ae4ed0dfd4b5fa3b3ea23f76d9b3c660ca9d2cec90f5dd6"
+  },
+  {
+    "role": "candidate-or-pinned-upstream",
+    "path": "<project>/work/android-port/hardware-research/network/kernel-candidate/patches/0004-android81-uidrange-routing.patch",
+    "sha256": "c7433ea332822d57fbbb24351b3cabba4354c9325a28c4e15005efe5416d310d"
+  },
+  {
+    "role": "candidate-or-pinned-upstream",
+    "path": "<project>/work/android-port/hardware-research/network/kernel-candidate/patches/0005-ipv6-accept-ra-rt-table.patch",
+    "sha256": "9e261b40578b7c30da72e9ffe94c8f9c6915017c605c26dd7a9942c93e475547"
+  },
+  {
+    "role": "candidate-or-pinned-upstream",
+    "path": "<project>/work/android-port/hardware-research/network/kernel-candidate/upstream/aosp-8.1-bionic/libc/kernel/uapi/linux/fib_rules.h",
+    "sha256": "426c37efded0cbf7090edddd64d9378b80b8125821b2ca67f6ba9116541090ca"
+  },
+  {
+    "role": "candidate-or-pinned-upstream",
+    "path": "<project>/work/android-port/hardware-research/network/kernel-candidate/upstream/aosp-8.1-bionic/libc/kernel/uapi/linux/rtnetlink.h",
+    "sha256": "27ea098e48970c855952b197456c0486d0df92eeaad6eaf88500cebc814a545a"
+  },
+  {
+    "role": "candidate-or-pinned-upstream",
+    "path": "<project>/work/android-port/hardware-research/network/kernel-candidate/upstream/android-3.0/net/netfilter/xt_quota2.c",
+    "sha256": "ba024cb768eb34d61ec61bb4a1486a9359de7c492abb06eb42edd0057b577652"
+  },
+  {
+    "role": "parent-owned-readonly-build-reference",
+    "path": "<project>/android-port/tools/build-kernel-smoke.sh",
+    "sha256": "e9efd769718441940c09ce9bb2225f929784fb5c0f9ac681b8a2b9916a03f554"
+  },
+  {
+    "role": "parent-owned-readonly-build-reference",
+    "path": "<project>/android-port/tools/kernel-smoke/init.c",
+    "sha256": "cee447daae11031cbe44f4afbc75181392594811f8731d682691fb02e91f5416"
+  },
+  {
+    "role": "provided-kernel-source",
+    "path": "<project>/work/android-port/kernel-research/amazon-5.16.2.1.1/linux-3.0.35/net/ipv6/route.c",
+    "sha256": "1baf051f3ae014d8ed9cb7049c65936ceb7e52c033312434da5513d1699c04bb"
+  },
+  {
+    "role": "provided-kernel-source",
+    "path": "<project>/work/android-port/kernel-research/amazon-5.16.2.1.1/linux-3.0.35/net/core/rtnetlink.c",
+    "sha256": "94d1a010c435c70abd127b824c65071124921a110a6a1a133fe0b5201c897e57"
+  },
+  {
+    "role": "provided-kernel-source",
+    "path": "<project>/work/android-port/kernel-research/amazon-5.16.2.1.1/linux-3.0.35/net/netlink/af_netlink.c",
+    "sha256": "47081205ad2b615ccd2c2d162b442b0d188a81ca61998444b654e510729b5cb4"
+  },
+  {
+    "role": "legacy-netns-guard-source",
+    "path": "<project>/work/android-port/kernel-research/amazon-5.16.2.1.1/linux-3.0.35/fs/proc/namespaces.c",
+    "sha256": "1c516eb103de7877d5c85756f03be93081bf145b3841c8e061bee7df9f41d11d"
+  },
+  {
+    "role": "legacy-netns-guard-source",
+    "path": "<project>/work/android-port/kernel-research/amazon-5.16.2.1.1/linux-3.0.35/net/core/net_namespace.c",
+    "sha256": "d98fa5776c3f27f637b787a1c77e3f2d335659b2d669fdcc3fd89750be11d187"
+  },
+  {
+    "role": "legacy-netns-guard-source",
+    "path": "<project>/work/android-port/kernel-research/amazon-5.16.2.1.1/linux-3.0.35/net/ipv6/sit.c",
+    "sha256": "70836ce98794430dc35f217740f586de76686d4127d163d79773347c5438132b"
+  },
+  {
+    "role": "legacy-netns-guard-source",
+    "path": "<project>/work/android-port/kernel-research/amazon-5.16.2.1.1/linux-3.0.35/include/linux/if_arp.h",
+    "sha256": "7d88bf4599106649f9532f49a94e672127615950b5634bc6bc876271a9d04f2f"
+  },
+  {
+    "role": "parent-owned-readonly-mnt-ABI-patch",
+    "path": "<project>/android-port/patches/android-core/0300-mount-namespace-proc-setns.patch",
+    "sha256": "4fde2a9634584ae6c4cb90481ac4ab945382c41c5d9f8c68c65cdf44c81b74e4"
+  }
+]

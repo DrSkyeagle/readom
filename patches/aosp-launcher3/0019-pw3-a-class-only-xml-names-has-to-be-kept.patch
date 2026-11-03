@@ -1,0 +1,40 @@
+A class only an XML resource names has to be kept
+
+0018 stopped the crash by not inflating the wrapper when the icon treatment is
+off. It did not make the package consistent: res/drawable-v26/
+adaptive_icon_drawable_wrapper.xml still names
+com.android.launcher3.graphics.FixedScaleDrawable, and the shrinker still
+drops that class, because the only Java reference to it is in a branch the
+constant-false flag makes dead. The resource and the dex disagree, and anything
+that inflates that drawable -- a later change here, or framework code reached
+some other way -- takes the launcher down again.
+
+proguard.flags already carries exactly this rule for the sibling class,
+ShadowDrawable, for exactly this reason: a drawable that only an XML file names
+has no reference a shrinker can see. Upstream got away without the rule for
+FixedScaleDrawable only because wrapToAdaptiveIconDrawable() referenced it.
+This adds the missing half, which is what AOSP would have had to do had it
+shipped the flag off.
+
+diff --git a/proguard.flags b/proguard.flags
+index 51abcca..f1f7a35 100644
+--- a/proguard.flags
++++ b/proguard.flags
+@@ -86,6 +86,17 @@
+   public <init>(...);
+ }
+ 
++# PW3: the same reason as the line above, for the sibling class. A drawable
++# that only an XML resource names has no reference the shrinker can see;
++# upstream got away without this one because wrapToAdaptiveIconDrawable()
++# referenced it, and with LEGACY_ICON_TREATMENT off (0017) that method returns
++# before it does. res/drawable-v26/adaptive_icon_drawable_wrapper.xml went on
++# naming the class after the shrinker had dropped it, and the first icon the
++# cache missed took the launcher down at every start.
++-keep class com.android.launcher3.graphics.FixedScaleDrawable {
++  public <init>(...);
++}
++
+ # Proguard will strip methods required for talkback to properly scroll to
+ # next row when focus is on the last item of last row when using a RecyclerView
+ # Keep optimized and shrunk proguard to prevent issues like this when using

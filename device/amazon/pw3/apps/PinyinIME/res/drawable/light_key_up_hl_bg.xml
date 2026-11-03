@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A pressed toggle key which is on: a 6 px white ring appears inside the
+     2 px black outline of light_key_up_bg, where the frame of a pressed normal
+     key grows. Only the pixels of the ring change, from black to white. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:left="2px" android:top="2px" android:right="2px"
+        android:bottom="2px" android:drawable="@color/black" />
+    <item android:left="4px" android:top="4px" android:right="4px"
+        android:bottom="4px" android:drawable="@color/white" />
+    <item android:left="10px" android:top="10px" android:right="10px"
+        android:bottom="10px" android:drawable="@color/black" />
+</layer-list>

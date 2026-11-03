@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "files": [
+    {
+      "path": "device/amazon/pw3/apps/EinkBro/EinkBro.apk",
+      "bytes": 4025123,
+      "sha256": "4bf5a7245141022c0bc29434afc81e7665ea3d55af718aefe3e9e12417d673b6",
+      "url": "https://github.com/plateaukao/einkbro/releases/download/v16.7.1/app-armeabi-v7a-release.apk",
+      "source": "EinkBro 16.7.1 release asset app-armeabi-v7a-release.apk (apps/EinkBro/PW3-SOURCE.md)"
+    },
+    {
+      "path": "device/amazon/pw3/apps/SystemWebView/SystemWebView.apk",
+      "bytes": 86760206,
+      "sha256": "19a2cdf16d451ee1a3dea8e5d5b369dc85e7bbc616701d6a41a51e851cfd37c4",
+      "url": "https://android.googlesource.com/platform/external/chromium-webview/+/27ac2bdb9a1a4e55dc65bb6cdc752dbfdea3b9f4/128.0.6613.88/arm/webview.apk?format=TEXT",
+      "encoding": "base64",
+      "source": "AOSP platform/external/chromium-webview at 27ac2bdb, 128.0.6613.88/arm/webview.apk (apps/SystemWebView/PW3-SOURCE.md)"
+    },
+    {
+      "path": "device/amazon/pw3/emoji/NotoEmoji-VF.ttf",
+      "bytes": 1982596,
+      "sha256": "de6c18832938afc99caf132b39d6a30a19bac7f2e812e28db2535b4608d27551",
+      "url": "https://raw.githubusercontent.com/google/fonts/8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5/ofl/notoemoji/NotoEmoji%5Bwght%5D.ttf",
+      "source": "google/fonts at 8b0a1d0f, ofl/notoemoji/NotoEmoji[wght].ttf (emoji/PW3-SOURCE.md)"
+    }
+  ]
+}

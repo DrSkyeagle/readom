@@ -1,0 +1,29 @@
+From: PW3 Android port
+Subject: [PW3] libcutils: no error line when the kernel has no ftrace
+
+The first trace of every process opens /sys/kernel/debug/tracing/trace_marker.
+A kernel built without ftrace does not have it, so each process started logged
+"Error opening trace file: No such file or directory (2)": 85 lines in one
+session on this device (PW3 Android, Test V48), none of them about anything
+that went wrong. Tracing is disabled either way.
+
+ENOENT is now silent, and any other error still logged: a file that exists but
+cannot be opened is a configuration mistake, while its absence is how the
+kernel was built.
+
+--- a/libcutils/trace-dev.c
++++ b/libcutils/trace-dev.c
+@@ -163,7 +163,12 @@
+ {
+     atrace_marker_fd = open("/sys/kernel/debug/tracing/trace_marker", O_WRONLY | O_CLOEXEC);
+     if (atrace_marker_fd == -1) {
+-        ALOGE("Error opening trace file: %s (%d)", strerror(errno), errno);
++        /* A kernel built without ftrace has no trace_marker, and every process
++         * logged an error the first time it traced. Keep the error for a kernel
++         * that has the file but does not give it: that is a configuration
++         * mistake, while its absence is what the kernel was built as. */
++        if (errno != ENOENT)
++            ALOGE("Error opening trace file: %s (%d)", strerror(errno), errno);
+         atrace_enabled_tags = 0;
+         goto done;
+     }

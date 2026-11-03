@@ -1,0 +1,10 @@
+<!-- Merge this element into the existing <manifest>; it is not a second manifest. -->
+<hal format="hidl">
+    <name>android.hardware.wifi.supplicant</name>
+    <transport>hwbinder</transport>
+    <version>1.0</version>
+    <interface>
+        <name>ISupplicant</name>
+        <instance>default</instance>
+    </interface>
+</hal>

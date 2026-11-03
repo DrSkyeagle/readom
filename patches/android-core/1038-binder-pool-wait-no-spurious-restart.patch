@@ -1,0 +1,34 @@
+--- a/include/linux/freezer.h
++++ b/include/linux/freezer.h
+@@ -152,17 +152,24 @@
+ 	__retval;							\
+ })
+ 
+-#define wait_event_freezable_exclusive(wq, condition)				\
++/*
++ * Binder's thread pool shares one exclusive wait (proc->wait): another thread
++ * can take the work this one was woken for before the condition is checked
++ * again. The form of wait_event_freezable() above then returns -ERESTARTSYS
++ * with no signal pending, which reaches user space as error -512, and
++ * libbinder aborts the process (SurfaceFlinger or system_server, PW3 Test
++ * V32, V35 and V39). Wait again instead, as later kernels do.
++ */
++#define wait_event_freezable_exclusive(wq, condition)			\
+ ({									\
+ 	int __retval;							\
+-	do {								\
+-		__retval = wait_event_interruptible_exclusive(wq, 		\
++	for (;;) {							\
++		__retval = wait_event_interruptible_exclusive(wq,	\
+ 				(condition) || freezing(current));	\
+-		if (__retval && !freezing(current))			\
++		if (__retval || (condition))				\
+ 			break;						\
+-		else if (!(condition))					\
+-			__retval = -ERESTARTSYS;			\
+-	} while (try_to_freeze());					\
++		try_to_freeze();					\
++	}								\
+ 	__retval;							\
+ })
+ 

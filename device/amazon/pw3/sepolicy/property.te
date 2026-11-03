@@ -1,0 +1,8 @@
+type pw3_boot_prop, property_type;
+# These say how far the start got and what it found -- storage readiness,
+# hardware readiness, whether the system image verified. A status nothing can
+# read is not a status: the shell could not read any of them, so getprop
+# returned nothing and a check that read one was answering about its own
+# permissions. There is nothing private in them, and on a user build there is
+# no shell to read them with.
+get_prop(shell, pw3_boot_prop)

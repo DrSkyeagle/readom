@@ -1,0 +1,30 @@
+Subject: [PW3] Product option: software Canvas for all application windows
+
+PW3 has no GPU. With CPU-emulated OpenGL ES every hwui frame is rasterized
+by a software GLES implementation on one Cortex-A9 core. The existing
+framework switch that persistent low-RAM processes already use selects the
+software Canvas renderer instead. The upstream default is unchanged: the
+option is off unless the product sets ro.pw3.software_canvas.
+
+Rebased on 2026-10-29: this used to sit after the per-package diagnostic
+switch (patch 0005), which went with the rest of the debug chain, so its
+context is now the line the diagnostic used to follow.
+
+--- a/core/java/android/app/ActivityThread.java
++++ b/core/java/android/app/ActivityThread.java
+@@ -5437,6 +5437,15 @@
+         Process.setStartTimes(SystemClock.elapsedRealtime(), SystemClock.uptimeMillis());
+ 
+         mBoundApplication = data;
++        // PW3 product policy: the device has no GPU, so OpenGL ES is emulated on
++        // its single CPU core and the software Canvas renderer is the faster path
++        // for every application window. Decided before the process creates a
++        // window; debug.pw3.software_canvas overrides the product default for
++        // processes started afterwards.
++        if (SystemProperties.getBoolean("debug.pw3.software_canvas",
++                SystemProperties.getBoolean("ro.pw3.software_canvas", false))) {
++            ThreadedRenderer.disable(false);
++        }
+         mConfiguration = new Configuration(data.config);
+         mCompatConfiguration = new Configuration(data.config);
+ 

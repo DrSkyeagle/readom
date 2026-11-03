@@ -1,0 +1,18 @@
+type sysfs_pw3_power, fs_type, sysfs_type;
+type sysfs_pw3_bl_power, fs_type, sysfs_type;
+type sysfs_pw3_cpu_min_freq, fs_type, sysfs_type;
+
+# Only system_server's libsuspend writes the actual suspend/count protocol.
+allow system_server sysfs_pw3_power:file rw_file_perms;
+
+# The native Power HAL owns EPDC blanking and the frontlight bl_power attribute.
+allow hal_power graphics_device:dir search;
+allow hal_power graphics_device:chr_file rw_file_perms;
+allowxperm hal_power graphics_device:chr_file ioctl { 0x4611 };
+allow hal_power sysfs_leds:dir r_dir_perms;
+allow hal_power sysfs_leds:lnk_file read;
+allow hal_power sysfs_pw3_bl_power:file { open write getattr };
+# Launch boost: the lowest CPU frequency during PowerHint.LAUNCH (power.c).
+allow hal_power sysfs_pw3_cpu_min_freq:file { open write getattr };
+
+# sysfs_leds labels for the actual backlight device are generated from the probe.

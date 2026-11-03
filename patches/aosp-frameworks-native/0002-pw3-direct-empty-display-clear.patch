@@ -1,0 +1,45 @@
+Subject: [PW3] Clear an empty full display without shader rasterization
+
+Use the equivalent GLES clear only for an untransformed full primary viewport
+with no color transform. Partial/rotated/color-corrected paths stay unchanged.
+
+--- a/services/surfaceflinger/Android.mk
++++ b/services/surfaceflinger/Android.mk
+@@ -48,6 +48,11 @@
+ 
+ LOCAL_CFLAGS := -DLOG_TAG=\"SurfaceFlinger\"
+ LOCAL_CFLAGS += -DGL_GLEXT_PROTOTYPES -DEGL_EGLEXT_PROTOTYPES
++
++# PW3 uses software GLES; constant whole-display clears do not need shaders.
++ifeq ($(TARGET_DEVICE),pw3)
++    LOCAL_CFLAGS += -DPW3_SOFTWARE_FAST_CLEAR
++endif
+ 
+ ifeq ($(TARGET_USES_HWC2),true)
+     LOCAL_CFLAGS += -DUSE_HWC2
+--- a/services/surfaceflinger/SurfaceFlinger_hwc1.cpp
++++ b/services/surfaceflinger/SurfaceFlinger_hwc1.cpp
+@@ -2311,6 +2311,23 @@
+ void SurfaceFlinger::drawWormhole(const sp<const DisplayDevice>& hw, const Region& region) const {
+     const int32_t height = hw->getHeight();
+     RenderEngine& engine(getRenderEngine());
++#ifdef PW3_SOFTWARE_FAST_CLEAR
++    // With no windows, HWC1 asks GLES to clear the whole display. Drawing a
++    // fullscreen shader for constant transparent black is needless CPU work.
++    // Keep transformed, clipped and color-corrected paths unchanged.
++    if (hw->getDisplayType() == DisplayDevice::DISPLAY_PRIMARY
++            && hw->getOrientation() == 0 && !mDaltonize && !mHasColorMatrix
++            && region.isRect() && region.getBounds() == hw->getBounds()
++            && hw->getViewport() == hw->getBounds()) {
++        engine.clearWithColor(0, 0, 0, 0);
++        static bool reported = false;
++        if (!reported) {
++            ALOGI("PW3 full-display empty region uses direct GLES clear");
++            reported = true;
++        }
++        return;
++    }
++#endif
+     engine.fillRegionWithColor(region, height, 0, 0, 0, 0);
+ }
+ 

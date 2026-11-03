@@ -1,0 +1,56 @@
+From: PW3 Android port
+Subject: [PW3] libmemtrack: a device without the HAL reports no extra memory
+
+memtrack reports the memory of a process that /proc/pid/smaps does not account
+for, typically a GPU's own. This device has no such memory: the only graphics
+buffers are gralloc's, which are ashmem and appear in the maps of every process
+that holds them.
+
+With no memtrack HAL, libmemtrack logged "Couldn't load memtrack module" on
+every call (the service is looked up once, the message was not) and answered
+every caller with -1, which made system_server log "failed to get memory
+consumption info: -1" for each process it measured: 110 and 110 lines in one
+session (PW3 Android, Test V48). Dumps of memory were otherwise complete, as
+nothing was missing from the maps.
+
+It now says this once, at the lookup, and reports no records instead of an
+error. A HAL that is there and fails still returns an error.
+
+--- a/libmemtrack/memtrack.cpp
++++ b/libmemtrack/memtrack.cpp
+@@ -45,10 +45,17 @@
+ 
+ //TODO(b/31632518)
+ static android::sp<IMemtrack> get_instance() {
+-    static android::sp<IMemtrack> module = IMemtrack::getService();
+-    if (module == nullptr) {
+-        ALOGE("Couldn't load memtrack module");
+-    }
++    /* The service is looked up once; the message was not, so a device without
++     * the HAL logged an error for every process measured. Say it once, and as
++     * what it is: memtrack reports the memory that /proc/pid/smaps does not
++     * account for, and a device whose only graphics buffers are ashmem has
++     * none of it. */
++    static android::sp<IMemtrack> module = [] {
++        android::sp<IMemtrack> m = IMemtrack::getService();
++        if (m == nullptr)
++            ALOGI("No memtrack HAL: all memory of a process is in its maps");
++        return m;
++    }();
+     return module;
+ }
+ 
+@@ -67,8 +74,11 @@
+ {
+     int err = 0;
+     android::sp<IMemtrack> memtrack = get_instance();
+-    if (memtrack == nullptr)
+-        return -1;
++    if (memtrack == nullptr) {
++        /* No HAL: no records to add, which is the answer, not a failure. */
++        t->records.resize(0);
++        return 0;
++    }
+ 
+     Return<void> ret = memtrack->getMemory(pid, type,
+         [&t, &err](MemtrackStatus status, hidl_vec<MemtrackRecord> records) {

@@ -1,0 +1,161 @@
+From: PW3 Android port
+Subject: [PW3] the settings state belongs to the process, with no deadline that makes a second one
+
+Patch 0007 stopped the two SettingsProvider instances the system process
+constructs from each owning a copy of the settings: the second instance waits
+for the first and then takes its lock and its state. The wait has a 20 s
+deadline, and what it does when the deadline passes is build a separate state
+"as before" -- which is the fault 0007 exists to prevent, now reached quietly
+after a 20 s stall. Of the two things a late second instance can do -- keep
+waiting, or own a copy of the settings nobody else reads -- the fallback picks
+the one that cannot be recovered from.
+
+There is no deadline that helps here. If the first instance has not finished
+onCreate(), the only thing a second state can do is diverge from it; waiting is
+the only answer that keeps the invariant. So the state stops being per-instance
+at all: the five fields that onCreate() fills -- the registry, the handler
+thread and its handler, the user manager and the package manager -- and the
+lock that guards them belong to the class, and onCreate() builds them once,
+under that lock. A second instance takes the same lock, finds them built, and
+returns. If it arrives while the first is still building, it waits on the
+monitor for as long as the building takes and not a second longer; if the first
+instance never finishes, this one never returns, which is what a system whose
+settings provider cannot start deserves and is what the Watchdog is for.
+
+The latch, the deadline, the record of the first instance and its stack trace
+all go, because with one state per class there is nothing left to coordinate.
+The fields keep AOSP's names with their "m" prefix: renaming five static fields
+would put this change in the 113 places that use them and bury it.
+
+--- a/packages/SettingsProvider/src/com/android/providers/settings/SettingsProvider.java
++++ b/packages/SettingsProvider/src/com/android/providers/settings/SettingsProvider.java
+@@ -89,8 +89,6 @@
+ import java.util.Collection;
+ import java.util.HashSet;
+ import java.util.List;
+-import java.util.concurrent.CountDownLatch;
+-import java.util.concurrent.TimeUnit;
+ import java.util.Locale;
+ import java.util.Map;
+ import java.util.Set;
+@@ -262,35 +260,42 @@
+ 
+     // PW3: the system process can construct this provider twice. ActivityThread
+     // creates an instance for the first thread that asks for "settings" and
+-    // another one in installSystemProviders(); it keeps one of them, but both
+-    // have run onCreate(). Each used to own a separate copy of the settings in
+-    // memory, and the "settings" service (cmd settings) could belong to the one
+-    // nobody else reads. Seen on PW3 Test V29: values written by cmd settings
+-    // never reached PowerManager. Every further instance now shares the lock
+-    // and state of the first.
+-    private static final Object sInstanceLock = new Object();
+-    @GuardedBy("sInstanceLock")
+-    private static SettingsProvider sFirstInstance;
+-    private static final CountDownLatch sFirstInstanceReady = new CountDownLatch(1);
+-    private static final long FIRST_INSTANCE_WAIT_SECONDS = 20;
++    // another one in installSystemProviders(); it keeps one of them, but
++    // onCreate() has run on both. What the provider owns is one thing per
++    // process and not one per instance -- the settings in memory, the files
++    // they are written to, the handler thread, the "settings" service -- and
++    // when each instance had its own, a value written through cmd settings went
++    // into the copy nobody else read: on Test V29 screen_off_timeout was set to
++    // 30 minutes and PowerManager went on reading the minute in the other copy,
++    // so the screen kept sleeping after a minute.
++    //
++    // The state below therefore belongs to the class. The first onCreate()
++    // builds it under mLock; a later one finds it built and uses the same one.
++    // mLock is also what orders the two, so an instance that arrives while the
++    // first is still building waits for exactly as long as the building takes.
++    // That wait has no deadline on purpose: every answer to "the first instance
++    // is late" other than waiting for it is a second state, which is the fault
++    // this prevents. The fields keep AOSP's names, "m" prefix and all, because
++    // renaming them would spread this change over the 113 places that use them.
++    private static final Object mLock = new Object();
+ 
+-    // Assigned once, in onCreate(), before any other use.
+-    private Object mLock = new Object();
++    @GuardedBy("mLock")
++    private static boolean sStateBuilt;
+ 
+     @GuardedBy("mLock")
+-    private SettingsRegistry mSettingsRegistry;
++    private static SettingsRegistry mSettingsRegistry;
+ 
+     @GuardedBy("mLock")
+-    private HandlerThread mHandlerThread;
++    private static HandlerThread mHandlerThread;
+ 
+     @GuardedBy("mLock")
+-    private Handler mHandler;
++    private static Handler mHandler;
+ 
+     // We have to call in the user manager with no lock held,
+-    private volatile UserManager mUserManager;
++    private static volatile UserManager mUserManager;
+ 
+     // We have to call in the package manager with no lock held,
+-    private volatile IPackageManager mPackageManager;
++    private static volatile IPackageManager mPackageManager;
+ 
+     public static int makeKey(int type, int userId) {
+         return (type << SETTINGS_TYPE_SHIFT) | userId;
+@@ -332,40 +337,16 @@
+     @Override
+     public boolean onCreate() {
+         Settings.setInSystemServer();
+-        final SettingsProvider first;
+-        synchronized (sInstanceLock) {
+-            first = sFirstInstance;
+-            if (first == null) {
+-                sFirstInstance = this;
+-            }
+-        }
+-        // The stack shows which caller constructed the instance.
+-        Slog.i(LOG_TAG, "PW3: onCreate " + (first == null ? "first" : "additional") + " instance on thread "
+-                + Thread.currentThread().getName(), new Throwable());
+-        if (first != null) {
+-            boolean ready = false;
+-            try {
+-                ready = sFirstInstanceReady.await(FIRST_INSTANCE_WAIT_SECONDS, TimeUnit.SECONDS);
+-            } catch (InterruptedException e) {
+-                Thread.currentThread().interrupt();
+-            }
+-            if (ready) {
+-                mLock = first.mLock;
+-                synchronized (mLock) {
+-                    mUserManager = first.mUserManager;
+-                    mPackageManager = first.mPackageManager;
+-                    mHandlerThread = first.mHandlerThread;
+-                    mHandler = first.mHandler;
+-                    mSettingsRegistry = first.mSettingsRegistry;
+-                }
+-                // Receivers and the "settings" service belong to the first instance.
++        // PW3: see mLock. The instance that gets here first builds what the
++        // process has one of; one that finds it built shares it and adds
++        // nothing of its own, because the receivers and the "settings" service
++        // belong with the state and there is one of those too.
++        synchronized (mLock) {
++            if (sStateBuilt) {
++                Slog.i(LOG_TAG, "PW3: another instance on " + Thread.currentThread().getName()
++                        + "; it shares the settings state the first one built");
+                 return true;
+             }
+-            // Never block the caller forever: fall back to a separate state, as before.
+-            Slog.e(LOG_TAG, "PW3: first instance not ready after " + FIRST_INSTANCE_WAIT_SECONDS
+-                    + " s; this instance keeps a separate settings state");
+-        }
+-        synchronized (mLock) {
+             mUserManager = UserManager.get(getContext());
+             mPackageManager = AppGlobals.getPackageManager();
+             mHandlerThread = new HandlerThread(LOG_TAG,
+@@ -373,9 +354,7 @@
+             mHandlerThread.start();
+             mHandler = new Handler(mHandlerThread.getLooper());
+             mSettingsRegistry = new SettingsRegistry();
+-        }
+-        if (first == null) {
+-            sFirstInstanceReady.countDown();
++            sStateBuilt = true;
+         }
+         mHandler.post(() -> {
+             registerBroadcastReceivers();

@@ -1,0 +1,23 @@
+From: PW3 Android port
+Subject: [PATCH] Allow a verified host compiler binary directory override
+
+Keep ClangBase and ClangVersion unchanged so AOSP's bundled target runtimes,
+libFuzzer and sanitizer modules retain their normal definitions. Only the host
+executable directory is replaced by the locally verified ARM64 prefix.
+---
+--- a/cc/config/global.go
++++ b/cc/config/global.go
+@@ -140,7 +140,12 @@
+ 		return ClangDefaultVersion, nil
+ 	})
+ 	pctx.StaticVariable("ClangPath", "${ClangBase}/${HostPrebuiltTag}/${ClangVersion}")
+-	pctx.StaticVariable("ClangBin", "${ClangPath}/bin")
++	pctx.VariableFunc("ClangBin", func(config interface{}) (string, error) {
++		if override := config.(android.Config).Getenv("PW3_NATIVE_CLANG_BIN"); override != "" {
++			return override, nil
++		}
++		return "${ClangPath}/bin", nil
++	})
+ 
+ 	pctx.VariableFunc("ClangShortVersion", func(config interface{}) (string, error) {
+ 		if override := config.(android.Config).Getenv("LLVM_RELEASE_VERSION"); override != "" {

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Space bar, from the Material Design icons (Apache License 2.0), as a path:
+     the upstream bitmap was a light glyph with a shadow, drawn for a dark
+     keyboard; tinted black its shadow made the glyph look bold (user,
+     2026-10-14: "the DEL key is too thick"). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="32dp"
+    android:height="32dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M18,9v4H6V9H4v6h16V9z"/>
+</vector>

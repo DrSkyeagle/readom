@@ -1,0 +1,2 @@
+# Reuse the existing read-only preflight domain and its sys.pw3 property permission.
+/system/bin/pw3-usb-check u:object_r:pw3_init_check_exec:s0

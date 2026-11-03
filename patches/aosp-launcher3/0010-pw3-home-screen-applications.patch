@@ -1,0 +1,83 @@
+From: PW3 Android port
+Subject: [PW3] Launcher3: a home screen with this device's applications on it
+
+The home screen came up with nothing on it. AOSP fills it from
+default_workspace_5x6.xml, which places a hotseat of Google applications, the
+contacts application and the market; this device has none of those, so every
+entry was dropped. The browser was then placed by the launcher itself,
+wherever it found room, which is not where someone would put it ("目前首页只有
+浏览器，且位置不在屏幕第一格", user, 2026-10-19).
+
+The layout now names what this device has, starting with WeRead: before it is
+installed the cell holds the installer's own entry, which says so and offers
+to fetch it, because nothing else on the device ever mentions that WeRead can
+be had here ("用户完全感知不到", same day). Row 0 of the first screen is the
+search box (0004), so the applications start at row 1.
+
+diff --git a/res/xml/default_workspace_5x6.xml b/res/xml/default_workspace_5x6.xml
+index 8493c26..0b2f321 100644
+--- a/res/xml/default_workspace_5x6.xml
++++ b/res/xml/default_workspace_5x6.xml
+@@ -14,24 +14,50 @@
+      limitations under the License.
+ -->
+ 
++<!-- PW3: what is on the home screen the first time it is opened. AOSP put a
++     hotseat of Google applications here, with contacts and the market below
++     them; this device has none of those, so every entry was dropped and the
++     home screen came up empty. The first application installed then landed
++     wherever the launcher found room, which is the row under the search box
++     and not where someone would put it.
++
++     Row 0 of the first screen is the search box (0004), so the applications
++     start at row 1, in the order they are reached for: read, then the web,
++     then what is stored, then settings.
++
++     The first of them is WeRead before WeRead is installed: the installer own
++     entry (WeReadInstaller/StatusActivity), under WeRead name and an icon
++     that says it is a download. Without it nothing on this device says that
++     WeRead can be had here at all. It takes itself off once WeRead is
++     installed, and WeRead own icon is placed in the cell it leaves. -->
+ <favorites xmlns:launcher="http://schemas.android.com/apk/res-auto/com.android.launcher3">
+ 
+-    <!-- Hotseat -->
+-    <include launcher:workspace="@xml/dw_tablet_hotseat" />
+-
+-    <!-- Bottom row -->
+     <favorite
+         launcher:screen="0"
+         launcher:x="0"
+-        launcher:y="-1"
+-        launcher:uri="#Intent;action=android.intent.action.MAIN;category=android.intent.category.APP_CONTACTS;end" />
++        launcher:y="1"
++        launcher:packageName="org.readom.wereadinstaller"
++        launcher:className="org.readom.wereadinstaller.StatusActivity" />
++
++    <favorite
++        launcher:screen="0"
++        launcher:x="1"
++        launcher:y="1"
++        launcher:packageName="info.plateaukao.einkbro"
++        launcher:className="info.plateaukao.einkbro.activity.BrowserActivity" />
+ 
+-    <resolve
++    <favorite
++        launcher:screen="0"
++        launcher:x="2"
++        launcher:y="1"
++        launcher:packageName="com.android.documentsui"
++        launcher:className="com.android.documentsui.LauncherActivity" />
++
++    <favorite
+         launcher:screen="0"
+-        launcher:x="-1"
+-        launcher:y="-1" >
+-        <favorite launcher:uri="#Intent;action=android.intent.action.MAIN;category=android.intent.category.APP_MARKET;end" />
+-        <favorite launcher:uri="market://details?id=com.android.launcher" />
+-    </resolve>
++        launcher:x="3"
++        launcher:y="1"
++        launcher:packageName="com.android.settings"
++        launcher:className="com.android.settings.Settings" />
+ 
+ </favorites>

@@ -1,0 +1,28 @@
+--- a/lmkd/lmkd.c
++++ b/lmkd/lmkd.c
+@@ -843,10 +843,23 @@
+     maxevents++;
+ 
+     has_inkernel_module = !access(INKERNEL_MINFREE_PATH, W_OK);
+-    use_inkernel_interface = has_inkernel_module && !is_go_device;
++    /* Older board kernels may provide LMK but no vmpressure interface.
++     * Keep low_ram optimizations, while opting into that kernel backend.
++     * The default preserves the AOSP backend selection on all other boards.
++     */
++    bool force_inkernel_interface =
++            property_get_bool("ro.lmk.use_inkernel_interface", false);
++    if (force_inkernel_interface &&
++        (!has_inkernel_module || access(INKERNEL_ADJ_PATH, W_OK))) {
++        ALOGE("Explicit kernel LMK requires writable minfree and adj interfaces");
++        return -1;
++    }
++    use_inkernel_interface = has_inkernel_module &&
++            (force_inkernel_interface || !is_go_device);
+ 
+     if (use_inkernel_interface) {
+-        ALOGI("Using in-kernel low memory killer interface");
++        ALOGI("Using in-kernel low memory killer interface%s",
++              force_inkernel_interface ? " (explicitly selected)" : "");
+     } else {
+         ret = init_mp_medium();
+         ret |= init_mp_critical();

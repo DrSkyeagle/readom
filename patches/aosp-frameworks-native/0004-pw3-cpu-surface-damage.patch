@@ -1,0 +1,125 @@
+From: PW3 Android port
+Subject: [PW3] Software rendering: exact copy-back and per-frame surface damage
+
+Two things in Surface::lock()/queueBuffer() cost the PW3 (one 1 GHz core,
+software canvas for every window, 1072x1448) on every frame:
+
+1. Copy-back. The stock code keeps one accumulated dirty region and tries to
+   shrink it with "mDirtyRegion.subtract(dirtyRegion);", which discards its
+   result. After a window's first complete frame the region is the whole
+   buffer for good, and every later frame copies nearly the whole front
+   buffer into the back buffer first: 6 MB per frame, even when the
+   application redraws one button. Now mSlots[i].dirtyRegion is the area in
+   which the buffer of slot i differs from the front buffer; a dequeued
+   buffer copies back exactly that area minus what is redrawn. Checked with a
+   model of 2 to 5 buffers, reallocation and size changes over 96000 frames
+   (work/android-port/build-share/display-pipeline-v33).
+
+2. Surface damage. A CPU-connected surface always reported INVALID_REGION
+   (everything changed). After lock() the buffer equals the previous frame
+   outside the region the client had to redraw, so that region is reported.
+   The PW3 composer (HWC 1.5) composes, converts and updates only that part
+   of the e-paper panel. Measured on Test V32: SurfaceFlinger's share of the
+   CPU while Settings starts fell from 22.7% to 9.1% together with the
+   composer changes; 346 partial frames compared equal to complete ones.
+
+No member is added to Surface, so libgui stays layout-compatible.
+
+diff --git a/libs/gui/Surface.cpp b/libs/gui/Surface.cpp
+index 5b1c599..a8bcfc8 100644
+--- a/libs/gui/Surface.cpp
++++ b/libs/gui/Surface.cpp
+@@ -551,6 +551,8 @@ int Surface::dequeueBuffer(android_native_buffer_t** buffer, int* fenceFd) {
+             mGraphicBufferProducer->cancelBuffer(buf, fence);
+             return result;
+         }
++        // PW3: nothing is known about the content of a new buffer (see lock()).
++        mSlots[buf].dirtyRegion = Region::INVALID_REGION;
+     }
+ 
+     if (fence->isValid()) {
+@@ -664,7 +666,13 @@ int Surface::queueBuffer(android_native_buffer_t* buffer, int fenceFd) {
+             mDataSpace, crop, mScalingMode, mTransform ^ mStickyTransform,
+             fence, mStickyTransform, mEnableFrameTimestamps);
+ 
+-    if (mConnectedToCpu || mDirtyRegion.bounds() == Rect::INVALID_RECT) {
++    if (mConnectedToCpu && mLockedBuffer != nullptr &&
++            buffer == static_cast<ANativeWindowBuffer*>(mLockedBuffer.get())) {
++        // PW3: lock() made this buffer equal to the previous frame outside
++        // the region the client had to redraw, so that region is the damage.
++        // The PW3 composer and e-paper panel only process what changed.
++        input.setSurfaceDamage(mDirtyRegion);
++    } else if (mConnectedToCpu || mDirtyRegion.bounds() == Rect::INVALID_RECT) {
+         input.setSurfaceDamage(Region::INVALID_REGION);
+     } else {
+         // Here we do two things:
+@@ -1641,9 +1649,27 @@ status_t Surface::lock(
+                 backBuffer->height == frontBuffer->height &&
+                 backBuffer->format == frontBuffer->format);
+ 
++        // PW3: while rendering in software, mSlots[i].dirtyRegion is the
++        // area in which the buffer of slot i differs from the front buffer
++        // (INVALID_REGION: everywhere, or unknown). The stock code keeps one
++        // accumulated region instead and never shrinks it
++        // ("mDirtyRegion.subtract(dirtyRegion);" discards its result), so
++        // after the first complete frame every later frame copied nearly
++        // the whole front buffer back, 6 MB per frame on the PW3 panel.
++        int backBufferSlot;
++        Region stale(bounds);
++        {
++            Mutex::Autolock lock(mMutex);
++            backBufferSlot = getSlotFromBufferLocked(backBuffer.get());
++            if (canCopyBack && backBufferSlot >= 0 &&
++                    mSlots[backBufferSlot].dirtyRegion.bounds() != Rect::INVALID_RECT) {
++                stale = mSlots[backBufferSlot].dirtyRegion;
++            }
++        }
++
+         if (canCopyBack) {
+             // copy the area that is invalid and not repainted this round
+-            const Region copyback(mDirtyRegion.subtract(newDirtyRegion));
++            const Region copyback(stale.subtract(newDirtyRegion));
+             if (!copyback.isEmpty()) {
+                 copyBlt(backBuffer, frontBuffer, copyback, &fenceFd);
+             }
+@@ -1651,25 +1677,28 @@ status_t Surface::lock(
+             // if we can't copy-back anything, modify the user's dirty
+             // region to make sure they redraw the whole buffer
+             newDirtyRegion.set(bounds);
+-            mDirtyRegion.clear();
+-            Mutex::Autolock lock(mMutex);
+-            for (size_t i=0 ; i<NUM_BUFFER_SLOTS ; i++) {
+-                mSlots[i].dirtyRegion.clear();
+-            }
+         }
+ 
+-
+         { // scope for the lock
++            // Once posted, this buffer is the front buffer: the others
++            // differ from it by what is drawn now as well.
+             Mutex::Autolock lock(mMutex);
+-            int backBufferSlot(getSlotFromBufferLocked(backBuffer.get()));
+-            if (backBufferSlot >= 0) {
+-                Region& dirtyRegion(mSlots[backBufferSlot].dirtyRegion);
+-                mDirtyRegion.subtract(dirtyRegion);
+-                dirtyRegion = newDirtyRegion;
++            for (int i = 0; i < NUM_BUFFER_SLOTS; i++) {
++                Region& dirtyRegion(mSlots[i].dirtyRegion);
++                if (i == backBufferSlot) {
++                    dirtyRegion.clear();
++                } else if (mSlots[i].buffer != nullptr) {
++                    if (!canCopyBack) {
++                        dirtyRegion = Region::INVALID_REGION;
++                    } else if (dirtyRegion.bounds() != Rect::INVALID_RECT) {
++                        dirtyRegion.orSelf(newDirtyRegion);
++                    }
++                }
+             }
+         }
+ 
+-        mDirtyRegion.orSelf(newDirtyRegion);
++        // The surface damage of this frame, used by queueBuffer().
++        mDirtyRegion = newDirtyRegion;
+         if (inOutDirtyBounds) {
+             *inOutDirtyBounds = newDirtyRegion.getBounds();
+         }

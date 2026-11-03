@@ -1,0 +1,17 @@
+#!/bin/bash
+# Keep AOSP's original tools.jar/Doclava on the native Java 8 JVM. The real
+# 2,990-output comparison requires the same C locale as the full AOSP build.
+# This changes only a host JVM; Android ART/JIT settings are unchanged.
+set -euo pipefail
+export LC_ALL=C
+jvm_args=()
+doc_args=()
+for arg in "$@"; do
+  case "$arg" in
+    -J*) jvm_args+=("${arg#-J}") ;;
+    *) doc_args+=("$arg") ;;
+  esac
+done
+exec /usr/lib/jvm/java-8-openjdk-arm64/bin/java "${jvm_args[@]}" \
+  -cp /src/prebuilts/jdk/jdk8/linux-x86/lib/tools.jar \
+  com.sun.tools.javadoc.Main "${doc_args[@]}"

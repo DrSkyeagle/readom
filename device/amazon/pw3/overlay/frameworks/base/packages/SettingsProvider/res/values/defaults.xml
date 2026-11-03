@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Avoid page transitions generating repeated e-paper refreshes. -->
+    <fraction name="def_window_animation_scale">0%</fraction>
+    <fraction name="def_window_transition_scale">0%</fraction>
+    <fraction name="def_animator_duration_scale">0%</fraction>
+    <!-- A reader is left untouched for minutes while a page is read; the
+         stock Kindle sleeps after ten minutes. -->
+    <integer name="def_screen_off_timeout">600000</integer>
+    <bool name="def_accelerometer_rotation">false</bool>
+    <bool name="def_haptic_feedback">false</bool>
+    <bool name="def_screen_brightness_automatic_mode">false</bool>
+    <!-- Step 22 of the frontlight's 26, the Kindle's own default. -->
+    <integer name="def_screen_brightness">225</integer>
+    <!-- No speaker, microphone, Bluetooth radio, or GPS exists on PW3. -->
+    <bool name="def_sound_effects_enabled">false</bool>
+    <bool name="def_dtmf_tones_enabled">false</bool>
+    <integer name="def_lockscreen_sounds_enabled">0</integer>
+    <integer name="def_power_sounds_enabled">0</integer>
+    <bool name="def_bluetooth_on">false</bool>
+    <string name="def_location_providers_allowed" translatable="false"></string>
+    <bool name="assisted_gps_enabled">false</bool>
+    <bool name="def_wifi_wakeup_enabled">false</bool>
+    <!-- Wi-Fi sleeps with the screen, as on the Kindle (0, Settings.Global.
+         WIFI_SLEEP_POLICY_DEFAULT): the card is powered off whenever the system
+         suspends anyway (frameworks/opt/net/wifi patch 0002). -->
+    <integer name="def_wifi_sleep_policy">0</integer>
+    <!-- No swipe screen before the home screen, as on the Kindle; a PIN or
+         password set in Settings still locks. -->
+    <bool name="def_lockscreen_disabled">true</bool>
+    <!-- Connectivity check servers that answer from mainland China as well
+         (frameworks/base patch 0021): with Google's own, every working Wi-Fi
+         network showed "no internet" there (Test V30). -->
+    <string name="def_captive_portal_https_url" translatable="false">https://www.google.cn/generate_204</string>
+    <string name="def_captive_portal_http_url" translatable="false">http://www.google.cn/generate_204</string>
+    <string name="def_captive_portal_fallback_url" translatable="false">http://www.google.cn/gen_204</string>
+</resources>

@@ -1,0 +1,44 @@
+From: PW3 Android port
+Subject: [PW3] wificond: look for wlan0 in sysfs before asking for its index
+
+While Wi-Fi goes on or off, wificond checks every 50 ms whether wlan0 is there
+(0001). It asked with if_nametoindex(), i.e. SIOCGIFINDEX, and for a name that
+does not exist the kernel's dev_ioctl() first calls dev_load(), which, as
+wificond has CAP_NET_ADMIN, asks for a module "netdev-wlan0". SELinux refuses
+that (wificond may not request modules) and logs it: about twenty denials
+each time Wi-Fi went on or off on the device (Test V40.1).
+
+/sys/class/net/wlan0 answers without that: register_netdevice() adds it before
+list_netdevice() makes the name known, and rollback_registered_many() removes
+it after unlist_netdevice(). Without the entry there is no wlan0; with it,
+SIOCGIFINDEX decides as before, now for a name that exists. wificond already
+reads under /sys/class/net/wlan0 (the driver link), so no new permission.
+
+--- a/pw3_radio.cpp
++++ b/pw3_radio.cpp
+@@ -13,6 +13,7 @@
+ namespace wificond {
+ namespace {
+ constexpr const char* kModule = "/sys/module/ath6kl_sdio";
++constexpr const char* kInterface = "/sys/class/net/wlan0";
+ constexpr const char* kDriver = "/sys/class/net/wlan0/phy80211/device/driver";
+ constexpr const char* kModuleProperty = "vendor.pw3.wifi.modules";
+ constexpr const char* kExpectedDriver = "ath6kl_sdio";
+@@ -30,6 +31,17 @@
+ }
+ 
+ bool ReadInterfaceState(bool* exists) {
++  // Absence from sysfs first: SIOCGIFINDEX for a name that does not exist makes
++  // the kernel ask for a module "netdev-wlan0" (dev_load()), which SELinux
++  // refuses and logs, at every 50 ms step of a wait. The entry is added before
++  // the name can be looked up and removed after, so without it there is no
++  // wlan0; with it, SIOCGIFINDEX still decides.
++  struct stat st {};
++  if (stat(kInterface, &st) != 0) {
++    if (errno != ENOENT) return false;
++    *exists = false;
++    return true;
++  }
+   // AOSP 8.1 Bionic preserves socket/ioctl errno. On this kernel SIOCGIFINDEX
+   // reports ENODEV for an absent name; other failures are not absence.
+   errno = 0;

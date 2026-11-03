@@ -1,0 +1,117 @@
+--- a/kernel/printk.c
++++ b/kernel/printk.c
+@@ -44,6 +44,10 @@
+ #include <linux/proc_fs.h>
+ 
+ #include <asm/uaccess.h>
++#if defined(CONFIG_LAB126_PRINTK_BUFFER) && defined(CONFIG_ARM)
++#include <asm/cacheflush.h>
++#include <asm/outercache.h>
++#endif
+ 
+ 
+ #ifdef CONFIG_FALCON
+@@ -214,7 +218,40 @@
+ early_param("log_pos_goal",log_goal_position);
+ 
+ static char *backup_buffer;
++
++/*
++ * Physical address of log_buf once it sits at log_goal_location, else 0.
++ * The next boot saves that memory as the previous boot's log
++ * (/proc/printkbuf). When the watchdog resets a hung system, text still in
++ * the CPU caches never reaches that memory, so every message is written
++ * back as it is stored, and so is the cleared buffer at boot.
++ */
++static phys_addr_t log_buf_phys;
++
++#ifdef CONFIG_ARM
++static void write_back(char *va, phys_addr_t pa, unsigned len)
++{
++	/* inner caches first, then the outer (L2) cache */
++	__cpuc_flush_dcache_area(va, len);
++	outer_clean_range(pa, pa + len);
++}
++
++static void log_buf_write_back(unsigned start, unsigned end)
++{
++	if (!log_buf_phys)
++		return;
++	if (end - start > (unsigned)log_buf_len)
++		start = end - log_buf_len;
++	while (start != end) {
++		unsigned idx = start & (log_buf_len - 1);
++		unsigned len = min(end - start, (unsigned)log_buf_len - idx);
+ 
++		write_back(log_buf + idx, log_buf_phys + idx, len);
++		start += len;
++	}
++}
++#endif
++
+ static int backup_buffer_read(char *page, char **start, off_t off, int count, int *eof, void *data)
+ {
+ 	int written = 0;	
+@@ -257,6 +294,16 @@
+ 	}
+ }
+ #endif //CONFIG_LAB126_PRINTK_BUFFER
++
++#if !defined(CONFIG_LAB126_PRINTK_BUFFER) || !defined(CONFIG_ARM)
++static inline void write_back(char *va, phys_addr_t pa, unsigned len)
++{
++}
++
++static inline void log_buf_write_back(unsigned start, unsigned end)
++{
++}
++#endif
+ 
+ void __init setup_log_buf(int early)
+ {
+@@ -312,6 +359,7 @@
+ 					//Now that it is saved, clear out last time's prink to prevent log framents from
+ 					//recusrively showing up in printk logs.
+ 					memset(new_log_buf, '\0', new_log_buf_len);
++					write_back(new_log_buf, log_goal_location, new_log_buf_len);
+ 				}
+ 			}
+ 			
+@@ -348,6 +396,12 @@
+ 	log_start -= offset;
+ 	con_start -= offset;
+ 	log_end -= offset;
++#ifdef CONFIG_LAB126_PRINTK_BUFFER
++	if (log_goal_location && log_buf == __va(log_goal_location)) {
++		log_buf_phys = log_goal_location;
++		log_buf_write_back(0, log_end);
++	}
++#endif
+ 	spin_unlock_irqrestore(&logbuf_lock, flags);
+ 
+ 	pr_info("log_buf_len: %d\n", log_buf_len);
+@@ -972,6 +1026,7 @@
+ 	char *p;
+ 	size_t plen;
+ 	char special;
++	unsigned stored_from;
+ 
+ 	boot_delay_msec();
+ 	printk_delay();
+@@ -1002,6 +1057,7 @@
+ 	lockdep_off();
+ 	spin_lock(&logbuf_lock);
+ 	printk_cpu = this_cpu;
++	stored_from = log_end;
+ 
+ 	if (recursion_bug) {
+ 		recursion_bug = 0;
+@@ -1083,6 +1139,8 @@
+ 			new_text_line = 1;
+ 	}
+ 
++	log_buf_write_back(stored_from, log_end);
++
+ 	/*
+ 	 * Try to acquire and then immediately release the
+ 	 * console semaphore. The release will do all the

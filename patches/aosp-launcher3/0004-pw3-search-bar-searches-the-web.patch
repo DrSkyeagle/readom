@@ -1,0 +1,86 @@
+From: PW3 Android port
+Subject: [PW3] Launcher3: the search bar searches the web in the browser
+
+With no search application installed the home screen shows Launcher3's own
+search bar, and a tap on it asks for the global search activity. Nothing
+provides one on PW3, so the tap did nothing ("why does the search on the home
+screen not react?", user, 2026-10-14). The user chose: the search bar searches
+the web with the browser.
+
+The bar is a text field now: a tap brings up the keyboard on the home screen,
+the search key hands the words to the application that handles web searches
+(ACTION_WEB_SEARCH; on PW3 the browser), which searches with its own engine.
+The field is emptied when the search has been handed on.
+
+--- a/res/layout/qsb_default_view.xml
++++ b/res/layout/qsb_default_view.xml
+@@ -27,18 +27,20 @@
+         android:elevation="2dp"
+         android:orientation="horizontal">
+ 
+-        <TextView
++        <EditText
+             android:layout_width="0dp"
+             android:id="@+id/btn_qsb_search"
+             android:layout_height="match_parent"
+             android:layout_weight="1"
+             android:gravity="center_vertical"
+             android:paddingStart="16dp"
+-            android:text="@string/abandoned_search"
+-            android:textColor="?android:attr/textColorSecondary"
++            android:hint="@string/abandoned_search"
++            android:textColorHint="?android:attr/textColorSecondary"
+             android:textAppearance="?android:textAppearanceMedium"
+-            android:clickable="true"
+-            android:background="?android:attr/selectableItemBackground" />
++            android:inputType="text"
++            android:imeOptions="actionSearch"
++            android:singleLine="true"
++            android:background="@null" />
+         <ImageView
+             android:layout_width="48dp"
+             android:id="@+id/btn_qsb_setup"
+--- a/src/com/android/launcher3/qsb/QsbWidgetHostView.java
++++ b/src/com/android/launcher3/qsb/QsbWidgetHostView.java
+@@ -17,12 +17,16 @@
+ package com.android.launcher3.qsb;
+ 
+ import android.appwidget.AppWidgetHostView;
++import android.app.SearchManager;
+ import android.content.Context;
++import android.content.Intent;
++import android.view.KeyEvent;
+ import android.view.LayoutInflater;
+ import android.view.View;
+ import android.view.ViewDebug;
+ import android.view.ViewGroup;
+ import android.widget.RemoteViews;
++import android.widget.TextView;
+ 
+ import com.android.launcher3.Launcher;
+ import com.android.launcher3.R;
+@@ -76,10 +80,21 @@
+     public static View getDefaultView(ViewGroup parent) {
+         View v = LayoutInflater.from(parent.getContext())
+                 .inflate(R.layout.qsb_default_view, parent, false);
+-        v.findViewById(R.id.btn_qsb_search).setOnClickListener(new OnClickListener() {
++        // A search typed here goes to the application that searches the web.
++        TextView field = (TextView) v.findViewById(R.id.btn_qsb_search);
++        field.setOnEditorActionListener(new TextView.OnEditorActionListener() {
+             @Override
+-            public void onClick(View view) {
+-                Launcher.getLauncher(view.getContext()).startSearch("", false, null, true);
++            public boolean onEditorAction(TextView view, int actionId, KeyEvent event) {
++                String query = view.getText().toString().trim();
++                if (query.isEmpty()) return true;
++                Intent intent = new Intent(Intent.ACTION_WEB_SEARCH)
++                        .putExtra(SearchManager.QUERY, query)
++                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
++                if (Launcher.getLauncher(view.getContext()).startActivitySafely(view, intent, null)) {
++                    view.setText("");
++                    view.clearFocus();
++                }
++                return true;
+             }
+         });
+         return v;

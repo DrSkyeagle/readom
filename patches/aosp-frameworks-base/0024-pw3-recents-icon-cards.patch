@@ -1,0 +1,398 @@
+From: PW3 Android port
+Subject: [PW3] SystemUI recents: icon cards, six to a screen, outlined
+
+The user found recents hard to use (Test V39): 8.1's low ram layout makes each
+card a square as wide as the screen, one per screen, and with task previews
+disabled (0004) the cards are blank. On the white ground the cards had no
+visible edge: SystemUI is drawn in software (0003, 0006), where the shadow
+that should mark them is not drawn.
+
+With RecentsConfiguration.iconCards (low ram and ro.pw3.disable_task_previews):
+
+  * the low ram layout puts the newest six tasks in two columns and three rows,
+    newest at the top left, between the status bar and the clear-all button;
+    nothing scrolls, so the e-paper panel is drawn once (older tasks are not
+    shown; clear all still removes them);
+  * a card's body is white with the app's icon in the middle of it (the icon
+    the header already loads; still no previews); its header is the app's name
+    in black on white and the dismiss button (no small icon, and not the app's
+    colour, an arbitrary grey on e-paper);
+  * every card has the e-paper outline and corner radius (docs/design/eink-ui.md;
+    SystemUI's copy of the values in res/values/pw3_eink.xml), drawn in whole
+    pixels, as does the clear-all button, now black on white.
+
+--- a/packages/SystemUI/src/com/android/systemui/recents/RecentsConfiguration.java
++++ b/packages/SystemUI/src/com/android/systemui/recents/RecentsConfiguration.java
+@@ -93,6 +93,10 @@
+     // Enable drag and drop split from Recents. Disabled for low ram devices.
+     public boolean dragToSplitEnabled;
+ 
++    // PW3: no task previews (ro.pw3.disable_task_previews): the low ram layout shows small
++    // cards with the app's name and icon, six to a screen (TaskStackLowRamLayoutAlgorithm).
++    public boolean iconCards;
++
+     private final Context mAppContext;
+ 
+     public RecentsConfiguration(Context context) {
+@@ -106,6 +110,8 @@
+         isGridEnabled = SystemProperties.getBoolean("ro.recents.grid", false);
+         isLowRamDevice = ActivityManager.isLowRamDeviceStatic();
+         dragToSplitEnabled = !isLowRamDevice;
++        iconCards = isLowRamDevice
++                && SystemProperties.getBoolean("ro.pw3.disable_task_previews", false);
+ 
+         float screenDensity = context.getResources().getDisplayMetrics().density;
+         smallestWidth = ssp.getDeviceSmallestWidth();
+--- a/packages/SystemUI/src/com/android/systemui/recents/views/lowram/TaskStackLowRamLayoutAlgorithm.java
++++ b/packages/SystemUI/src/com/android/systemui/recents/views/lowram/TaskStackLowRamLayoutAlgorithm.java
+@@ -41,6 +41,14 @@
+     public static final int NUM_TASK_VISIBLE_LAUNCHED_FROM_HOME = 2;
+     public static final int NUM_TASK_VISIBLE_LAUNCHED_FROM_APP =
+             NUM_TASK_VISIBLE_LAUNCHED_FROM_HOME + 1;
++
++    // PW3 icon cards (RecentsConfiguration.iconCards): the newest tasks in a grid that fills
++    // the screen between the status bar and the clear-all button; nothing scrolls, so the
++    // e-paper panel is drawn once. Older tasks are not shown (clear all still removes them).
++    public static final int ICON_CARD_COLUMNS = 2;
++    public static final int ICON_CARD_ROWS = 3;
++    private int mIconCardTop;
++    private int mClearAllHeight;
+     private Rect mWindowRect;
+ 
+     private int mFlingThreshold;
+@@ -58,12 +66,22 @@
+     public void reloadOnConfigurationChange(Context context) {
+         mPadding = context.getResources()
+                 .getDimensionPixelSize(R.dimen.recents_layout_side_margin_phone);
++        mClearAllHeight = context.getResources()
++                .getDimensionPixelSize(R.dimen.recents_icon_card_clear_all_height);
+         mFlingThreshold = ViewConfiguration.get(context).getScaledMinimumFlingVelocity();
+     }
+ 
+     public void initialize(Rect windowRect) {
+         mWindowRect = windowRect;
+-        if (mWindowRect.height() > 0) {
++        if (mWindowRect.height() > 0 && Recents.getConfiguration().iconCards) {
++            int windowWidth = mWindowRect.width() - mSystemInsets.right - mSystemInsets.left;
++            int bottom = mWindowRect.height() - mSystemInsets.bottom - mClearAllHeight;
++            mIconCardTop = mSystemInsets.top + mPadding;
++            mTaskRect.set(0, 0,
++                    (windowWidth - (ICON_CARD_COLUMNS + 1) * mPadding) / ICON_CARD_COLUMNS,
++                    (bottom - mIconCardTop - (ICON_CARD_ROWS - 1) * mPadding) / ICON_CARD_ROWS);
++            mPaddingLeftRight = mPadding;
++        } else if (mWindowRect.height() > 0) {
+             int windowHeight = mWindowRect.height() - mSystemInsets.bottom;
+             int windowWidth = mWindowRect.width() - mSystemInsets.right - mSystemInsets.left;
+             int width = Math.min(windowWidth, windowHeight) - mPadding * 2;
+@@ -87,6 +105,9 @@
+                     || launchState.launchedWithNextPipApp
+                 ? NUM_TASK_VISIBLE_LAUNCHED_FROM_HOME
+                 : NUM_TASK_VISIBLE_LAUNCHED_FROM_APP;
++        if (Recents.getConfiguration().iconCards) {
++            maxVisible = ICON_CARD_COLUMNS * ICON_CARD_ROWS;
++        }
+         int visibleCount = Math.min(maxVisible, tasks.size());
+         return new VisibilityReport(visibleCount, visibleCount);
+     }
+@@ -125,6 +146,17 @@
+             transformOut.reset();
+             return transformOut;
+         }
++        if (Recents.getConfiguration().iconCards) {
++            int place = taskCount - 1 - taskIndex;   // 0: the newest task, top left
++            int column = place % ICON_CARD_COLUMNS;
++            int row = place / ICON_CARD_COLUMNS;
++            boolean shown = row < ICON_CARD_ROWS;
++            fillStackTransform(transformOut, shown
++                    ? mIconCardTop + row * (mTaskRect.height() + mPadding)
++                    : mWindowRect.height(), stackLayout.mMaxTranslationZ, shown);
++            transformOut.rect.offset(column * (mTaskRect.width() + mPadding), 0);
++            return transformOut;
++        }
+         boolean visible = true;
+         int y;
+         if (taskCount > 1) {
+@@ -148,6 +180,9 @@
+      * @param velocity speed of fling
+      */
+     public float getClosestTaskP(float scrollP, int numTasks, int velocity) {
++        if (Recents.getConfiguration().iconCards) {
++            return 0;
++        }
+         int y = percentageToScroll(scrollP);
+ 
+         int lastY = getTaskTopFromIndex(0) - mPaddingEndTopBottom;
+@@ -212,6 +247,9 @@
+      * @return from home it will return max value and from app it will return 2nd last task
+      */
+     public float getInitialScrollP(int taskCount, boolean fromHome) {
++        if (Recents.getConfiguration().iconCards) {
++            return 0;
++        }
+         if (fromHome) {
+             return getMaxScrollP(taskCount);
+         }
+@@ -227,6 +265,9 @@
+      * @return scroll progress of task
+      */
+     public float getScrollPForTask(int taskIndex) {
++        if (Recents.getConfiguration().iconCards) {
++            return 0;   // all cards on one screen: nothing to scroll to
++        }
+         return scrollToPercentage(getTaskTopFromIndex(taskIndex) - mPaddingEndTopBottom);
+     }
+ 
+@@ -235,6 +276,9 @@
+     }
+ 
+     public float getMaxOverscroll() {
++        if (Recents.getConfiguration().iconCards) {
++            return 0;
++        }
+         return MAX_OVERSCROLL;
+     }
+ 
+--- a/packages/SystemUI/src/com/android/systemui/recents/views/TaskViewThumbnail.java
++++ b/packages/SystemUI/src/com/android/systemui/recents/views/TaskViewThumbnail.java
+@@ -30,11 +30,13 @@
+ import android.graphics.Paint;
+ import android.graphics.Rect;
+ import android.graphics.Shader;
++import android.graphics.drawable.Drawable;
+ import android.util.AttributeSet;
+ import android.view.View;
+ import android.view.ViewDebug;
+ 
+ import com.android.systemui.R;
++import com.android.systemui.recents.Recents;
+ import com.android.systemui.recents.events.EventBus;
+ import com.android.systemui.recents.events.ui.TaskSnapshotChangedEvent;
+ import com.android.systemui.recents.misc.Utilities;
+@@ -85,6 +87,12 @@
+     // Clip the top of the thumbnail against the opaque header bar that overlaps this view
+     private View mTaskBar;
+ 
++    // PW3 icon cards (RecentsConfiguration.iconCards): white, with the app's icon in the middle
++    // of the space below the header.
++    private final boolean mIconCards = Recents.getConfiguration().iconCards;
++    private int mIconCardIconSize;
++    private final Rect mIconBounds = new Rect();
++
+     // Visibility optimization, if the thumbnail height is less than the height of the header
+     // bar for the task view, then just mark this thumbnail view as invisible
+     @ViewDebug.ExportedProperty(category="recents")
+@@ -115,6 +123,7 @@
+         mBgFillPaint.setColor(Color.WHITE);
+         mLockedPaint.setColor(Color.WHITE);
+         mTitleBarHeight = res.getDimensionPixelSize(R.dimen.recents_grid_task_view_header_height);
++        mIconCardIconSize = res.getDimensionPixelSize(R.dimen.recents_icon_card_icon_size);
+     }
+ 
+     /**
+@@ -140,6 +149,10 @@
+ 
+         int viewWidth = mTaskViewRect.width();
+         int viewHeight = mTaskViewRect.height();
++        if (mIconCards) {
++            drawIconCard(canvas, viewWidth, viewHeight);
++            return;
++        }
+         int thumbnailWidth = Math.min(viewWidth,
+                 (int) (mThumbnailRect.width() * mThumbnailScale));
+         int thumbnailHeight = Math.min(viewHeight,
+@@ -177,6 +190,23 @@
+         }
+     }
+ 
++    private void drawIconCard(Canvas canvas, int width, int height) {
++        canvas.drawRoundRect(0, 0, width, height, mCornerRadius, mCornerRadius, mLockedPaint);
++        Drawable icon = mTask != null ? mTask.icon : null;
++        if (icon == null) {
++            return;
++        }
++        int top = mTaskBar != null ? mTaskBar.getHeight() : 0;
++        int size = Math.min(mIconCardIconSize, Math.min(width, height - top) * 2 / 3);
++        int left = (width - size) / 2;
++        int iconTop = top + (height - top - size) / 2;
++        // The drawable is the header's as well: restore its bounds after drawing.
++        icon.copyBounds(mIconBounds);
++        icon.setBounds(left, iconTop, left + size, iconTop + size);
++        icon.draw(canvas);
++        icon.setBounds(mIconBounds);
++    }
++
+     /** Sets the thumbnail to a given bitmap. */
+     void setThumbnail(ThumbnailData thumbnailData) {
+         if (thumbnailData != null && thumbnailData.thumbnail != null) {
+@@ -364,6 +394,9 @@
+         if (t.colorPrimary != 0) {
+             mLockedPaint.setColor(t.colorPrimary);
+         }
++        if (mIconCards) {
++            mLockedPaint.setColor(Color.WHITE);   // the card's ground, see drawIconCard()
++        }
+         mUserLocked = t.isLocked;
+         EventBus.getDefault().register(this);
+     }
+@@ -374,6 +407,9 @@
+      */
+     void onTaskDataLoaded(ThumbnailData thumbnailData) {
+         setThumbnail(thumbnailData);
++        if (mIconCards) {
++            invalidate();   // the icon has come
++        }
+     }
+ 
+     /** Unbinds the thumbnail view from the task */
+--- a/packages/SystemUI/src/com/android/systemui/recents/views/TaskViewHeader.java
++++ b/packages/SystemUI/src/com/android/systemui/recents/views/TaskViewHeader.java
+@@ -261,6 +261,9 @@
+      * based on the device configuration.
+      */
+     private void updateLayoutParams(View icon, View title, View secondaryButton, View button) {
++        // PW3 icon cards: the card's body shows the icon, the header only the name.
++        boolean iconCards = Recents.getConfiguration().iconCards;
++        icon.setVisibility(iconCards ? View.GONE : View.VISIBLE);
+         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                 ViewGroup.LayoutParams.MATCH_PARENT, mHeaderBarHeight, Gravity.TOP);
+         setLayoutParams(lp);
+@@ -268,7 +271,7 @@
+         icon.setLayoutParams(lp);
+         lp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                 ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.START | Gravity.CENTER_VERTICAL);
+-        lp.setMarginStart(mHeaderBarHeight);
++        lp.setMarginStart(iconCards ? mHeaderButtonPadding : mHeaderBarHeight);
+         lp.setMarginEnd(mMoveTaskButton != null
+                 ? 2 * mHeaderBarHeight
+                 : mHeaderBarHeight);
+@@ -462,7 +465,12 @@
+     public void bindToTask(Task t, boolean touchExplorationEnabled, boolean disabledInSafeMode) {
+         mTask = t;
+ 
+-        int primaryColor = disabledInSafeMode
++        // PW3 icon cards: white, as the rest of the card (docs/design/eink-ui.md); an app's
++        // own colour would be an arbitrary grey on e-paper.
++        boolean iconCards = Recents.getConfiguration().iconCards;
++        boolean lightOnPrimary = !iconCards && t.useLightOnPrimaryColor;
++        int primaryColor = iconCards ? Color.WHITE
++                : disabledInSafeMode
+                 ? mDisabledTaskBarBackgroundColor
+                 : t.colorPrimary;
+         if (mBackground.getColor() != primaryColor) {
+@@ -472,9 +480,9 @@
+             mTitleView.setText(t.title);
+         }
+         mTitleView.setContentDescription(t.titleDescription);
+-        mTitleView.setTextColor(t.useLightOnPrimaryColor ?
++        mTitleView.setTextColor(lightOnPrimary ?
+                 mTaskBarViewLightTextColor : mTaskBarViewDarkTextColor);
+-        mDismissButton.setImageDrawable(t.useLightOnPrimaryColor ?
++        mDismissButton.setImageDrawable(lightOnPrimary ?
+                 mLightDismissDrawable : mDarkDismissDrawable);
+         mDismissButton.setContentDescription(t.dismissDescription);
+         mDismissButton.setOnClickListener(this);
+--- a/packages/SystemUI/src/com/android/systemui/recents/views/TaskView.java
++++ b/packages/SystemUI/src/com/android/systemui/recents/views/TaskView.java
+@@ -24,7 +24,9 @@
+ import android.animation.ValueAnimator;
+ import android.content.Context;
+ import android.content.res.Resources;
++import android.graphics.Canvas;
+ import android.graphics.Outline;
++import android.graphics.Paint;
+ import android.graphics.Point;
+ import android.graphics.Rect;
+ import android.util.AttributeSet;
+@@ -162,6 +164,11 @@
+ 
+     private Toast mDisabledAppToast;
+ 
++    // PW3: system UI is drawn in software, where no shadow is drawn, and a shadow would be bands
++    // on e-paper: the card's edge is a solid outline (docs/design/eink-ui.md).
++    private final Paint mOutlinePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
++    private final float mOutlineRadius;
++
+     public TaskView(Context context) {
+         this(context, null);
+     }
+@@ -179,6 +186,11 @@
+         RecentsConfiguration config = Recents.getConfiguration();
+         Resources res = context.getResources();
+         mViewBounds = createOutlineProvider();
++        mOutlinePaint.setStyle(Paint.Style.STROKE);
++        // Whole pixels: a fractional stroke would be drawn with grey, anti-aliased edges.
++        mOutlinePaint.setStrokeWidth(res.getDimensionPixelSize(R.dimen.pw3_outline_width));
++        mOutlinePaint.setColor(res.getColor(R.color.pw3_outline, null));
++        mOutlineRadius = res.getDimension(R.dimen.pw3_corner_radius);
+         if (config.fakeShadows) {
+             setBackground(new FakeShadowDrawable(res, config));
+         }
+@@ -187,6 +199,14 @@
+         setAccessibilityDelegate(new TaskViewAccessibilityDelegate(this));
+     }
+ 
++    @Override
++    protected void dispatchDraw(Canvas canvas) {
++        super.dispatchDraw(canvas);
++        float inset = mOutlinePaint.getStrokeWidth() / 2;
++        canvas.drawRoundRect(inset, inset, getWidth() - inset, getHeight() - inset,
++                mOutlineRadius, mOutlineRadius, mOutlinePaint);
++    }
++
+     /** Set callback */
+     void setCallbacks(TaskViewCallbacks cb) {
+         mCb = cb;
+--- a/packages/SystemUI/res/values/dimens.xml
++++ b/packages/SystemUI/res/values/dimens.xml
+@@ -758,7 +758,12 @@
+ 
+     <!-- The radius of the rounded corners on a task view and its shadow (which can be larger
+          to create a softer corner effect. -->
+-    <dimen name="recents_task_view_rounded_corners_radius">2dp</dimen>
++    <!-- PW3: the system's corner radius (docs/design/eink-ui.md). -->
++    <dimen name="recents_task_view_rounded_corners_radius">@dimen/pw3_corner_radius</dimen>
++    <!-- PW3 icon cards (RecentsConfiguration.iconCards): the icon in a card, and the room
++         kept below the cards for the clear-all button and its margin. -->
++    <dimen name="recents_icon_card_icon_size">72dp</dimen>
++    <dimen name="recents_icon_card_clear_all_height">80dp</dimen>
+     <dimen name="recents_task_view_shadow_rounded_corners_radius">6dp</dimen>
+ 
+     <!-- The amount of highlight to make on each task view. -->
+--- a/packages/SystemUI/res/drawable/recents_low_ram_stack_button_background.xml
++++ b/packages/SystemUI/res/drawable/recents_low_ram_stack_button_background.xml
+@@ -17,6 +17,9 @@
+ 
+       <corners android:radius="@dimen/borderless_button_radius" />
+ 
+-      <solid android:color="?attr/clearAllBackgroundColor" />
++      <!-- PW3: a button is white with an outline (docs/design/eink-ui.md). -->
++      <solid android:color="@android:color/white" />
++      <stroke android:width="@dimen/pw3_outline_width"
++          android:color="@color/pw3_outline" />
+ 
+ </shape>
+--- a/packages/SystemUI/res/layout/recents_low_ram_stack_action_button.xml
++++ b/packages/SystemUI/res/layout/recents_low_ram_stack_action_button.xml
+@@ -25,7 +25,7 @@
+     android:paddingBottom="17dp"
+     android:text="@string/recents_stack_action_button_label"
+     android:textSize="14sp"
+-    android:textColor="#FFFFFF"
++    android:textColor="#FF000000"
+     android:textAllCaps="true"
+     android:fontFamily="sans-serif-medium"
+     android:background="@drawable/recents_low_ram_stack_button_background"
+--- /dev/null
++++ b/packages/SystemUI/res/values/pw3_eink.xml
+@@ -0,0 +1,11 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- PW3: the e-paper interface rules (docs/design/eink-ui.md) as SystemUI uses them. The
++     framework's dialogs, menus and toasts, Settings and Launcher3 write the same values.
++     SystemUI is drawn in software, where no shadow is drawn: what floats above the page
++     has a solid outline instead. -->
++<resources>
++    <color name="pw3_outline">#ff000000</color>
++    <!-- 2 px on PW3 (density 1.875, rounded to whole pixels). -->
++    <dimen name="pw3_outline_width">1dp</dimen>
++    <dimen name="pw3_corner_radius">4dp</dimen>
++</resources>

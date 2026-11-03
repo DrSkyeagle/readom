@@ -1,0 +1,326 @@
+From: PW3 Android port
+Subject: [PW3] A compile does not take away the code it is replacing
+
+open_output_file(recreate) unlinks the old artifact and creates another in its
+place, so from the moment dex2oat starts until it finishes, the path holds a
+partial file. Measured on the device during a compile of WeRead (2026-10-28,
+V91): base.odex growing from zero towards 100.3 MB, and
+
+    dumpsys package dexopt -> arm: invalid[]
+
+for the whole twenty minutes. A process started in that window gets no compiled
+code at all and interprets everything, which is slower than never having
+compiled. AOSP tolerates this because the job that compiles waits for a device
+that is idle *and on a charger*, so the window belongs to nobody; a Kindle is
+rarely on a charger, and frameworks/base patch 0066 is about to make that job
+run here, which turns the window into the owner's.
+
+It also means an interrupted compile is worse than no compile: the cleanup
+lambdas unlink what was half-written, and the application is left with neither
+the old code nor the new. JobScheduler cancels this job the moment the owner
+picks the device up, so without this patch every cancellation would cost the
+application its compiled code until some later run finished -- and a run that
+takes twenty minutes on this machine is cancelled easily.
+
+So each artifact is built at <path>.staging and renamed over the one it
+replaces once dex2oat has succeeded. The invariant that has to hold is that at
+every instant the application has either the code it had before or the code just
+built, never neither, and rename() inside a directory is atomic, so it does.
+
+Four details, two of them from a review of the first version of this patch:
+
+  - dex2oat is handed file descriptors (--oat-fd, --output-vdex-fd,
+    --app-image-fd), and only --oat-location is a path. That stays the final
+    name, so nothing recorded inside the file mentions the staging one.
+
+  - The oat is renamed last. It is what OatFileAssistant reads first, so until
+    it appears the old set is whole and in use, and once it appears the new set
+    is whole.
+
+  - **What is committed is what this run staged, not what is on the disk.**
+    The first version asked the filesystem -- if a staging file was there, it
+    was renamed into place. installd killed outright leaves a staging file that
+    nobody cleaned up, and a later run does not always stage all three: an app
+    image is only built for a profile-guided filter, which after pw3.mk's change
+    to pm.dexopt.bg-dexopt is no longer the common case. That run would have
+    found the leftover image and published it beside an oat it does not belong
+    to. Now the caller says which artifacts it staged, staged_ready() checks
+    every one of them before any is renamed, and the two branches of
+    maybe_open_app_image that stage nothing unlink the staging path so that a
+    leftover cannot survive to be mistaken for this run's work.
+
+  - **The vdex is no longer updated in place, and that path is gone rather than
+    disabled.** AOSP took it when three conditions held together: the location
+    written is the one read, the reason to compile is a boot image change (so no
+    running process can be using the file), and the compilation is not
+    profile-guided. It is the one path where a compile that fails or is
+    interrupted cannot leave the old artifact intact, because it writes over a
+    file with nothing to roll back to -- so the first version of this patch left
+    it alone and the invariant above quietly carried an exception the prose did
+    not admit to. What in-place saves is writing a second copy of the vdex: at
+    most 70 MB here, transiently, against 978 MB free. The invariant is worth
+    more than the copy. Removing the branch leaves open_vdex_files'
+    profile_guided parameter with no reader, so it goes too; the caller still
+    has the value for maybe_open_app_image and the retry.
+
+Each file is flushed before its rename so that a power cut cannot leave the name
+pointing at contents that never reached the disk. The directory is deliberately
+not flushed after: a rename lost to a power cut leaves the old artifact in
+place, which is the right way for this to fail. What remains is a rename failing
+on a filesystem that has stopped taking writes, which can leave the set mixed;
+ART answers a mismatched oat and vdex with kOatDexOutOfDate, so the application
+interprets until something compiles it again rather than failing to start.
+
+Not run on the device yet when this patch was written. It has been built: the
+version before this one did not compile (`unused parameter 'profile_guided'`,
+-Werror), which is what sent the in-place branch from disabled to deleted.
+
+--- a/cmds/installd/dexopt.cpp
++++ b/cmds/installd/dexopt.cpp
+@@ -970,6 +970,76 @@
+     return open(file_name, flags, permissions);
+ }
+ 
++// PW3: where a new artifact is built while the one it replaces is still in use.
++//
++// open_output_file(recreate) unlinks the old file and creates another in its
++// place, so from that moment until dex2oat finishes the path holds a partial
++// file: dumpsys reports the package "invalid" and every process started in that
++// window runs interpreted. On a phone the job that compiles waits for a device
++// that is idle and on a charger, so the window belongs to nobody. On a Kindle,
++// which is rarely on a charger and where one large application takes about
++// twenty minutes to compile, the window is the owner's -- and a compile that is
++// interrupted leaves the application with no compiled code at all, which is
++// slower than never having started.
++//
++// So each artifact is built beside the one it replaces and renamed over it once
++// dex2oat has succeeded. rename() inside a directory is atomic, which is what
++// makes the invariant hold: at every instant the application has either the
++// code it had before or the code just built, and never neither.
++static std::string staging_path(const std::string& path) {
++    return path + ".staging";
++}
++
++// PW3: whether what was staged for `path` is there to be committed.
++//
++// `staged` is what this run did, not what is on the disk. The difference
++// matters: installd killed outright leaves a staging file nobody cleaned up,
++// and a later run that stages nothing for that path -- an app image is not
++// built unless the filter is profile-guided -- would otherwise find the
++// leftover and publish it beside an oat it does not belong to. So a path this
++// run did not stage is never committed, and a path it did stage and cannot find
++// is an error rather than a shrug.
++static bool staged_ready(const std::string& path, bool staged) {
++    if (!staged || path.empty()) {
++        return true;
++    }
++    const std::string from(staging_path(path));
++    if (access(from.c_str(), F_OK) != 0) {
++        PLOG(ERROR) << "installd staged nothing at " << from;
++        return false;
++    }
++    return true;
++}
++
++// PW3: put one staged artifact in place.
++//
++// The file is flushed before it is renamed, so that a power cut cannot leave the
++// name pointing at contents that never reached the disk. The directory is
++// deliberately not flushed afterwards: a rename lost to a power cut leaves the
++// old artifact in place, which is the right way for this to fail.
++//
++// Callers check every path with staged_ready() before committing any of them,
++// so that a missing file is found while the old set is still whole. What is
++// left after that is a rename failing on a filesystem that has stopped taking
++// writes, and then the set can be mixed: ART answers a mismatched oat and vdex
++// with kOatDexOutOfDate, which means the application interprets until something
++// compiles it again, rather than failing to start.
++static bool commit_staged(int fd, const std::string& path, bool staged) {
++    if (!staged || path.empty()) {
++        return true;
++    }
++    const std::string from(staging_path(path));
++    if (fd >= 0 && fsync(fd) != 0) {
++        PLOG(ERROR) << "installd could not flush " << from;
++        return false;
++    }
++    if (rename(from.c_str(), path.c_str()) != 0) {
++        PLOG(ERROR) << "installd could not put " << from << " in place";
++        return false;
++    }
++    return true;
++}
++
+ static bool set_permissions_and_ownership(
+         int fd, bool is_public, int uid, const char* path, bool is_secondary_dex) {
+     // Primary apks are owned by the system. Secondary dex files are owned by the app.
+@@ -1154,19 +1224,26 @@
+     if (!profile_guided) {
+         // In case there is a stale image, remove it now. Ignore any error.
+         unlink(image_path.c_str());
++        // PW3: and anything a killed run left staged, which this one will not
++        // replace and must not publish.
++        unlink(staging_path(image_path).c_str());
+         return Dex2oatFileWrapper();
+     }
+     char app_image_format[kPropertyValueMax];
+     bool have_app_image_format =
+             get_property("dalvik.vm.appimageformat", app_image_format, NULL) > 0;
+     if (!have_app_image_format) {
++        unlink(staging_path(image_path).c_str());
+         return Dex2oatFileWrapper();
+     }
+     // Recreate is true since we do not want to modify a mapped image. If the app is
+     // already running and we modify the image file, it can cause crashes (b/27493510).
++    // PW3: beside the image it replaces, which is also a second answer to the
++    // hazard the comment above names -- the mapped image is not touched at all.
++    const std::string staged_image_path(staging_path(image_path));
+     Dex2oatFileWrapper wrapper_fd(
+-            open_output_file(image_path.c_str(), true /*recreate*/, 0600 /*permissions*/),
+-            [image_path]() { unlink(image_path.c_str()); });
++            open_output_file(staged_image_path.c_str(), true /*recreate*/, 0600 /*permissions*/),
++            [staged_image_path]() { unlink(staged_image_path.c_str()); });
+     if (wrapper_fd.get() < 0) {
+         // Could not create application image file. Go on since we can compile without it.
+         LOG(ERROR) << "installd could not create '" << image_path
+@@ -1246,7 +1323,7 @@
+ // out_vdex_wrapper_fd. Returns true for success or false in case of errors.
+ bool open_vdex_files(const char* apk_path, const char* out_oat_path, int dexopt_needed,
+         const char* instruction_set, bool is_public, int uid, bool is_secondary_dex,
+-        bool profile_guided, Dex2oatFileWrapper* in_vdex_wrapper_fd,
++        Dex2oatFileWrapper* in_vdex_wrapper_fd,
+         Dex2oatFileWrapper* out_vdex_wrapper_fd) {
+     CHECK(in_vdex_wrapper_fd != nullptr);
+     CHECK(out_vdex_wrapper_fd != nullptr);
+@@ -1263,7 +1340,6 @@
+         return false;
+     }
+ 
+-    bool update_vdex_in_place = false;
+     if (dexopt_action != DEX2OAT_FROM_SCRATCH) {
+         // Open the possibly existing vdex. If none exist, we pass -1 to dex2oat for input-vdex-fd.
+         const char* path = nullptr;
+@@ -1282,48 +1358,27 @@
+             ALOGE("installd cannot compute input vdex location for '%s'\n", path);
+             return false;
+         }
+-        // We can update in place when all these conditions are met:
+-        // 1) The vdex location to write to is the same as the vdex location to read (vdex files
+-        //    on /system typically cannot be updated in place).
+-        // 2) We dex2oat due to boot image change, because we then know the existing vdex file
+-        //    cannot be currently used by a running process.
+-        // 3) We are not doing a profile guided compilation, because dexlayout requires two
+-        //    different vdex files to operate.
+-        update_vdex_in_place =
+-            (in_vdex_path_str == out_vdex_path_str) &&
+-            (dexopt_action == DEX2OAT_FOR_BOOT_IMAGE) &&
+-            !profile_guided;
+-        if (update_vdex_in_place) {
+-            // Open the file read-write to be able to update it.
+-            in_vdex_wrapper_fd->reset(open(in_vdex_path_str.c_str(), O_RDWR, 0));
+-            if (in_vdex_wrapper_fd->get() == -1) {
+-                // If we failed to open the file, we cannot update it in place.
+-                update_vdex_in_place = false;
+-            }
+-        } else {
+-            in_vdex_wrapper_fd->reset(open(in_vdex_path_str.c_str(), O_RDONLY, 0));
+-        }
+-    }
+-
+-    // If we are updating the vdex in place, we do not need to recreate a vdex,
+-    // and can use the same existing one.
+-    if (update_vdex_in_place) {
+-        // We unlink the file in case the invocation of dex2oat fails, to ensure we don't
+-        // have bogus stale vdex files.
+-        out_vdex_wrapper_fd->reset(
+-              in_vdex_wrapper_fd->get(),
+-              [out_vdex_path_str]() { unlink(out_vdex_path_str.c_str()); });
+-        // Disable auto close for the in wrapper fd (it will be done when destructing the out
+-        // wrapper).
+-        in_vdex_wrapper_fd->DisableAutoClose();
+-    } else {
+-        out_vdex_wrapper_fd->reset(
+-              open_output_file(out_vdex_path_str.c_str(), /*recreate*/true, /*permissions*/0644),
+-              [out_vdex_path_str]() { unlink(out_vdex_path_str.c_str()); });
+-        if (out_vdex_wrapper_fd->get() < 0) {
+-            ALOGE("installd cannot open vdex'%s' during dexopt\n", out_vdex_path_str.c_str());
+-            return false;
+-        }
++        // PW3: read-only, always. AOSP updated this vdex in place when three
++        // conditions held together -- the location written is the one read, the
++        // reason to compile is a boot image change (so no running process can
++        // be using the file), and the compilation is not profile-guided
++        // (dexlayout needs two files). That is the one path where a compile
++        // that fails or is interrupted cannot leave the old artifact intact,
++        // because it writes over a file with nothing to roll back to, and
++        // staging_path() above is about not doing that. What in-place saved is
++        // writing a second copy of the vdex: at most 70 MB here, transiently,
++        // against 978 MB free.
++        in_vdex_wrapper_fd->reset(open(in_vdex_path_str.c_str(), O_RDONLY, 0));
++    }
++
++    // PW3: beside the vdex it replaces, renamed over it once dex2oat succeeds.
++    const std::string staged_vdex_path(staging_path(out_vdex_path_str));
++    out_vdex_wrapper_fd->reset(
++          open_output_file(staged_vdex_path.c_str(), /*recreate*/true, /*permissions*/0644),
++          [staged_vdex_path]() { unlink(staged_vdex_path.c_str()); });
++    if (out_vdex_wrapper_fd->get() < 0) {
++        ALOGE("installd cannot open vdex'%s' during dexopt\n", out_vdex_path_str.c_str());
++        return false;
+     }
+     if (!set_permissions_and_ownership(out_vdex_wrapper_fd->get(), is_public, uid,
+             out_vdex_path_str.c_str(), is_secondary_dex)) {
+@@ -1343,10 +1398,13 @@
+     if (!create_oat_out_path(apk_path, instruction_set, oat_dir, is_secondary_dex, out_oat_path)) {
+         return Dex2oatFileWrapper();
+     }
+-    const std::string out_oat_path_str(out_oat_path);
++    // PW3: built at the staging path. out_oat_path stays the name dex2oat is
++    // given for --oat-location and the name this is renamed to on success, so
++    // nothing recorded inside the file mentions the staging name.
++    const std::string staged_oat_path(staging_path(out_oat_path));
+     Dex2oatFileWrapper wrapper_fd(
+-            open_output_file(out_oat_path, /*recreate*/true, /*permissions*/0644),
+-            [out_oat_path_str]() { unlink(out_oat_path_str.c_str()); });
++            open_output_file(staged_oat_path.c_str(), /*recreate*/true, /*permissions*/0644),
++            [staged_oat_path]() { unlink(staged_oat_path.c_str()); });
+     if (wrapper_fd.get() < 0) {
+         PLOG(ERROR) << "installd cannot open output during dexopt" <<  out_oat_path;
+     } else if (!set_permissions_and_ownership(
+@@ -1670,7 +1728,7 @@
+         Dex2oatFileWrapper in_vdex_fd;
+         Dex2oatFileWrapper out_vdex_fd;
+         if (!open_vdex_files(dex_path, out_oat_path, dexopt_needed, instruction_set, is_public, uid,
+-                is_secondary_dex, profile_guided, &in_vdex_fd, &out_vdex_fd)) {
++                is_secondary_dex, &in_vdex_fd, &out_vdex_fd)) {
+             return -1;
+         }
+ 
+@@ -1752,6 +1810,27 @@
+             }
+         }
+ 
++        // PW3: the artifacts were built beside the ones they replace. Put them
++        // in place now, the oat last: it is the file OatFileAssistant reads
++        // first, so until it appears the old set is whole and in use, and once
++        // it appears the new set is whole. The oat and the vdex are always
++        // staged; an app image only when one was opened for this run, which is
++        // what image_fd says.
++        const std::string final_oat_path(out_oat_path);
++        const std::string final_vdex_path(create_vdex_filename(final_oat_path));
++        const std::string final_image_path(create_image_filename(final_oat_path));
++        const bool staged_image = image_fd.get() >= 0;
++        if (!staged_ready(final_vdex_path, true)
++                || !staged_ready(final_image_path, staged_image)
++                || !staged_ready(final_oat_path, true)) {
++            return -1;
++        }
++        if (!commit_staged(out_vdex_fd.get(), final_vdex_path, true)
++                || !commit_staged(image_fd.get(), final_image_path, staged_image)
++                || !commit_staged(out_oat_fd.get(), final_oat_path, true)) {
++            return -1;
++        }
++
+         update_out_oat_access_times(dex_path, out_oat_path);
+ 
+         // We've been successful, don't delete output.

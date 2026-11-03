@@ -1,0 +1,83 @@
+From: PW3 Android port
+Subject: [PW3] The starting window is a decision to make on the device
+
+Patch 0008 turned the starting window off, for two reasons. The second one --
+"the previous screen stays until that frame" -- was not true: the application
+transition gave up five seconds in and took the previous screen away while the
+incoming window was still DRAW_PENDING, which is what left the two system bars
+over nothing for twenty to thirty seconds (patch 0067, and open-items row 16).
+The first reason is true and unchanged: a starting window is another window, so
+another 6 MB of fresh pages and another full-screen e-paper update.
+
+What that update buys was not known when 0008 was written, and it is the whole
+decision. A starting window draws the target activity's own windowBackground,
+which the system draws itself, from the package's resources, without waiting
+for the application's process to get anywhere. For the application this device
+is for, that background is the application's own logo page:
+
+    com.tencent.weread.LauncherActivity
+        android:theme = @style/launch_style
+            android:windowBackground = @drawable/launch_bg   (a layer-list:
+                @drawable/weread_launch, and a bitmap at top=142dp)
+
+(read out of the installed APK with aapt2 on 2026-11-03: `dump xmltree --file
+AndroidManifest.xml` for the theme, `dump resources` for the style and the
+drawable.)
+
+So the choice is between a reader who taps an application and sees its own logo
+within a fraction of a second, and one who sees the screen they tapped from for
+the whole of a twenty to thirty second start. The owner has asked for the first
+one four times. It is also measured that the application's own logo page never
+reaches the screen on its own: its window sits at mDrawState=DRAW_PENDING and
+becomes READY_TO_SHOW only in the same two-second sample in which the next
+activity's window is added, two seconds before that one has drawn
+(RELEASE-PLAN.md, 2026-11-03 03:00). The system can put that page up; the
+application cannot.
+
+This patch does not make the choice. It makes it changeable on the device:
+debug.pw3.disable_starting_window is read first, and ro.pw3.disable_starting_window
+is its default, which is the same pair 0008 already uses for the software canvas.
+A release image refuses writes to sys.pw3.* and has no su, but debug.* properties
+can be set over adb, so both ways can be looked at on the same device, on the
+same screen, in one sitting -- which is how this project settles anything about
+what the panel shows. The product's own default moves to false in the same
+change (device/amazon/pw3/pw3.mk).
+
+What this does not change: the number of panel updates. Today a cold start is
+one update to the bars-over-nothing black and one to the application's content.
+With a starting window it is one to the application's logo and one to its
+content. The same two; the middle one carries something.
+
+Not run on the device yet when this patch was written.
+
+--- a/services/core/java/com/android/server/am/ActivityRecord.java
++++ b/services/core/java/com/android/server/am/ActivityRecord.java
+@@ -2166,11 +2166,27 @@
+             // We don't show starting window for overlay activities.
+             return;
+         }
+-        if (SystemProperties.getBoolean("ro.pw3.disable_starting_window", false)) {
++        if (SystemProperties.getBoolean("debug.pw3.disable_starting_window",
++                SystemProperties.getBoolean("ro.pw3.disable_starting_window", false))) {
+             // PW3: an e-paper update takes 134 ms or more and every window
+             // buffer is 6 MB of fresh pages. A preview window would be
+             // allocated, drawn and shown only to be replaced by the
+             // application's first frame; the previous screen stays instead.
++            //
++            // The debug property is read first, so that the one thing this
++            // decides -- whether the reader sees that an application is
++            // starting -- can be settled on the device, by eye, without a
++            // build. Of the two reasons above the second was not true: until
++            // the transition waited for the first frame (patch 0067) the
++            // previous screen was taken away five seconds in, and what was
++            // left was the two system bars over nothing. The first reason
++            // still holds, and what it buys is the question: a starting
++            // window draws the target activity's own windowBackground, and
++            // for the application this device is for that is its logo
++            // (com.tencent.weread.LauncherActivity has
++            // android:theme=@style/launch_style, whose windowBackground is
++            // the layer-list @drawable/launch_bg), while that application
++            // draws its own first frame twenty to thirty seconds later.
+             return;
+         }
+ 

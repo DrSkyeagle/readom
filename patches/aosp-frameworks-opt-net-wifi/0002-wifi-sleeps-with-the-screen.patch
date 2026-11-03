@@ -1,0 +1,55 @@
+--- a/service/java/com/android/server/wifi/WifiController.java
++++ b/service/java/com/android/server/wifi/WifiController.java
+@@ -72,8 +72,12 @@
+      * the approximate point at which the battery drain caused by Wi-Fi
+      * being enabled but not active exceeds the battery drain caused by
+      * re-establishing a connection to the mobile data network.
++     *
++     * PW3: one minute; the stock Kindle drops its network a minute or so after the screen
++     * saver. There is no mobile network to weigh, and a longer time lets a wake-up after
++     * sleep reconnect and then scan every 30 s until the timer ends.
+      */
+-    private static final long DEFAULT_IDLE_MS = 15 * 60 * 1000; /* 15 minutes */
++    private static final long DEFAULT_IDLE_MS = 60 * 1000; /* 1 minute */
+ 
+     /**
+      * See {@link Settings.Global#WIFI_REENABLE_DELAY_MS}.  This is the default value if a
+@@ -248,9 +252,13 @@
+     }
+ 
+     private void readWifiSleepPolicy() {
+-        // This should always set to default value because the settings menu to toggle this
+-        // has been removed now.
+-        mSleepPolicy = Settings.Global.WIFI_SLEEP_POLICY_NEVER;
++        // PW3: the card loses power whenever the system suspends (its SDIO slot does not
++        // keep power in suspend), so "never sleep" cannot be kept and, once disconnected
++        // with the screen off, only schedules a waking scan every 30 s. The setting is
++        // read again, as before 8.0; the product defaults it to sleeping with the screen
++        // (def_wifi_sleep_policy).
++        mSleepPolicy = mFacade.getIntegerSetting(mContext,
++                Settings.Global.WIFI_SLEEP_POLICY, Settings.Global.WIFI_SLEEP_POLICY_NEVER);
+     }
+ 
+     private void readWifiReEnableDelay() {
+@@ -370,7 +378,11 @@
+                         if (mNetworkInfo.getDetailedState() ==
+                                 NetworkInfo.DetailedState.CONNECTED) {
+                             if (DBG) Slog.d(TAG, "set idle timer: " + mIdleMillis + " ms");
+-                            mAlarmManager.set(AlarmManager.RTC_WAKEUP,
++                            // PW3: not a waking alarm. While the system sleeps the card
++                            // is powered off already; waking it only to switch Wi-Fi off
++                            // would cost a resume and a firmware start. While something
++                            // keeps the system awake, the alarm fires on time.
++                            mAlarmManager.set(AlarmManager.RTC,
+                                     System.currentTimeMillis() + mIdleMillis, mIdleIntent);
+                         } else {
+                             sendMessage(CMD_DEVICE_IDLE);
+@@ -395,7 +407,7 @@
+                             !shouldWifiStayAwake(pluggedType)) {
+                         long triggerTime = System.currentTimeMillis() + mIdleMillis;
+                         if (DBG) Slog.d(TAG, "set idle timer for " + mIdleMillis + "ms");
+-                        mAlarmManager.set(AlarmManager.RTC_WAKEUP, triggerTime, mIdleIntent);
++                        mAlarmManager.set(AlarmManager.RTC, triggerTime, mIdleIntent);
+                     }
+ 
+                     mPluggedType = pluggedType;

@@ -1,0 +1,174 @@
+From: PW3 Android port
+Subject: [PW3] Launcher3 Go: all apps open and close with a swipe, in one step
+
+Launcher3 8.1 opens all apps with a pull-up: a caret floats above the hotseat,
+the panel follows the finger, and a gradient at the bottom of the home screen
+hints at it. On e-paper every frame of that is a panel update (134 ms at the
+fastest, 463 ms with grey), so the panel trails the finger with half-drawn
+frames, a half pull leaves all apps half open, and the gradient shows as bands.
+
+The user wants all apps by swiping up, with no hint shown (Test V39: the
+navigation bar's all-apps button, asked for in Test V37, made its four
+buttons too small, and the bar is back to three). With
+FeatureFlags.ALL_APPS_FOLLOW_FINGER false (Launcher3 Go):
+
+  * a vertical swipe on the home screen is detected as before, but nothing
+    moves while the finger does; when it lifts, all apps open if the swipe
+    went up (a fling's direction, else the finger's travel), and nothing
+    happens if it came back down. At the top of the list a swipe down closes
+    all apps the same way. Back and home close them too;
+  * the transition is the one after a pull; with animations off (frameworks/
+    base 0002) it is drawn once, one panel update each way;
+  * no caret, no discovery bounce (it is only a redraw without a pull), and no
+    gradient on the home screen; behind all apps the ground is plain white.
+
+--- a/src/com/android/launcher3/config/BaseFlags.java
++++ b/src/com/android/launcher3/config/BaseFlags.java
+@@ -43,6 +43,9 @@
+     public static final boolean LAUNCHER3_PROMISE_APPS_IN_ALL_APPS = false;
+     // When enabled uses the AllAppsRadialGradientAndScrimDrawable for all apps
+     public static final boolean LAUNCHER3_GRADIENT_ALL_APPS = true;
++    // When enabled all apps follow the finger while they are pulled up or down; else the
++    // swipe takes effect when the finger lifts, in one step.
++    public static final boolean ALL_APPS_FOLLOW_FINGER = true;
+     // When enabled allows use of physics based motions in the Launcher.
+     public static final boolean LAUNCHER3_PHYSICS = true;
+     // When enabled allows use of spring motions on the icons.
+--- a/go/src_flags/com/android/launcher3/config/FeatureFlags.java
++++ b/go/src_flags/com/android/launcher3/config/FeatureFlags.java
+@@ -26,4 +26,7 @@
+     // Features to control Launcher3Go behavior
+     public static final boolean GO_DISABLE_WIDGETS = true;
+     public static final boolean LAUNCHER3_SPRING_ICONS = false;
++    // PW3: on e-paper every frame of a pull is a panel update; a swipe up opens all apps,
++    // a swipe down at the top of the list closes them, each in one step.
++    public static final boolean ALL_APPS_FOLLOW_FINGER = false;
+ }
+--- a/src/com/android/launcher3/allapps/AllAppsTransitionController.java
++++ b/src/com/android/launcher3/allapps/AllAppsTransitionController.java
+@@ -86,6 +86,8 @@
+ 
+     // Velocity of the container. Unit is in px/ms.
+     private float mContainerVelocity;
++    // The finger's travel in the current swipe (negative: up), when all apps do not follow it.
++    private float mSwipeDisplacement;
+ 
+     private static final float DEFAULT_SHIFT_RANGE = 10;
+ 
+@@ -183,6 +185,13 @@
+ 
+     @Override
+     public void onDragStart(boolean start) {
++        if (!FeatureFlags.ALL_APPS_FOLLOW_FINGER) {
++            // Nothing moves until the finger lifts (onDragEnd).
++            cancelAnimation();
++            mCurrentAnimation = LauncherAnimUtils.createAnimatorSet();
++            mSwipeDisplacement = 0;
++            return;
++        }
+         mCaretController.onDragStart();
+         cancelAnimation();
+         mCurrentAnimation = LauncherAnimUtils.createAnimatorSet();
+@@ -200,6 +209,10 @@
+         }
+ 
+         mContainerVelocity = velocity;
++        if (!FeatureFlags.ALL_APPS_FOLLOW_FINGER) {
++            mSwipeDisplacement = displacement;
++            return true;
++        }
+ 
+         float shift = Math.min(Math.max(0, mShiftStart + displacement), mShiftRange);
+         setProgress(shift / mShiftRange);
+@@ -213,6 +226,11 @@
+             return; // early termination.
+         }
+ 
++        if (!FeatureFlags.ALL_APPS_FOLLOW_FINGER) {
++            finishSwipe(velocity, fling);
++            return;
++        }
++
+         final int containerType = mTouchEventStartedOnHotseat
+                 ? ContainerType.HOTSEAT : ContainerType.WORKSPACE;
+ 
+@@ -254,6 +272,29 @@
+         }
+     }
+ 
++    /**
++     * The end of a swipe that all apps did not follow (FeatureFlags.ALL_APPS_FOLLOW_FINGER):
++     * all apps open if it went up, close if it went down (a fling's direction, or else where
++     * the finger lifted against where it started), and nothing happens if it came back.
++     */
++    private void finishSwipe(float velocity, boolean fling) {
++        boolean open = !mLauncher.isAllAppsVisible();
++        float direction = fling ? velocity : mSwipeDisplacement;
++        if (open ? direction >= 0 : direction <= 0) {
++            mDetector.finishedScrolling();
++            return;
++        }
++        // The transition runs as after a pull (it ends with mDetector.finishedScrolling()),
++        // and with animations off it is drawn once.
++        preparePull(true);
++        calculateDuration(velocity, mShiftRange);
++        if (open) {
++            mLauncher.showAppsView(true /* animated */, false /* updatePredictedApps */);
++        } else {
++            mLauncher.showWorkspace(true);
++        }
++    }
++
+     public boolean isTransitioning() {
+         return mDetector.isDraggingOrSettling();
+     }
+--- a/src/com/android/launcher3/pageindicators/PageIndicatorLineCaret.java
++++ b/src/com/android/launcher3/pageindicators/PageIndicatorLineCaret.java
+@@ -141,6 +141,10 @@
+         super.onFinishInflate();
+         mAllAppsHandle = (ImageView) findViewById(R.id.all_apps_handle);
+         mAllAppsHandle.setImageDrawable(getCaretDrawable());
++        if (!FeatureFlags.ALL_APPS_FOLLOW_FINGER) {
++            // PW3: a swipe up opens all apps; no caret hints at it (user, Test V39).
++            mAllAppsHandle.setVisibility(GONE);
++        }
+         mAllAppsHandle.setOnClickListener(mLauncher);
+         mAllAppsHandle.setOnFocusChangeListener(mLauncher.mFocusHandler);
+         mLauncher.setAllAppsButton(mAllAppsHandle);
+--- a/src/com/android/launcher3/graphics/GradientView.java
++++ b/src/com/android/launcher3/graphics/GradientView.java
+@@ -35,6 +35,7 @@
+ import com.android.launcher3.Launcher;
+ import com.android.launcher3.R;
+ import com.android.launcher3.Utilities;
++import com.android.launcher3.config.FeatureFlags;
+ import com.android.launcher3.dynamicui.WallpaperColorInfo;
+ import com.android.launcher3.util.Themes;
+ 
+@@ -160,6 +161,13 @@
+ 
+     @Override
+     protected void onDraw(Canvas canvas) {
++        if (!FeatureFlags.ALL_APPS_FOLLOW_FINGER) {
++            // mProgress is how far all apps are shown (0: the home screen). Nothing is pulled,
++            // so nothing hints at all apps on the home screen (a gradient shows as bands on 16
++            // grey levels); behind all apps the ground is plain white.
++            if (mProgress > 0f) canvas.drawColor(Color.WHITE);
++            return;
++        }
+         Paint paint = mShowScrim ? mPaintWithScrim : mPaintNoScrim;
+ 
+         float head = 0.29f;
+--- a/src/com/android/launcher3/Launcher.java
++++ b/src/com/android/launcher3/Launcher.java
+@@ -3896,7 +3896,9 @@
+ 
+     private boolean shouldShowDiscoveryBounce() {
+         UserManagerCompat um = UserManagerCompat.getInstance(this);
+-        return mState == State.WORKSPACE && !mSharedPrefs.getBoolean(APPS_VIEW_SHOWN, false) && !um.isDemoUser();
++        // The bounce shows all apps following a pull; without one (PW3) it is only a redraw.
++        return FeatureFlags.ALL_APPS_FOLLOW_FINGER && mState == State.WORKSPACE
++                && !mSharedPrefs.getBoolean(APPS_VIEW_SHOWN, false) && !um.isDemoUser();
+     }
+ 
+     protected void moveWorkspaceToDefaultScreen() {

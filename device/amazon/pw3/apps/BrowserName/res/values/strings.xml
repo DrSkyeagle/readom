@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The browser's name on this device. EinkBro upstream calls itself
+         EinkBro; here it is the browser, because it is the only one. -->
+    <string name="app_name">Browser</string>
+</resources>

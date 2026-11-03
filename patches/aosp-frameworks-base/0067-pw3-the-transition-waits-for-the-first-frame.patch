@@ -1,0 +1,109 @@
+From: PW3 Android port
+Subject: [PW3] An application transition waits for the first frame, not five seconds
+
+Tapping an application the owner is logged in to turns the screen into the
+status bar and the navigation bar over nothing, and e-paper holds that for
+twelve to thirty seconds. The owner reported it as "the WeRead splash screen",
+and with it the one fact that located it: "the first time I went in it was
+normal."
+
+The deadline is this constant. A transition that replaces one application's
+window with another's waits for the incoming window to draw and gives up after
+five seconds: WindowManagerService.H.APP_TRANSITION_TIMEOUT calls setTimeout()
+and places surfaces anyway, which runs WindowSurfacePlacer's
+setVisibility(false) over the closing apps. Measured on the device with
+`dumpsys window windows` every two seconds (2026-11-02, v0.1.0, WeRead 2.1.2,
+logged in, a dozen books):
+
+    t = 0 s     tap; launcher isOnScreen=true
+    t = 2, 4 s  launcher isOnScreen=true; no window for the application yet
+    t = 6 s     the application's window is added, mDrawState=DRAW_PENDING
+    t = 8 s     unchanged
+    t = 11 s    launcher mViewVisibility=0x8 (GONE), isOnScreen=false
+                the application is still DRAW_PENDING, and now off screen too
+
+Nothing is left to compose but the two bars, so the composition is black, and
+the panel is given it: one GC16 over 823,296 pixels, the same number on five
+independent runs. The application draws its first frame twelve to thirty
+seconds later, and a second, nearly full-screen GC16 brings the content in.
+From the owner's side that is a half-black screen, a long wait, a white flash
+and a black flash.
+
+The number. The timer is armed in prepareAppTransitionLocked(), which runs
+when the activity is started and not when its window is added, so the eleven
+seconds above are where the sampling caught it, not the deadline itself.
+Against the timer's own start what has to fit is the whole cold start: WeRead
+reaches content 22 to 33 s after `am start` over five runs, and `am start -W`
+gives up on its own 15 s wait with `Status: timeout`. 45 s is the slowest of
+those runs plus a third again. ro.hw_timeout_multiplier, which this tree
+already uses to stretch the not-responding deadlines (patch 0012; 4 on this
+product), would give 20 s here and would not cover even the fastest of the
+five runs, so this one deadline is taken from the measurement instead of from
+that factor.
+
+Why the first time was normal is an inference, not a measurement: with no
+account to restore, the application had less to do before its first frame.
+The same device on 2026-10-28, before the account was added, showed "a white
+screen for a while" rather than a black one. Nothing was sampled on that run,
+and nothing rules out some other difference between the two.
+
+Keyguard transitions keep AOSP's five seconds. They are prepared on every
+screen-on, including with def_lockscreen_disabled (a PIN set in Settings still
+locks), what they wait for is the lock screen and not a cold application
+start, and that path behaves as it should today; it was not measured here and
+is not changed.
+
+What this does not change:
+
+  * The not-responding deadlines. Input is still 5 s x 4 = 20 s (patch 0012),
+    so a tap during a slow start can still raise "not responding" before the
+    first frame arrives. The previous screen now stays up over that wait,
+    which makes a tap more inviting than a black screen did.
+  * What a pending transition defers while it waits: committed visibility,
+    window removal, the IME target, the window manager's priority boost. A
+    transition that is genuinely wedged is now held for 45 s instead of 5.
+  * Who can take input during the wait. The outgoing window has
+    hiddenRequested set from the start of the transition, before and after
+    this patch, so the launcher is on screen without being the window that
+    receives keys.
+  * The wait as a whole. Every prepareAppTransitionLocked() removes the
+    message and sends it again, so 45 s is the deadline of the transition that
+    is pending, not a cap on a run of them.
+
+Not run on the device yet when this patch was written.
+
+--- a/services/core/java/com/android/server/wm/AppTransition.java
++++ b/services/core/java/com/android/server/wm/AppTransition.java
+@@ -177,6 +177,16 @@
+     private static final int MAX_CLIP_REVEAL_TRANSITION_DURATION = 420;
+     private static final int THUMBNAIL_APP_TRANSITION_DURATION = 336;
+     private static final long APP_TRANSITION_TIMEOUT_MS = 5000;
++    // PW3: AOSP's five seconds is the deadline for a transition to become
++    // ready -- the incoming window drawn, or a starting window up. A cold
++    // start on this machine reaches its first frame 22 to 33 s after
++    // `am start` (five runs, 2026-11-02, WeRead 2.1.2, logged in), and the
++    // timeout does not cancel the transition, it runs it: the outgoing window
++    // is hidden while the incoming one is still DRAW_PENDING, which leaves the
++    // two system bars over nothing for the rest of the start, and e-paper
++    // holds that. The slowest of those runs plus a third again, so that the
++    // previous screen stays until there is something to replace it with:
++    private static final long PW3_APP_TRANSITION_TIMEOUT_MS = 45000;
+ 
+     private final Context mContext;
+     private final WindowManagerService mService;
+@@ -2071,7 +2081,14 @@
+         boolean prepared = prepare();
+         if (isTransitionSet()) {
+             mService.mH.removeMessages(H.APP_TRANSITION_TIMEOUT);
+-            mService.mH.sendEmptyMessageDelayed(H.APP_TRANSITION_TIMEOUT, APP_TRANSITION_TIMEOUT_MS);
++            // PW3: a transition into an application waits for that application's
++            // first frame, which takes tens of seconds here. A Keyguard
++            // transition waits for the lock screen instead and keeps AOSP's
++            // deadline; it is prepared on every screen-on, and that path works
++            // as it is.
++            mService.mH.sendEmptyMessageDelayed(H.APP_TRANSITION_TIMEOUT,
++                    isKeyguardTransit(mNextAppTransition)
++                            ? APP_TRANSITION_TIMEOUT_MS : PW3_APP_TRANSITION_TIMEOUT_MS);
+         }
+         return prepared;
+     }

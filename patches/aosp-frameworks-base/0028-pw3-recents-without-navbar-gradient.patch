@@ -1,0 +1,20 @@
+From: PW3 Android port
+Subject: [PW3] SystemUI recents: no gradient above the navigation bar
+
+Recents draws recents_lower_gradient above the navigation bar whenever it has
+tasks. On the device (Test V40) it shows as a band 45 px high going from white
+to grey 243 just above the white navigation bar: on 16 grey levels a gradient
+is a step, and it is drawn on every opening of recents
+(docs/design/eink-ui.md, rule 5: no gradients). The view stays (the scrim code
+finds and animates it), with nothing in it, as the device overlay does for
+the corresponding scrim of quick settings (qs_navbar_scrim.xml).
+
+--- a/packages/SystemUI/res/layout/recents.xml
++++ b/packages/SystemUI/res/layout/recents.xml
+@@ -40,5 +40,5 @@
+         android:layout_height="wrap_content"
+         android:layout_gravity="center_horizontal|bottom"
+         android:scaleType="fitXY"
+-        android:src="@drawable/recents_lower_gradient" />
++        android:src="@android:color/transparent" />
+ </FrameLayout>

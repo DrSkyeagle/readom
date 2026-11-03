@@ -1,0 +1,172 @@
+From: PW3 Android port
+Subject: [PW3] crash_dump: attach with PTRACE_ATTACH where the kernel has no
+ PTRACE_SEIZE
+
+crash_dump stops the threads of the process it dumps with PTRACE_SEIZE and
+PTRACE_INTERRUPT, both from Linux 3.4. Amazon's 3.0.35 answers PTRACE_SEIZE
+with ESRCH, so every dump failed ("failed to attach to thread N: No such
+process"): a native crash left no tombstone, and the native stacks of an ANR
+trace were missing, SurfaceFlinger's among them when it deadlocked (PW3
+Android, Test V48).
+
+When PTRACE_SEIZE fails with ESRCH or EIO on a thread that exists, crash_dump
+attaches as debuggerd did up to Android 7: PTRACE_ATTACH, then waits for the
+stop at the SIGSTOP it sends. At the end it detaches every thread, the
+crashing one with the signal to deliver. A thread left in that stop when
+crash_dump exits would take the SIGSTOP and stop its process, so crash_dump
+also detaches them when it dies: in the fatal-log handler and its signal
+handler, which now handles the SIGALRM of its 5 s limit as well.
+
+Kernels with PTRACE_SEIZE take the original path.
+
+--- a/debuggerd/crash_dump.cpp
++++ b/debuggerd/crash_dump.cpp
+@@ -23,6 +23,7 @@
+ #include <sys/ptrace.h>
+ #include <sys/types.h>
+ #include <sys/un.h>
++#include <sys/wait.h>
+ #include <syscall.h>
+ #include <unistd.h>
+ 
+@@ -79,10 +80,71 @@
+   return fstatat(pid_proc_fd, task_path.c_str(), &st, 0) == 0;
+ }
+ 
++// PW3: Linux before 3.4 (Amazon's 3.0.35 here) has neither PTRACE_SEIZE nor
++// PTRACE_INTERRUPT: PTRACE_SEIZE fails with ESRCH on a live thread, and every
++// dump failed, so a native crash left no tombstone and ANR traces had no
++// native stacks (PW3 Android, Test V48). On such a kernel crash_dump attaches
++// as debuggerd did up to Android 7: PTRACE_ATTACH, whose SIGSTOP stops the
++// thread. A thread still in that stop when crash_dump exits would take the
++// SIGSTOP and stop its whole process, so every thread attached this way is
++// detached explicitly, also when crash_dump dies (fatal log, alarm, signal).
++static bool g_attach_compat = false;
++static pid_t g_compat_tids[4096];
++static size_t g_compat_count = 0;
++
++// Async-signal-safe: only ptrace(2). A thread that is not stopped refuses the
++// detach and is left as it is; the tracer's exit unlinks it.
++static void compat_detach_all() {
++  for (size_t i = 0; i < g_compat_count; ++i) {
++    ptrace(PTRACE_DETACH, g_compat_tids[i], 0, 0);
++  }
++  g_compat_count = 0;
++}
++
++static bool ptrace_attach_compat(pid_t tid, std::string* error) {
++  if (g_compat_count == sizeof(g_compat_tids) / sizeof(g_compat_tids[0])) {
++    *error = StringPrintf("failed to attach to thread %d: too many threads", tid);
++    return false;
++  }
++  if (ptrace(PTRACE_ATTACH, tid, 0, 0) != 0) {
++    *error = StringPrintf("failed to attach to thread %d: %s", tid, strerror(errno));
++    return false;
++  }
++  g_compat_tids[g_compat_count++] = tid;
++  // Wait for the stop at the attach's SIGSTOP; a signal that stopped the
++  // thread before it is passed on.
++  while (true) {
++    int status;
++    if (TEMP_FAILURE_RETRY(waitpid(tid, &status, __WALL)) != tid) {
++      *error = StringPrintf("failed to wait for thread %d: %s", tid, strerror(errno));
++      return false;
++    }
++    if (!WIFSTOPPED(status)) {
++      --g_compat_count;
++      *error = StringPrintf("thread %d ended while being attached", tid);
++      return false;
++    }
++    if (WSTOPSIG(status) == SIGSTOP) {
++      return true;
++    }
++    if (ptrace(PTRACE_CONT, tid, 0, WSTOPSIG(status)) != 0) {
++      *error = StringPrintf("failed to continue thread %d: %s", tid, strerror(errno));
++      return false;
++    }
++  }
++}
++
+ // Attach to a thread, and verify that it's still a member of the given process
+ static bool ptrace_seize_thread(int pid_proc_fd, pid_t tid, std::string* error) {
+-  if (ptrace(PTRACE_SEIZE, tid, 0, 0) != 0) {
+-    *error = StringPrintf("failed to attach to thread %d: %s", tid, strerror(errno));
++  if (!g_attach_compat && ptrace(PTRACE_SEIZE, tid, 0, 0) != 0) {
++    int seize_errno = errno;
++    if ((seize_errno != ESRCH && seize_errno != EIO) || !pid_contains_tid(pid_proc_fd, tid)) {
++      *error = StringPrintf("failed to attach to thread %d: %s", tid, strerror(seize_errno));
++      return false;
++    }
++    g_attach_compat = true;
++  }
++  if (g_attach_compat && !ptrace_attach_compat(tid, error)) {
+     return false;
+   }
+ 
+@@ -91,12 +153,15 @@
+     if (ptrace(PTRACE_DETACH, tid, 0, 0) != 0) {
+       PLOG(FATAL) << "failed to detach from thread " << tid;
+     }
++    if (g_attach_compat) {
++      --g_compat_count;
++    }
+     *error = StringPrintf("thread %d is not in process", tid);
+     return false;
+   }
+ 
+   // Put the task into ptrace-stop state.
+-  if (ptrace(PTRACE_INTERRUPT, tid, 0, 0) != 0) {
++  if (!g_attach_compat && ptrace(PTRACE_INTERRUPT, tid, 0, 0) != 0) {
+     PLOG(FATAL) << "failed to interrupt thread " << tid;
+   }
+ 
+@@ -153,12 +218,15 @@
+ static void signal_handler(int) {
+   // We can't log easily, because the heap might be corrupt.
+   // Just die and let the surrounding log context explain things.
++  compat_detach_all();
+   _exit(1);
+ }
+ 
+ static void abort_handler(pid_t target, const bool tombstoned_connected,
+                           unique_fd& tombstoned_socket, unique_fd& output_fd,
+                           const char* abort_msg) {
++  compat_detach_all();
++
+   // If we abort before we get an output fd, contact tombstoned to let any
+   // potential listeners know that we failed.
+   if (!tombstoned_connected) {
+@@ -215,6 +283,9 @@
+   struct sigaction action = {};
+   action.sa_handler = signal_handler;
+   debuggerd_register_handlers(&action);
++  // PW3: the alarm below ends crash_dump through the same handler, which
++  // detaches the threads attached without PTRACE_SEIZE.
++  sigaction(SIGALRM, &action, nullptr);
+ 
+   sigset_t mask;
+   sigemptyset(&mask);
+@@ -424,7 +495,22 @@
+   // If the process crashed or we need to send it SIGSTOP for wait_for_gdb,
+   // get it in a state where it can receive signals, and then send the relevant
+   // signal.
+-  if (wait_for_gdb || fatal_signal) {
++  if (g_attach_compat) {
++    // PW3: without PTRACE_INTERRUPT, end as debuggerd did up to Android 7:
++    // detach every thread. The crashing one resumes with the signal to deliver
++    // (its own when fatal, SIGSTOP for wait_for_gdb), the others with none,
++    // which drops their attach SIGSTOP.
++    const int resume = wait_for_gdb ? SIGSTOP : (fatal_signal ? signo : 0);
++    if (ptrace(PTRACE_DETACH, main_tid, 0, resume) != 0) {
++      PLOG(ERROR) << "failed to detach from " << main_tid;
++    }
++    for (size_t i = 0; i < g_compat_count; ++i) {
++      if (g_compat_tids[i] != main_tid && ptrace(PTRACE_DETACH, g_compat_tids[i], 0, 0) != 0) {
++        PLOG(ERROR) << "failed to detach from " << g_compat_tids[i];
++      }
++    }
++    g_compat_count = 0;
++  } else if (wait_for_gdb || fatal_signal) {
+     if (ptrace(PTRACE_INTERRUPT, main_tid, 0, 0) != 0) {
+       PLOG(ERROR) << "failed to use PTRACE_INTERRUPT on " << main_tid;
+     }

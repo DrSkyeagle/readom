@@ -1,0 +1,35 @@
+Subject: [PATCH] proc: use the shared mm_access permission helper
+
+The pinned vendor tree has the upstream helper as a proc-local function.
+1013 adds the identical body to kernel/fork.c for process_vm access. Remove
+the local duplicate; existing proc callers retain the same check and locks.
+
+--- a/fs/proc/base.c
++++ b/fs/proc/base.c
+@@ -194,26 +194,6 @@
+ 	return result;
+ }
+ 
+-static struct mm_struct *mm_access(struct task_struct *task, unsigned int mode)
+-{
+-	struct mm_struct *mm;
+-	int err;
+-
+-	err =  mutex_lock_killable(&task->signal->cred_guard_mutex);
+-	if (err)
+-		return ERR_PTR(err);
+-
+-	mm = get_task_mm(task);
+-	if (mm && mm != current->mm &&
+-			!ptrace_may_access(task, mode)) {
+-		mmput(mm);
+-		mm = ERR_PTR(-EACCES);
+-	}
+-	mutex_unlock(&task->signal->cred_guard_mutex);
+-
+-	return mm;
+-}
+-
+ struct mm_struct *mm_for_maps(struct task_struct *task)
+ {
+ 	return mm_access(task, PTRACE_MODE_READ);

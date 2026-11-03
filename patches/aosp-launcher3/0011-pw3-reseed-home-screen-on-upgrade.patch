@@ -1,0 +1,77 @@
+From: PW3 Android port
+Subject: [PW3] Launcher3: apply a changed default home screen on an upgrade
+
+0010 named what belongs on the home screen, and the first installation over an
+existing data image showed none of it: the first cell still held the browser
+and nothing else ("首屏幕第一格是浏览器，其他应用都没有", user, 2026-10-20).
+The layout is read by loadDefaultFavoritesIfNecessary(), which fills a database
+that was just created; a database that already exists is never seeded again, so
+a release that changes the layout changes nothing for anyone who already has
+the system.
+
+The database version is what this file uses to decide that question, and
+falling out of the switch in onUpgrade is how it already starts over when a
+database cannot be carried forward. 27 now does that instead of returning, and
+28 is the version a carried-forward database ends at.
+
+This discards a home screen somebody arranged by hand, which is why the version
+moves only in a release that changes the default layout -- and why it moves now:
+the arrangement a reader could have made on 0010's layout is the one this
+release is fixing. Every database this project has written is at 27, so every
+device re-seeds once, here.
+
+diff --git a/res/raw/downgrade_schema.json b/res/raw/downgrade_schema.json
+index 3c1b64f..988978c 100644
+--- a/res/raw/downgrade_schema.json
++++ b/res/raw/downgrade_schema.json
+@@ -2,7 +2,11 @@
+   // Note: Comments are not supported in JSON schema, but android parser is lenient.
+ 
+   // Maximum DB version supported by this schema
+-  "version" : 27,
++  "version" : 28,
++
++  // PW3: 28 only re-seeds the workspace, it does not change the tables, so a
++  // database written by it is read by 27 as it stands.
++  "downgrade_to_27" : [],
+ 
+   // Downgrade from 27 to 26. Empty array indicates, the DB is compatible
+   "downgrade_to_26" : [],
+diff --git a/src/com/android/launcher3/LauncherProvider.java b/src/com/android/launcher3/LauncherProvider.java
+index b31df98..0e387c4 100644
+--- a/src/com/android/launcher3/LauncherProvider.java
++++ b/src/com/android/launcher3/LauncherProvider.java
+@@ -85,7 +85,10 @@ public class LauncherProvider extends ContentProvider {
+     /**
+      * Represents the schema of the database. Changes in scheme need not be backwards compatible.
+      */
+-    public static final int SCHEMA_VERSION = 27;
++    /* PW3: 28 because the default home screen changed. The version is what
++     * decides whether a workspace seeded by an older release is carried
++     * forward or seeded again (onUpgrade below). */
++    public static final int SCHEMA_VERSION = 28;
+ 
+     public static final String AUTHORITY = (BuildConfig.APPLICATION_ID + ".settings").intern();
+ 
+@@ -826,6 +829,21 @@ public class LauncherProvider extends ContentProvider {
+                         break;
+                     }
+                 case 27:
++                    // PW3: the default home screen changed. A workspace that
++                    // was seeded before it keeps what it was seeded with --
++                    // loadDefaultFavoritesIfNecessary() fills a database that
++                    // was just created, and nothing re-reads the layout
++                    // afterwards -- so installing a release over an existing
++                    // data image came up with the previous home screen
++                    // ("首屏幕第一格是浏览器，其他应用都没有", user,
++                    // 2026-10-20). Leaving the switch here is this file's own
++                    // way of starting over when a database cannot be carried
++                    // forward: the next load seeds it from
++                    // default_workspace_5x6.xml again. It discards an
++                    // arrangement made by hand, so SCHEMA_VERSION moves only
++                    // in a release that changes the default layout.
++                    break;
++                case 28:
+                     // DB Upgraded successfully
+                     return;
+             }

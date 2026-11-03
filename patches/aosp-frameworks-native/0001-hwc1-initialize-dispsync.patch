@@ -1,0 +1,12 @@
+--- a/services/surfaceflinger/SurfaceFlinger_hwc1.cpp
++++ b/services/surfaceflinger/SurfaceFlinger_hwc1.cpp
+@@ -177,6 +177,9 @@
+ 
+     maxFrameBufferAcquiredBuffers = getInt64< ISurfaceFlingerConfigs,
+             &ISurfaceFlingerConfigs::maxFrameBufferAcquiredBuffers>(2);
++
++    // Match the HWC2 path: construction no longer initializes DispSync.
++    mPrimaryDispSync.init(hasSyncFramework, dispSyncPresentTimeOffset);
+ 
+     char value[PROPERTY_VALUE_MAX];
+ 

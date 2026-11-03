@@ -1,0 +1,36 @@
+From: PW3 Android port
+Subject: [PW3] SystemUI: the ground behind the notifications is white
+
+Measured on the device on 2026-10-27, on V89, by scanning the rows of a raw
+framebuffer grab. With three notifications in the shade, two bands of grey 238
+run the full width of the screen, 1072 x 8 px each, at the 4dp gaps patch 0059
+put between the cards (y 766-773 and 947-954). The same band appears in the
+quick settings view, 1072 x 8 px at y 693-700, and it is the only grey of any
+size left there.
+
+It is `notification_shade_background_color`, #EEEEEE, which
+NotificationStackScrollLayout paints behind the stack
+(NotificationStackScrollLayout.java:405). The cards are white and cover it, so
+it shows only in the gaps, and the shade below the last card is the window's
+own white -- which is why the two do not match.
+
+Rule 1 of docs/design/eink-ui.md names #EEEEEE as a colour that lands on panel
+level 14 and cannot mark a region here. Nothing is lost by making it white: the
+cards are told apart by the 2 px black outline patch 0059 gave them, which is
+what rule 3 asks for, and the grey was never doing that work.
+
+A value in SystemUI, not in framework-res: SystemUI's resources are its own
+APK's, so com.android.internal.R, framework.jar and the 45 ART boot files are
+untouched either way, and this is where the colour is defined.
+
+--- a/packages/SystemUI/res/values/colors.xml
++++ b/packages/SystemUI/res/values/colors.xml
+@@ -90,7 +90,7 @@
+     <color name="notification_divider_color">#FF616161</color>
+ 
+     <!-- The background color of the notification shade -->
+-    <color name="notification_shade_background_color">#ffeeeeee</color>
++    <color name="notification_shade_background_color">#ffffffff</color>
+ 
+     <!-- The color of the ripples on the untinted notifications -->
+     <color name="notification_ripple_untinted_color">#28000000</color>

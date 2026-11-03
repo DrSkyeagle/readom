@@ -1,0 +1,90 @@
+From: PW3 Android port
+Subject: [PW3] SystemUI: system bars that always look the same
+
+Status bar and navigation bar take their background and the colour of their
+icons from the window below: transparent over a window that draws behind
+them, light or dark icons as it asks. Every change of application then
+repaints both bars, and a bar over a window that asks for nothing is white
+icons on black.
+
+On e-paper each such repaint is a slow update that leaves traces, and the
+stock reader's bars are black on white throughout. With
+config_opaqueSystemBars=true both bars always have their opaque background
+(system_bar_background_opaque, as BarTransitions.setAlwaysOpaque() already
+does for the car navigation bar), and the icons are dark if that colour is
+light, light if it is dark.
+
+--- a/packages/SystemUI/src/com/android/systemui/statusbar/phone/BarTransitions.java
++++ b/packages/SystemUI/src/com/android/systemui/statusbar/phone/BarTransitions.java
+@@ -65,6 +65,8 @@
+         mView = view;
+         mBarBackground = new BarBackgroundDrawable(mView.getContext(), gradientResourceId);
+         mView.setBackground(mBarBackground);
++        mAlwaysOpaque = mView.getContext().getResources().getBoolean(
++                R.bool.config_opaqueSystemBars);
+     }
+ 
+     public int getMode() {
+--- a/packages/SystemUI/src/com/android/systemui/statusbar/phone/LightBarController.java
++++ b/packages/SystemUI/src/com/android/systemui/statusbar/phone/LightBarController.java
+@@ -55,6 +55,9 @@
+     private int mLastStatusBarMode;
+     private int mLastNavigationBarMode;
+     private final Color mDarkModeColor;
++    // Both bars always have their opaque background (config_opaqueSystemBars);
++    // the icons are then dark on a light one and light on a dark one.
++    private final boolean mOpaqueBars, mOpaqueBarsLight;
+ 
+     /**
+      * Whether the navigation bar should be light factoring in already how much alpha the scrim has
+@@ -79,6 +82,13 @@
+         mStatusBarIconController = Dependency.get(DarkIconDispatcher.class);
+         mBatteryController = Dependency.get(BatteryController.class);
+         mBatteryController.addCallback(this);
++        mOpaqueBars = ctx.getResources().getBoolean(R.bool.config_opaqueSystemBars);
++        mOpaqueBarsLight = Color.luminance(
++                ctx.getColor(R.color.system_bar_background_opaque)) > 0.5f;
++        if (mOpaqueBars) {
++            mStatusBarIconController.getTransitionsController().setIconsDark(
++                    mOpaqueBarsLight, false /* animate */);
++        }
+     }
+ 
+     public void setNavigationBar(LightBarTransitionsController navigationBar) {
+@@ -190,6 +200,12 @@
+     }
+ 
+     private void updateStatus(Rect fullscreenStackBounds, Rect dockedStackBounds) {
++        if (mOpaqueBars) {
++            mStatusBarIconController.setIconsDarkArea(null);
++            mStatusBarIconController.getTransitionsController().setIconsDark(
++                    mOpaqueBarsLight, animateChange());
++            return;
++        }
+         boolean hasDockedStack = !dockedStackBounds.isEmpty();
+ 
+         // If both are light or fullscreen is light and there is no docked stack, all icons get
+@@ -222,7 +238,7 @@
+     private void updateNavigation() {
+         if (mNavigationBarController != null) {
+             mNavigationBarController.setIconsDark(
+-                    mNavigationLight, animateChange());
++                    mOpaqueBars ? mOpaqueBarsLight : mNavigationLight, animateChange());
+         }
+     }
+ 
+--- a/packages/SystemUI/res/values/config.xml
++++ b/packages/SystemUI/res/values/config.xml
+@@ -332,6 +332,12 @@
+          as bands: false makes them plain white (under dark text) or black. -->
+     <bool name="config_gradientColors">true</bool>
+ 
++    <!-- Whether status bar and navigation bar always have their opaque
++         background (system_bar_background_opaque) and icons to match it,
++         whatever the window below asks for. For a display on which every
++         change of the bars is a slow update. -->
++    <bool name="config_opaqueSystemBars">false</bool>
++
+     <!-- Nav bar button default ordering/layout -->
+     <string name="config_navBarLayout" translatable="false">left[.5W],back[1WC];home;recent[1WC],right[.5W]</string>
+ 

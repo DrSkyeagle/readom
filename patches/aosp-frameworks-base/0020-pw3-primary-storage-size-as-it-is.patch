@@ -1,0 +1,50 @@
+From: PW3 Android port
+Subject: [PW3] StorageManager: the primary storage size as it is, where so configured
+
+getPrimaryStorageSize() rounds the data partition's size up to a power of two,
+for a phone's flash chip whose system partitions take what /data does not
+show. On PW3 internal storage is two image files on the Kindle's FAT volume,
+system (576 MiB) and data (2 GiB in Test V37): Settings > Storage said 4.0 GB
+in all, 2.0 GB of it "system" (Test V37). With config_primaryStorageSizeExact
+(default false) the size is that of /data and /system added, not rounded.
+
+--- a/core/res/res/values/config.xml
++++ b/core/res/res/values/config.xml
+@@ -3050,6 +3050,13 @@
+         must match the value of config_cameraLiftTriggerSensorType in OEM's HAL -->
+     <string translatable="false" name="config_cameraLiftTriggerSensorStringType"></string>
+ 
++    <!-- True if the primary storage is the data and system partitions as they
++         are (for example image files on a larger volume) rather than a flash
++         chip of a round size: StorageManager.getPrimaryStorageSize() then adds
++         their sizes instead of rounding the data partition's up to a power of
++         two. -->
++    <bool name="config_primaryStorageSizeExact">false</bool>
++
+     <!-- Default number of days to retain for the automatic storage manager. -->
+     <integer translatable="false" name="config_storageManagerDaystoRetainDefault">90</integer>
+ 
+--- a/core/res/res/values/symbols.xml
++++ b/core/res/res/values/symbols.xml
+@@ -3061,6 +3061,7 @@
+   <java-symbol type="bool" name="config_displayBlanksAfterDoze" />
+   <java-symbol type="bool" name="config_displayBrightnessBucketsInDoze" />
+   <java-symbol type="integer" name="config_storageManagerDaystoRetainDefault" />
++  <java-symbol type="bool" name="config_primaryStorageSizeExact" />
+   <java-symbol type="string" name="config_headlineFontFamily" />
+   <java-symbol type="string" name="config_headlineFontFamilyLight" />
+ 
+--- a/core/java/android/os/storage/StorageManager.java
++++ b/core/java/android/os/storage/StorageManager.java
+@@ -1088,6 +1088,11 @@
+ 
+     /** {@hide} */
+     public long getPrimaryStorageSize() {
++        if (mContext.getResources().getBoolean(
++                com.android.internal.R.bool.config_primaryStorageSizeExact)) {
++            return Environment.getDataDirectory().getTotalSpace()
++                    + Environment.getRootDirectory().getTotalSpace();
++        }
+         return FileUtils.roundStorageSize(Environment.getDataDirectory().getTotalSpace());
+     }
+ 

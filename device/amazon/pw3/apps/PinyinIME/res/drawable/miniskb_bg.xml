@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A popup mini keyboard: white with a 4 px black frame, which sets it off
+     from the keyboard under it. The keys start 4 px inside the frame. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android"
+    android:paddingLeft="8px" android:paddingTop="8px"
+    android:paddingRight="8px" android:paddingBottom="8px">
+    <item android:drawable="@color/black" />
+    <item android:left="4px" android:top="4px" android:right="4px"
+        android:bottom="4px" android:drawable="@color/white" />
+</layer-list>

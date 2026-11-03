@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "patch_sha256": "252a6f991a0bb2b9a00b0e93b08900aa8a48bf16d102412a388a1f664c7aadfb",
+  "patch": "0103-timekeeping-boottime-nsec-64bit-sum.patch",
+  "upstream_commits": [
+    "ec145babe754f9ea1079034a108104b6001e001c",
+    "cd34de10471a5ddad397739fae33555d47e53769"
+  ],
+  "upstream_subject": "timekeeping: fix 32-bit overflow in get_monotonic_boottime",
+  "adaptation": "The edit itself is the 3.4.y backport's edit (cd34de10471a5ddad397739fae33555d47e53769): the cast goes on the first operand of the nanosecond sum, so every addition is 64-bit. The only difference is the leading whitespace -- this tree's call is wrapped one level deeper, so the line carries three tabs where the stable branch's carries two, and the earlier claim here that the line was \"byte-identical\" was therefore not exact (Codex 2026-10-31). What is identical is the expression and the change to it. Nothing is compensated for, no constant is subtracted, and no code path is special-cased. The v3.6 commit listed above (ec145babe754f9ea1079034a108104b6001e001c) is the fix upstream, but it is not the same edit: it removes the same overflow by giving the function an s64 nanosecond accumulator and timespec_add_ns(). The stable backport is the one this tree takes, because it is the change this tree's own line can carry.",
+  "why": "get_monotonic_boottime() adds three timespec nanosecond fields, each a signed 32-bit long on this ARM32 target, before the s64 term joins them. Three normalised fields can sum past 2147483647, and the 32-bit result is then sign-extended into the 64-bit value, so CLOCK_BOOTTIME comes back short by exactly 2^32 ns (4.294967296 s). Two fields cannot do it (at most 1999999998), which is why the two-field sums at line 250 (in ktime_get(), not getnstimeofday() as this file said until it was checked), getboottime() at line 964 and line 1069 are unaffected and are left alone; line 999 is the only three-field sum in kernel/ and fs/proc/ in this tree. Before any suspend total_sleep_time is zero, so the sum stays under the threshold and the fault cannot appear -- which is why it shows up against lid-switch sleeps. /proc/uptime reaches the same clock through monotonic_to_bootbased() and timespec_add(), normalising in steps, so a wall-clock-against-/proc/uptime measurement does not see this and cannot be used to clear it.",
+  "files": {
+    "kernel/time/timekeeping.c": {
+      "before_sha256": "96000574e4085cc2501af94ddeceb375d861cd710eec62bff8b18f911b242f2a",
+      "after_sha256": "ed148ec83a0eca25eb51448e1f454c7619e7a7afe500913a9af175447d2af82a"
+    }
+  },
+  "base_archive_sha256": "fa89453deb9947700cbebde2e840230e69969549be2116a0a72331ac5d2fe6c9"
+}

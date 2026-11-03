@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- "Security & location" in AOSP; this device has no location provider
+         (no FEATURE_LOCATION), so the page holds security settings only. -->
+    <string name="security_settings_title">Security</string>
+</resources>

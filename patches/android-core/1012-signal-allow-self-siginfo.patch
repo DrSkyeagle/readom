@@ -1,0 +1,30 @@
+From: PW3 Android port
+Subject: [PATCH] signal: allow a thread to resend its own siginfo
+
+Backport upstream 66dd34ad31e5963d72a700ec3f2449291d322921.
+AOSP Bionic crash handling explicitly requires this self-signal behavior.
+Other task IDs remain subject to the existing positive-code/SI_TKILL
+restriction; target thread-group validation remains in do_send_specific.
+
+--- a/kernel/signal.c
++++ b/kernel/signal.c
+@@ -2732,7 +2732,8 @@
+ 	/* Not even root can pretend to send signals from the kernel.
+ 	 * Nor can they impersonate a kill()/tgkill(), which adds source info.
+ 	 */
+-	if (info.si_code >= 0 || info.si_code == SI_TKILL) {
++	if ((info.si_code >= 0 || info.si_code == SI_TKILL) &&
++	    (task_pid_vnr(current) != pid)) {
+ 		/* We used to allow any < 0 si_code */
+ 		WARN_ON_ONCE(info.si_code < 0);
+ 		return -EPERM;
+@@ -2752,7 +2753,8 @@
+ 	/* Not even root can pretend to send signals from the kernel.
+ 	 * Nor can they impersonate a kill()/tgkill(), which adds source info.
+ 	 */
+-	if (info->si_code >= 0 || info->si_code == SI_TKILL) {
++	if ((info->si_code >= 0 || info->si_code == SI_TKILL) &&
++	    (task_pid_vnr(current) != pid)) {
+ 		/* We used to allow any < 0 si_code */
+ 		WARN_ON_ONCE(info->si_code < 0);
+ 		return -EPERM;

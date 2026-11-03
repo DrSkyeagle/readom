@@ -1,0 +1,101 @@
+From: PW3 Android port
+Subject: [PATCH] serial: a modem-status change with no tty open
+
+This is the suspend/resume panic. Measured on the device on 2026-10-23 with
+V81: the reader put it to sleep, and about two minutes later it restarted
+itself. The capture (`android/logs/20261023T181451-6166/previous-kernel.txt`)
+holds the whole chain:
+
+    PM: late suspend of devices complete after 0.387 msecs
+    PM: early resume of devices complete after 0.203 msecs
+    remove wake up source irq 51
+    Unable to handle kernel NULL pointer dereference at virtual address 00000088
+    Internal error: Oops: 5 [#1] PREEMPT
+    PC is at tty_ldisc_try+0x30/0xa8
+    LR is at tty_ldisc_ref+0x10/0x14
+    r0 : 00000000
+    Backtrace:
+    [<c02ab958>] (tty_ldisc_try+0x0/0xa8) from [<c02aba10>] (tty_ldisc_ref+0x10/0x14)
+    [<c02aba00>] (tty_ldisc_ref+0x0/0x14) from [<c02c2060>] (imx_timeout+0x130/0x244)
+    [<c02c1f30>] (imx_timeout+0x0/0x244) from [<c007dd74>] (run_timer_softirq+0xf8/0x298)
+    Kernel panic - not syncing: Fatal exception in interrupt
+
+`imx_timeout()` is the UART's modem-status timer (every MCTRL_TIMEOUT, 250 ms).
+It calls `imx_mctrl_check()`, which the compiler inlines, and that calls
+`uart_handle_dcd_change()` when carrier detect has changed -- an inline helper
+in this header, which hands `port->tty` straight to `tty_ldisc_ref()`.
+`tty_ldisc_try()` then does `test_bit(TTY_LDISC, &tty->flags)`, and
+`offsetof(struct tty_struct, flags)` is 0x88 on this build, which is the
+address in the oops.
+
+`port->tty` is NULL whenever no tty is open on the port, and on this machine
+that is the normal state of the console: PID 1 opens `/dev/console` with
+O_CLOEXEC, so the descriptor closes when it execs Android's init, the tty's
+open count reaches zero and `uart_shutdown()` clears `state->port.tty`. The
+port keeps its `uart_state` either way -- `imx_timeout()`'s own guard is
+`if (sport->port.state)`, which is never false once the driver is registered --
+so nothing between the timer and the dereference notices that the tty is gone.
+
+The helper already knows this can happen. Thirteen lines below the unguarded
+`tty_ldisc_ref(port->tty)` stands `else if (port->tty) tty_hangup(port->tty);`.
+One branch tests it and the first line does not. Mainline later took the tty
+into a local and made every use of it conditional, which is what this does:
+
+  * `uart_handle_dcd_change()` takes the reference only when there is a tty,
+    and passes that local to `dcd_change()` rather than re-reading the field;
+  * `uart_handle_cts_change()` touches `tty->hw_stopped` only when there is
+    one. Reaching it needs ASYNC_CTS_FLOW, which needs an open tty, so this
+    half has not been seen to fire -- it is the same mistake in the same
+    helper and is corrected while the file is open.
+
+Fixing it here rather than in the i.MX driver is deliberate: the fault is the
+helper dereferencing a field it documents as optional, and every serial driver
+that reports a modem-status change goes through these two functions.
+
+Why it only showed on a resume: with no tty the timer should not be running at
+all -- `imx_shutdown()` deletes it. Something arms it again across the suspend,
+and `get_mctrl()` on a port that was just re-initialised reports a changed DCD,
+so the first firing after the resume is the one that walks into this. That
+arming is a separate question (the UART waking the CPU four times a second for
+a port nobody has open is worth its own measurement); this patch is about the
+dereference, which must not crash whatever arms the timer.
+
+--- a/include/linux/serial_core.h
++++ b/include/linux/serial_core.h
+@@ -532,7 +532,10 @@
+ {
+ 	struct uart_state *state = uport->state;
+ 	struct tty_port *port = &state->port;
+-	struct tty_ldisc *ld = tty_ldisc_ref(port->tty);
++	struct tty_struct *tty = port->tty;
++	/* NULL whenever nothing has the port open, which is this machine's
++	 * console most of the time. */
++	struct tty_ldisc *ld = tty ? tty_ldisc_ref(tty) : NULL;
+ 	struct pps_event_time ts;
+ 
+ 	if (ld && ld->ops->dcd_change)
+@@ -547,12 +550,12 @@
+ 	if (port->flags & ASYNC_CHECK_CD) {
+ 		if (status)
+ 			wake_up_interruptible(&port->open_wait);
+-		else if (port->tty)
+-			tty_hangup(port->tty);
++		else if (tty)
++			tty_hangup(tty);
+ 	}
+ 
+ 	if (ld && ld->ops->dcd_change)
+-		ld->ops->dcd_change(port->tty, status, &ts);
++		ld->ops->dcd_change(tty, status, &ts);
+ 	if (ld)
+ 		tty_ldisc_deref(ld);
+ }
+@@ -570,7 +573,7 @@
+ 
+ 	uport->icount.cts++;
+ 
+-	if (port->flags & ASYNC_CTS_FLOW) {
++	if (tty && (port->flags & ASYNC_CTS_FLOW)) {
+ 		if (tty->hw_stopped) {
+ 			if (status) {
+ 				tty->hw_stopped = 0;

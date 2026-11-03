@@ -1,0 +1,33 @@
+From: PW3 Android port
+Subject: [PW3] SystemServer: start UsbService for a device that is only a USB device
+
+UsbService was started only when the device declares USB host or accessory
+mode. PW3 has neither: its USB port is a device port (the ARC controller with
+the kernel's Android gadget). Without UsbService there is no UsbDeviceManager,
+which is what switches the gadget's functions (sys.usb.config), starts MTP,
+shows the USB notification and its "File transfer" choice, and asks the user
+to authorise a computer for adb (UsbDebuggingManager).
+
+UsbService itself already creates its device manager exactly when
+/sys/class/android_usb exists (the gadget is loaded before the framework
+starts, docs/design/usb-mtp.md); SystemServer now starts it on the same
+condition too.
+
+--- a/services/java/com/android/server/SystemServer.java
++++ b/services/java/com/android/server/SystemServer.java
+@@ -1249,9 +1249,14 @@
+                     traceEnd();
+                 }
+ 
++                // PW3: also for a device that is only a USB device, without host or
++                // accessory mode: the kernel's Android gadget (/sys/class/android_usb)
++                // is what UsbService's device manager drives (MTP, the USB notification,
++                // adb authorisation).
+                 if (mPackageManager.hasSystemFeature(PackageManager.FEATURE_USB_HOST)
+                         || mPackageManager.hasSystemFeature(
+-                                PackageManager.FEATURE_USB_ACCESSORY)) {
++                                PackageManager.FEATURE_USB_ACCESSORY)
++                        || new File("/sys/class/android_usb").exists()) {
+                     // Manage USB host and device support
+                     traceBeginAndSlog("StartUsbService");
+                     mSystemServiceManager.startService(USB_SERVICE_CLASS);

@@ -1,0 +1,33 @@
+From: PW3 Android port
+Subject: [PATCH] test kernel: limit Lab126 MMC board headers to their user
+
+The power-gate call site is already guarded by CONFIG_LAB126. Apply the
+same guard to its board headers and helper macro for the VExpress test.
+
+--- a/drivers/mmc/core/mmc.c
++++ b/drivers/mmc/core/mmc.c
+@@ -16,8 +16,10 @@
+ #include <linux/mmc/host.h>
+ #include <linux/mmc/card.h>
+ #include <linux/mmc/mmc.h>
++#ifdef CONFIG_LAB126
+ #include <mach/boardid.h>
+ #include <boardid.h>
++#endif
+ 
+ #include "core.h"
+ #include "bus.h"
+@@ -34,11 +36,13 @@
+ #define TEST_MMC_CTOE
+ #endif
+ 
++#ifdef CONFIG_LAB126
+ #define HW_SUPPORT_EMMC_POWER_GATE  (lab126_board_is(BOARD_ID_MUSCAT_WFO) || \
+                                       lab126_board_is(BOARD_ID_MUSCAT_32G_WFO) ||\
+                                       lab126_board_is(BOARD_ID_MUSCAT_WAN) ||\
+                                       lab126_board_is(BOARD_ID_WHISKY_WFO) ||\
+                                       lab126_board_is(BOARD_ID_WHISKY_WAN))
++#endif
+ 
+ static const unsigned int tran_exp[] = {
+ 	10000,		100000,		1000000,	10000000,

@@ -1,0 +1,16 @@
+{
+  "passed": true,
+  "groups": [
+    "native gating and POSIX checks with ASan/UBSan",
+    "exact AOSP adbd functions board flag on/off with ASan/UBSan",
+    "full original source preserved with board flag off",
+    "patch apply/reverse SHA256",
+    "exact old FunctionFS empty probe lifecycle with ASan/UBSan",
+    "actual selected-build nine modules ELF symbol dependency and relocation audit",
+    "artifact corruption and wrong composition refusal",
+    "new-output-only component export and every-file hash"
+  ],
+  "device_accessed": false,
+  "android_cross_compile": false,
+  "usb_runtime_verified": false
+}

@@ -1,0 +1,23 @@
+--- a/core/res/res/values/config.xml
++++ b/core/res/res/values/config.xml
+@@ -484,6 +484,10 @@
+     </string-array>
+ 
+     <!-- Boolean indicating whether the wifi chipset has dual frequency band support -->
++    <!-- Whether this product provides Soft AP, including LocalOnlyHotspot.
++         Disabling it rejects requests before the STA interface changes mode. -->
++    <bool translatable="false" name="config_wifi_softap_supported">true</bool>
++
+     <bool translatable="false" name="config_wifi_dual_band_support">false</bool>
+ 
+     <!-- Boolean indicating whether 802.11r Fast BSS Transition is enabled on this platform -->
+--- a/core/res/res/values/symbols.xml
++++ b/core/res/res/values/symbols.xml
+@@ -1764,6 +1764,7 @@
+   <java-symbol type="bool" name="config_goToSleepOnButtonPressTheaterMode" />
+   <java-symbol type="bool" name="config_supportLongPressPowerWhenNonInteractive" />
+   <java-symbol type="bool" name="config_wifi_background_scan_support" />
++  <java-symbol type="bool" name="config_wifi_softap_supported" />
+   <java-symbol type="bool" name="config_wifi_dual_band_support" />
+   <java-symbol type="bool" name="config_wifi_fast_bss_transition_enabled" />
+   <java-symbol type="bool" name="config_wimaxEnabled" />

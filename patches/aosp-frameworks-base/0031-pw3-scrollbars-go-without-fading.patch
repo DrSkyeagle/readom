@@ -1,0 +1,72 @@
+From: PW3 Android port
+Subject: [PW3] Scrollbars go in one step instead of fading out
+
+A scrollbar fades out for 250 ms after it has been shown (themes'
+scrollbarFadeDuration). On the device (Test V40) every scroll in Settings
+updated the 8 px strip of the scrollbar four more times as it went from
+black to white through greys: on e-paper each frame of a fade is a panel
+update of its own (docs/design/eink-ui.md, rule 5).
+
+The fade now lasts 1 ms, so the next frame draws the scrollbar gone; it
+still shows while the list moves and for the delay after (300 or 400 ms).
+Not 0: the fade's two keyframes would then have the same time, and Skia's
+SkInterpolator::setKeyFrame refuses the second, leaving whatever the
+interpolator held before as the end of the fade.
+
+Theme values only, in every base theme that sets one (Theme, Holo and
+Material, dark and light), so framework-res keeps its resource names and the
+boot image stays as it is. A view that gets scrollbars without reading the
+theme (ViewConfiguration's own 250 ms) still fades; that needs a change to
+framework.jar, which the boot image is built from.
+
+--- a/core/res/res/values/themes.xml
++++ b/core/res/res/values/themes.xml
+@@ -243,7 +243,7 @@
+         <item name="panelMenuListWidth">296dip</item>
+ 
+         <!-- Scrollbar attributes -->
+-        <item name="scrollbarFadeDuration">250</item>
++        <item name="scrollbarFadeDuration">1</item>
+         <item name="scrollbarDefaultDelayBeforeFade">300</item>
+         <item name="scrollbarSize">10dip</item>
+         <item name="scrollbarThumbHorizontal">@drawable/scrollbar_handle_horizontal</item>
+--- a/core/res/res/values/themes_material.xml
++++ b/core/res/res/values/themes_material.xml
+@@ -214,7 +214,7 @@
+         <item name="panelMenuListTheme">@style/Theme.Material.CompactMenu</item>
+ 
+         <!-- Scrollbar attributes -->
+-        <item name="scrollbarFadeDuration">250</item>
++        <item name="scrollbarFadeDuration">1</item>
+         <item name="scrollbarDefaultDelayBeforeFade">400</item>
+         <item name="scrollbarSize">@dimen/config_scrollbarSize</item>
+         <item name="scrollbarThumbHorizontal">@drawable/scrollbar_handle_material</item>
+@@ -584,7 +584,7 @@
+         <item name="panelMenuListTheme">@style/Theme.Material.Light.CompactMenu</item>
+ 
+         <!-- Scrollbar attributes -->
+-        <item name="scrollbarFadeDuration">250</item>
++        <item name="scrollbarFadeDuration">1</item>
+         <item name="scrollbarDefaultDelayBeforeFade">400</item>
+         <item name="scrollbarSize">@dimen/config_scrollbarSize</item>
+         <item name="scrollbarThumbHorizontal">@drawable/scrollbar_handle_material</item>
+--- a/core/res/res/values/themes_holo.xml
++++ b/core/res/res/values/themes_holo.xml
+@@ -240,7 +240,7 @@
+         <item name="panelMenuListTheme">@style/Theme.Holo.CompactMenu</item>
+ 
+         <!-- Scrollbar attributes -->
+-        <item name="scrollbarFadeDuration">250</item>
++        <item name="scrollbarFadeDuration">1</item>
+         <item name="scrollbarDefaultDelayBeforeFade">300</item>
+         <item name="scrollbarSize">10dip</item>
+         <item name="scrollbarThumbHorizontal">@drawable/scrollbar_handle_holo_dark</item>
+@@ -583,7 +583,7 @@
+         <item name="panelMenuListTheme">@style/Theme.Holo.Light.CompactMenu</item>
+ 
+         <!-- Scrollbar attributes -->
+-        <item name="scrollbarFadeDuration">250</item>
++        <item name="scrollbarFadeDuration">1</item>
+         <item name="scrollbarDefaultDelayBeforeFade">300</item>
+         <item name="scrollbarSize">10dip</item>
+         <item name="scrollbarThumbHorizontal">@drawable/scrollbar_handle_holo_light</item>

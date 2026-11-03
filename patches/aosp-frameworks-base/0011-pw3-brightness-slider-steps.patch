@@ -1,0 +1,76 @@
+--- a/packages/SystemUI/src/com/android/systemui/settings/BrightnessController.java
++++ b/packages/SystemUI/src/com/android/systemui/settings/BrightnessController.java
+@@ -60,6 +60,8 @@
+ 
+     private final int mMinimumBacklight;
+     private final int mMaximumBacklight;
++    /** Number of equal steps of the manual slider; 0: one position per brightness value. */
++    private final int mSliderSteps;
+     private final int mMinimumBacklightForVr;
+     private final int mMaximumBacklightForVr;
+ 
+@@ -225,6 +227,11 @@
+                 value = Settings.System.getIntForUser(mContext.getContentResolver(),
+                         Settings.System.SCREEN_BRIGHTNESS, mMaximumBacklight,
+                         UserHandle.USER_CURRENT);
++                if (mSliderSteps > 0) {
++                    mHandler.obtainMessage(MSG_UPDATE_SLIDER, mSliderSteps,
++                            brightnessToStep(value)).sendToTarget();
++                    return;
++                }
+                 mHandler.obtainMessage(MSG_UPDATE_SLIDER, mMaximumBacklight - mMinimumBacklight,
+                         value - mMinimumBacklight).sendToTarget();
+             }
+@@ -290,6 +297,9 @@
+         PowerManager pm = (PowerManager)context.getSystemService(Context.POWER_SERVICE);
+         mMinimumBacklight = pm.getMinimumScreenBrightnessSetting();
+         mMaximumBacklight = pm.getMaximumScreenBrightnessSetting();
++        final int steps = context.getResources().getInteger(
++                com.android.systemui.R.integer.config_brightnessSliderSteps);
++        mSliderSteps = steps > 0 && steps < mMaximumBacklight - mMinimumBacklight ? steps : 0;
+         mMinimumBacklightForVr = pm.getMinimumScreenBrightnessForVrSetting();
+         mMaximumBacklightForVr = pm.getMaximumScreenBrightnessForVrSetting();
+ 
+@@ -372,7 +382,8 @@
+                     });
+             }
+         } else if (!mAutomatic) {
+-            final int val = value + mMinimumBacklight;
++            final int val = mSliderSteps > 0 ? stepToBrightness(value)
++                    : value + mMinimumBacklight;
+             if (stopTracking) {
+                 MetricsLogger.action(mContext, MetricsEvent.ACTION_BRIGHTNESS, val);
+             }
+@@ -408,6 +419,19 @@
+         }
+     }
+ 
++    /** The brightness value of a slider step: the steps divide the range evenly. */
++    private int stepToBrightness(int step) {
++        final int range = mMaximumBacklight - mMinimumBacklight;
++        return mMinimumBacklight + (2 * step * range + mSliderSteps) / (2 * mSliderSteps);
++    }
++
++    /** The slider step nearest to a brightness value, whoever set it. */
++    private int brightnessToStep(int brightness) {
++        final int range = mMaximumBacklight - mMinimumBacklight;
++        final int offset = Math.max(0, Math.min(range, brightness - mMinimumBacklight));
++        return (2 * offset * mSliderSteps + range) / (2 * range);
++    }
++
+     private void setMode(int mode) {
+         Settings.System.putIntForUser(mContext.getContentResolver(),
+                 Settings.System.SCREEN_BRIGHTNESS_MODE, mode,
+--- a/packages/SystemUI/res/values/config.xml
++++ b/packages/SystemUI/res/values/config.xml
+@@ -20,6 +20,10 @@
+ <!-- These resources are around just to allow their values to be customized
+      for different hardware and product builds. -->
+ <resources>
++    <!-- Number of equal steps of the manual brightness slider, for a light
++         that only has that many levels. 0: one position per brightness value. -->
++    <integer name="config_brightnessSliderSteps">0</integer>
++
+     <!-- Whether recents should use hardware layers for its taskviews. This flag can be enabled
+     for devices where the java drawing of round rects may be slow -->
+     <bool name="config_recents_use_hardware_layers">false</bool>

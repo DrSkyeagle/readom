@@ -1,0 +1,31 @@
+--- a/drivers/mfd/max77696-topsys.c
++++ b/drivers/mfd/max77696-topsys.c
+@@ -342,9 +342,19 @@
+ 	max77696_write(me->i2c, GLBLCNFG0_REG, GLBLCNFG0_FSENT | GLBLCNFG0_SFTPDRR);
+ }
+ 
++/* PW3 Android: power off is a full shutdown, from which the power key starts the
++ * device again. Lab126's power off entered factory-ship mode, which disconnects
++ * the battery and starts again only for a charger, as a Kindle out of its box:
++ * right for storage, not for a user switching the device off. The registers are
++ * reset as for factory ship, so that the next start is a cold one. */
++static struct max77696_topsys *poweroff_topsys;
++
+ void max77696_chip_poweroff(void)
+ {
+-	pmic_event_callback(EVENT_SW_FACTORYSHIP);
++	struct max77696_topsys *me = poweroff_topsys;
++
++	max77696_write(me->i2c, GLBLCNFG0_REG, 0);
++	max77696_write(me->i2c, GLBLCNFG0_REG, GLBLCNFG0_FSHDN | GLBLCNFG0_SFTPDRR);
+ }
+ 
+ void max77696_chip_hibernate(void)
+@@ -381,6 +391,7 @@
+ 	me->top_irq  = chip->irq_base + MAX77696_ROOTINT_TOPSYS;
+ 
+ 	/* Set PMIC power off */
++	poweroff_topsys = me;
+ 	pm_power_off = max77696_chip_poweroff;
+ 	pm_restart = max77696_chip_restart;
+ 	pm_power_hibernate = max77696_chip_hibernate;

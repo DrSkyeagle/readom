@@ -1,0 +1,99 @@
+From: PW3 Android port
+Subject: [PW3] A screen being held is not an application to wait for
+
+With 0071 the hold works: on the device (2026-11-03,
+eng.builde.20261103.032804), with the deadline shortened to 2 s and the starting
+window off, the outgoing launcher reads isOnScreen=true at 4 s, 9 s and 25 s
+where the same run with the hold turned off reads false at 4 s and shows the
+status bar and the navigation bar over black. The reader sees the launcher until
+WeRead's shelf arrives, and never a blank screen.
+
+What does not work is letting go. No "letting go" line was logged, and 25 s in,
+with the shelf on the screen, a dump showed both sets still full:
+
+    mHeldOverClosingApps={...weread.LauncherActivity, ...launcher3/.Launcher}
+    mHeldOverOpeningApps={...weread.LauncherActivity, ...WeReadFragmentActivity}
+
+WeRead's launcher activity is in both. It is a trampoline: it opens in the first
+transition and is the screen being held in the second, and it finishes without
+ever drawing. 0069 asked for the release "when every application that was
+opening has something on screen", which that one makes false for good; and
+"when all of them have gone away" is false too, because the hold is what is
+keeping it. The two conditions can never both be reached, so the hold stayed,
+the launcher's surface stayed, and the activity manager and the window manager
+disagreed about it until the next transition.
+
+Three changes, which are one idea said three times: what is being held is not
+what is being waited for.
+
+  * A token added to the held screens is removed from the ones waited for.
+  * The release asks that none of them is *still coming*, rather than that all
+    of them have drawn: each is either on the screen, or gone, or not yet, and
+    only the last of those holds the release back.
+  * A held screen that has gone away is skipped rather than hidden; there is
+    nothing there to hide, and setVisibility() on it reaches into a container
+    the window manager has already let go of.
+
+The states this separates, written out because the previous three attempts each
+died on a case that was not: an application that has not drawn yet, one that has
+gone away, one that became the screen being held, and one that drew. Before
+this, the second and third read the same as the first.
+
+Not run on the device yet when this patch was written.
+
+--- a/services/core/java/com/android/server/wm/WindowSurfacePlacer.java
++++ b/services/core/java/com/android/server/wm/WindowSurfacePlacer.java
+@@ -489,6 +489,15 @@
+                 // Kept where it is, and let go of in releaseHeldOverClosingApps().
+                 mService.mHeldOverClosingApps.add(wtoken);
+                 mService.mHeldOverOpeningApps.addAll(mService.mOpeningApps);
++                // Whatever is now being held on the screen is not something to
++                // wait for a first frame from. WeRead's launcher activity is
++                // in both sets without this line: it is the application that
++                // opens in the first transition and the screen that is held in
++                // the second, and being a trampoline it never draws. Measured
++                // on the device, 2026-11-03: mHeldOverOpeningApps held it and
++                // the shelf activity, so "all of them have drawn" was never
++                // true and the hold was never released.
++                mService.mHeldOverOpeningApps.removeAll(mService.mHeldOverClosingApps);
+             } else {
+                 wtoken.setVisibility(animLp, false, transit, false, voiceInteraction);
+                 wtoken.updateReportedVisibilityLocked();
+@@ -621,22 +630,29 @@
+         if (mService.mHeldOverClosingApps.isEmpty()) {
+             return;
+         }
++        // Every application that was opening is in one of three states: it has
++        // something on the screen, it has gone away, or it is still coming. The
++        // hold ends when none of them is still coming -- not when all of them
++        // have drawn, which 0069 asked and which one that never draws makes
++        // permanently false.
+         final int waitingCount = mService.mHeldOverOpeningApps.size();
+-        boolean drawn = waitingCount > 0;
+-        boolean gone = waitingCount > 0;
++        boolean drawn = false;
+         for (int i = 0; i < waitingCount; i++) {
+             final AppWindowToken wtoken = mService.mHeldOverOpeningApps.valueAt(i);
+-            drawn &= hasSomethingOnScreen(wtoken);
+-            gone &= isGone(wtoken);
+-        }
+-        if (!drawn && !gone) {
+-            return;
++            final boolean here = hasSomethingOnScreen(wtoken);
++            if (!here && !isGone(wtoken)) {
++                return;   // still coming; the screen stays as it is
++            }
++            drawn |= here;
+         }
+         Slog.i(TAG, "PW3: letting go of " + mService.mHeldOverClosingApps.size()
+-                + " held screen(s): " + (drawn ? "the application drew" : "the application went away"));
++                + " held screen(s): " + (drawn ? "an application drew" : "they all went away"));
+         if (drawn) {
+             for (int i = mService.mHeldOverClosingApps.size() - 1; i >= 0; i--) {
+                 final AppWindowToken wtoken = mService.mHeldOverClosingApps.valueAt(i);
++                if (isGone(wtoken)) {
++                    continue;
++                }
+                 // performLayout false: this runs at the top of a surface
+                 // placement that is about to lay out anyway, and asking for
+                 // another one from in here calls performSurfacePlacement()

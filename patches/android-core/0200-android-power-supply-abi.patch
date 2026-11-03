@@ -1,0 +1,74 @@
+--- a/drivers/power/Kconfig
++++ b/drivers/power/Kconfig
+@@ -182,6 +182,20 @@
+ 	help
+ 	  Say Y here to enable support for the battery charger in
+ 	  MAX77696 PMIC.
++
++config LAB126_ANDROID_POWER_SUPPLY_ABI
++	bool "Linux power supply units for an Android-only Wario image"
++	depends on BATTERY_MAX77696 && CHARGER_MAX77696
++	default n
++	help
++	  Export MAX77696 battery voltage/current/charge in uV/uA/uAh and
++	  temperature in tenths of a degree Celsius. Export charger ONLINE
++	  as physical input presence, rather than the charging-enable bit.
++	  Internal gauge values and all protection thresholds stay unchanged.
++
++	  This changes the existing power_supply userspace ABI. Enable only
++	  in an Android-only kernel image with matching userspace. Do not
++	  enable for Lab126 stock userspace, diagnostics or recovery images.
+ 
+ config POWER_SODA
+ 	bool "SODA CHARGER & BATTERY"
+--- a/drivers/power/max77696-battery.c
++++ b/drivers/power/max77696-battery.c
+@@ -2703,6 +2703,33 @@
+ 			break;
+ 	}
+ 
++#ifdef CONFIG_LAB126_ANDROID_POWER_SUPPLY_ABI
++	/* Change only the public ABI; Lab126's internal units stay intact. */
++	if (!rc) {
++		switch (psp) {
++		case POWER_SUPPLY_PROP_VOLTAGE_NOW:
++		case POWER_SUPPLY_PROP_VOLTAGE_AVG:
++		case POWER_SUPPLY_PROP_CURRENT_NOW:
++		case POWER_SUPPLY_PROP_CURRENT_AVG:
++		case POWER_SUPPLY_PROP_CHARGE_FULL:
++		case POWER_SUPPLY_PROP_CHARGE_NOW:
++			val->intval *= 1000;
++			break;
++		case POWER_SUPPLY_PROP_TEMP:
++			/*
++			 * get_prop_temp() has refreshed both cached C and F values.
++			 * Use the original integer Celsius sample; converting the
++			 * truncated Fahrenheit value back would lose accuracy.
++			 */
++			val->intval = wario_battery_temp_c * 10;
++			break;
++		default:
++			/* CHARGE_FULL_DESIGN is already uAh. */
++			break;
++		}
++	}
++#endif
++
+ out:
+ 	__unlock(me);
+ 	return rc;
+--- a/drivers/power/max77696-charger.c
++++ b/drivers/power/max77696-charger.c
+@@ -2147,7 +2147,12 @@
+ 			val->intval = me->chg_online;
+ 			break;
+ 		case POWER_SUPPLY_PROP_ONLINE:
++#ifdef CONFIG_LAB126_ANDROID_POWER_SUPPLY_ABI
++			/* A charger can stay enabled after its cable is removed. */
++			val->intval = me->chg_online;
++#else
+ 			val->intval = me->chg_enable;
++#endif
+ 			break;
+ 		default:
+ 			rc = -EINVAL;

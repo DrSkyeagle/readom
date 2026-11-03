@@ -1,0 +1,19 @@
+--- a/drivers/video/mxc/mxc_epdc_fb.c
++++ b/drivers/video/mxc/mxc_epdc_fb.c
+@@ -2406,6 +2406,16 @@
+ 
+ 	dev_dbg(fb_data->dev, "Setting optimization level to %d\n", upd_scheme);
+ 
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	/*
++	 * The snapshot path submits to the controller without powering the
++	 * panel and its clocks up first, and nothing in the Lab126 userspace
++	 * uses it.  Serve snapshot requests on the queue path, which does.
++	 */
++	if (upd_scheme == UPDATE_SCHEME_SNAPSHOT)
++		upd_scheme = UPDATE_SCHEME_QUEUE_AND_MERGE;
++#endif
++
+ 	/*
+ 	 * Can't change the scheme until current updates have completed.
+ 	 * This function returns when all active updates are done.

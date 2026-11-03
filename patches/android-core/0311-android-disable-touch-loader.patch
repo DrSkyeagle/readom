@@ -1,0 +1,42 @@
+--- a/drivers/input/touchscreen/Kconfig
++++ b/drivers/input/touchscreen/Kconfig
+@@ -964,6 +964,18 @@
+ 	  This modules adds an interface to access touchscreen
+ 	  controller using driver sysfs nodes.
+ 
++config LAB126_ANDROID_DISABLE_TOUCH_FW_UPDATE
++	bool "Reject the cyttsp4 firmware loader in an Android Wario image"
++	depends on TOUCHSCREEN_CYPRESS_CYTTSP4
++	default n
++	help
++	  Reject initialization of cyttsp4_loader even if it is built or
++	  requested accidentally. The core, I2C and multitouch drivers keep
++	  using the firmware already stored on the touchscreen controller.
++	  The stock loader upgrades on probe and relies on stock udev version
++	  checks. Enable for Android; a separate reviewed update path is needed
++	  to program touchscreen firmware. Keep N for stock userspace.
++
+ config TOUCHSCREEN_CYPRESS_CYTTSP4_LOADER
+ 	tristate "Cypress TrueTouch Gen4 MultiTouch Loader"
+ 	depends on TOUCHSCREEN_CYPRESS_CYTTSP4
+--- a/drivers/input/touchscreen/cyttsp4_loader.c
++++ b/drivers/input/touchscreen/cyttsp4_loader.c
+@@ -1202,6 +1202,10 @@
+ 
+ static int __init cyttsp4_loader_init(void)
+ {
++#ifdef CONFIG_LAB126_ANDROID_DISABLE_TOUCH_FW_UPDATE
++	pr_err("cyttsp4 firmware loader disabled by Android image policy\n");
++	return -EPERM;
++#else
+ 	int rc = 0;
+ 	int i, j;
+ 
+@@ -1250,6 +1254,7 @@
+ 			__func__, cyttsp4_loader_infos[i].core_id);
+ 	}
+ 	return rc;
++#endif
+ }
+ module_init(cyttsp4_loader_init);
+ 

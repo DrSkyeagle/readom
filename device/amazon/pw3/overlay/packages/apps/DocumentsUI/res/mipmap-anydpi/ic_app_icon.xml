@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 文件, on the home screen. Material Symbols Rounded folder-fill
+     (launcher-icons/material-symbols), on a tile, turned into a
+     VectorDrawable by launcher-icons/make_icons.py. Edit the script or
+     the drawing it reads, not this file. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="112"
+    android:viewportHeight="112">
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M31,11 H81 A20,20 0 0 1 101,31 V81 A20,20 0 0 1 81,101 H31 A20,20 0 0 1 11,81 V31 A20,20 0 0 1 31,11 Z"/>
+    <group
+        android:scaleX="0.053125"
+        android:scaleY="0.053125"
+        android:translateX="30.5"
+        android:translateY="81.5">
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M140-160q-24 0-42-18.5T80-220v-520q0-23 18-41.5t42-18.5h256q12 0 23.5 5t19.5 13l42 42h339q23 0 41.5 18.5T880-680v460q0 23-18.5 41.5T820-160H140Z"/>
+    </group>
+</vector>

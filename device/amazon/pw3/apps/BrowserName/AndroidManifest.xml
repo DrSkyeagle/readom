@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="org.readom.browsername">
+
+    <!-- The name and the icon, in the package that owns them. `isStatic` means
+         the package manager applies the overlay at boot and nothing can turn
+         it off, so the browser looks the same wherever it is shown: the home
+         screen, the application list, the share sheet. -->
+    <overlay
+        android:targetPackage="info.plateaukao.einkbro"
+        android:isStatic="true"
+        android:priority="1" />
+
+    <application android:hasCode="false" />
+</manifest>

@@ -1,0 +1,30 @@
+--- a/drivers/video/mxc/mxc_epdc_fb.c
++++ b/drivers/video/mxc/mxc_epdc_fb.c
+@@ -6061,11 +6061,11 @@
+ 	fb_data->waveform_buffer_size = temp_wfm_buf_len - wv_data_offs;
+ #endif
+ 
+-	/* Allocate memory for waveform data */
++	/* Firmware processing may sleep: permit reclaim in the DMA zone. */
+ 	fb_data->waveform_buffer_virt = dma_alloc_coherent(fb_data->dev,
+ 						fb_data->waveform_buffer_size,
+ 						&fb_data->waveform_buffer_phys,
+-						GFP_DMA);
++						GFP_KERNEL | GFP_DMA);
+ 	if (fb_data->waveform_buffer_virt == NULL) {
+ 		dev_err(fb_data->dev, "Can't allocate mem for waveform!\n");
+ 		ret = -ENOMEM;
+@@ -6790,11 +6790,11 @@
+ 		goto out_cmap;
+ 	}
+ 
+-	/* Allocate FB memory */
++	/* Probe may sleep: verification can have filled the DMA zone with cache. */
+ 	info->screen_base = dma_alloc_writecombine(&pdev->dev,
+ 						  fb_data->map_size,
+ 						  &fb_data->phys_start,
+-						  GFP_DMA);
++						  GFP_KERNEL | GFP_DMA);
+ 
+ 	if (info->screen_base == NULL) {
+ 		ret = -ENOMEM;

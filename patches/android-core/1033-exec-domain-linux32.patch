@@ -1,0 +1,18 @@
+--- a/kernel/exec_domain.c
++++ b/kernel/exec_domain.c
+@@ -61,6 +61,15 @@
+ 	unsigned int pers = personality(personality);
+ 	struct exec_domain *ep;
+ 
++	/* Android 8.1's libc selects PER_LINUX32 in every 32-bit process it
++	 * starts. Nothing registers that personality on ARM, so each exec
++	 * went on to request_module("personality-8"), which SELinux denies
++	 * and logs (36,000 audit records in four hours on Test V32, the
++	 * kernel log held nothing else). The default domain is what the
++	 * failed request falls back to anyway. */
++	if (pers == PER_LINUX32)
++		return &default_exec_domain;
++
+ 	read_lock(&exec_domains_lock);
+ 	for (ep = exec_domains; ep; ep = ep->next) {
+ 		if (pers >= ep->pers_low && pers <= ep->pers_high)

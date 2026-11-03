@@ -1,0 +1,318 @@
+--- a/fs/eventpoll.c
++++ b/fs/eventpoll.c
+@@ -33,6 +33,7 @@
+ #include <linux/bitops.h>
+ #include <linux/mutex.h>
+ #include <linux/anon_inodes.h>
++#include <linux/device.h>
+ #include <asm/uaccess.h>
+ #include <asm/system.h>
+ #include <asm/io.h>
+@@ -88,7 +89,7 @@
+  */
+ 
+ /* Epoll private bits inside the event mask */
+-#define EP_PRIVATE_BITS (EPOLLONESHOT | EPOLLET)
++#define EP_PRIVATE_BITS (EPOLLWAKEUP | EPOLLONESHOT | EPOLLET)
+ 
+ /* Maximum number of nesting allowed inside epoll sets */
+ #define EP_MAX_NESTS 4
+@@ -155,6 +156,9 @@
+ 	/* List header used to link this item to the "struct file" items list */
+ 	struct list_head fllink;
+ 
++	/* wakeup_source used when EPOLLWAKEUP is set */
++	struct wakeup_source *ws;
++
+ 	/* The structure that describe the interested events and the source fd */
+ 	struct epoll_event event;
+ };
+@@ -194,6 +198,9 @@
+ 	 * holding ->lock.
+ 	 */
+ 	struct epitem *ovflist;
++
++	/* wakeup_source used when ep_scan_ready_list is running */
++	struct wakeup_source *ws;
+ 
+ 	/* The user that created the eventpoll descriptor */
+ 	struct user_struct *user;
+@@ -564,8 +571,10 @@
+ 		 * queued into ->ovflist but the "txlist" might already
+ 		 * contain them, and the list_splice() below takes care of them.
+ 		 */
+-		if (!ep_is_linked(&epi->rdllink))
++		if (!ep_is_linked(&epi->rdllink)) {
+ 			list_add_tail(&epi->rdllink, &ep->rdllist);
++			__pm_stay_awake(epi->ws);
++		}
+ 	}
+ 	/*
+ 	 * We need to set back ep->ovflist to EP_UNACTIVE_PTR, so that after
+@@ -578,6 +587,7 @@
+ 	 * Quickly re-inject items left on "txlist".
+ 	 */
+ 	list_splice(&txlist, &ep->rdllist);
++	__pm_relax(ep->ws);
+ 
+ 	if (!list_empty(&ep->rdllist)) {
+ 		/*
+@@ -604,6 +614,14 @@
+  * Removes a "struct epitem" from the eventpoll RB tree and deallocates
+  * all the associated resources. Must be called with "mtx" held.
+  */
++static void ep_unregister_wakeup_source(struct wakeup_source *ws)
++{
++	if (!ws)
++		return;
++	__pm_relax(ws);
++	wakeup_source_unregister(ws);
++}
++
+ static int ep_remove(struct eventpoll *ep, struct epitem *epi)
+ {
+ 	unsigned long flags;
+@@ -632,6 +650,8 @@
+ 		list_del_init(&epi->rdllink);
+ 	spin_unlock_irqrestore(&ep->lock, flags);
+ 
++	ep_unregister_wakeup_source(epi->ws);
++
+ 	/* At this point it is safe to free the eventpoll item */
+ 	kmem_cache_free(epi_cache, epi);
+ 
+@@ -682,6 +702,7 @@
+ 	mutex_unlock(&epmutex);
+ 	mutex_destroy(&ep->mtx);
+ 	free_uid(ep->user);
++	ep_unregister_wakeup_source(ep->ws);
+ 	kfree(ep);
+ }
+ 
+@@ -710,6 +731,7 @@
+ 			 * callback, but it's not actually ready, as far as
+ 			 * caller requested events goes. We can remove it here.
+ 			 */
++			__pm_relax(epi->ws);
+ 			list_del_init(&epi->rdllink);
+ 		}
+ 	}
+@@ -900,13 +922,23 @@
+ 		if (epi->next == EP_UNACTIVE_PTR) {
+ 			epi->next = ep->ovflist;
+ 			ep->ovflist = epi;
++			if (epi->ws) {
++				/*
++				 * Activate ep->ws since epi->ws may get
++				 * deactivated at any time.
++				 */
++				__pm_stay_awake(ep->ws);
++			}
++
+ 		}
+ 		goto out_unlock;
+ 	}
+ 
+ 	/* If this file is already in the ready list we exit soon */
+-	if (!ep_is_linked(&epi->rdllink))
++	if (!ep_is_linked(&epi->rdllink)) {
+ 		list_add_tail(&epi->rdllink, &ep->rdllist);
++		__pm_stay_awake(epi->ws);
++	}
+ 
+ 	/*
+ 	 * Wake up ( if active ) both the eventpoll wait list and the ->poll()
+@@ -1066,6 +1098,45 @@
+ 	return error;
+ }
+ 
++static int ep_create_wakeup_source(struct epitem *epi)
++{
++	const char *name;
++	struct wakeup_source *ws;
++	unsigned long flags;
++
++	if (!epi->ep->ws) {
++		epi->ep->ws = wakeup_source_register("eventpoll");
++		if (!epi->ep->ws)
++			return -ENOMEM;
++	}
++
++	name = epi->ffd.file->f_path.dentry->d_name.name;
++	ws = wakeup_source_register(name);
++	if (!ws)
++		return -ENOMEM;
++
++	/* ep_modify/scan hold mtx; callbacks read ws under ep->lock. */
++	spin_lock_irqsave(&epi->ep->lock, flags);
++	epi->ws = ws;
++	if (ep_is_linked(&epi->rdllink))
++		__pm_stay_awake(ws);
++	spin_unlock_irqrestore(&epi->ep->lock, flags);
++	return 0;
++}
++
++static void ep_destroy_wakeup_source(struct epitem *epi)
++{
++	struct wakeup_source *ws;
++	unsigned long flags;
++
++	/* Wait for callbacks before unpublishing, then unregister unlocked. */
++	spin_lock_irqsave(&epi->ep->lock, flags);
++	ws = epi->ws;
++	epi->ws = NULL;
++	spin_unlock_irqrestore(&epi->ep->lock, flags);
++	ep_unregister_wakeup_source(ws);
++}
++
+ /*
+  * Must be called with "mtx" held.
+  */
+@@ -1093,6 +1164,13 @@
+ 	epi->event = *event;
+ 	epi->nwait = 0;
+ 	epi->next = EP_UNACTIVE_PTR;
++	if (epi->event.events & EPOLLWAKEUP) {
++		error = ep_create_wakeup_source(epi);
++		if (error)
++			goto error_create_wakeup_source;
++	} else {
++		epi->ws = NULL;
++	}
+ 
+ 	/* Initialize the poll table using the queue callback */
+ 	epq.epi = epi;
+@@ -1138,6 +1216,7 @@
+ 	/* If the file is already "ready" we drop it inside the ready list */
+ 	if ((revents & event->events) && !ep_is_linked(&epi->rdllink)) {
+ 		list_add_tail(&epi->rdllink, &ep->rdllist);
++		__pm_stay_awake(epi->ws);
+ 
+ 		/* Notify waiting tasks that events are available */
+ 		if (waitqueue_active(&ep->wq))
+@@ -1178,6 +1257,9 @@
+ 		list_del_init(&epi->rdllink);
+ 	spin_unlock_irqrestore(&ep->lock, flags);
+ 
++	ep_unregister_wakeup_source(epi->ws);
++
++error_create_wakeup_source:
+ 	kmem_cache_free(epi_cache, epi);
+ 
+ 	return error;
+@@ -1191,6 +1273,16 @@
+ {
+ 	int pwake = 0;
+ 	unsigned int revents;
++
++	if (event->events & EPOLLWAKEUP) {
++		if (!epi->ws) {
++			int error = ep_create_wakeup_source(epi);
++			if (error)
++				return error;
++		}
++	} else if (epi->ws) {
++		ep_destroy_wakeup_source(epi);
++	}
+ 
+ 	/*
+ 	 * Set the new event interest mask before calling f_op->poll();
+@@ -1214,6 +1306,7 @@
+ 		spin_lock_irq(&ep->lock);
+ 		if (!ep_is_linked(&epi->rdllink)) {
+ 			list_add_tail(&epi->rdllink, &ep->rdllist);
++			__pm_stay_awake(epi->ws);
+ 
+ 			/* Notify waiting tasks that events are available */
+ 			if (waitqueue_active(&ep->wq))
+@@ -1249,6 +1342,10 @@
+ 	     !list_empty(head) && eventcnt < esed->maxevents;) {
+ 		epi = list_first_entry(head, struct epitem, rdllink);
+ 
++		/* Bridge the ready-list handoff without allowing suspend. */
++		if (epi->ws && epi->ws->active)
++			__pm_stay_awake(ep->ws);
++		__pm_relax(epi->ws);
+ 		list_del_init(&epi->rdllink);
+ 
+ 		revents = epi->ffd.file->f_op->poll(epi->ffd.file, NULL) &
+@@ -1264,6 +1361,7 @@
+ 			if (__put_user(revents, &uevent->events) ||
+ 			    __put_user(epi->event.data, &uevent->data)) {
+ 				list_add(&epi->rdllink, head);
++				__pm_stay_awake(epi->ws);
+ 				return eventcnt ? eventcnt : -EFAULT;
+ 			}
+ 			eventcnt++;
+@@ -1283,6 +1381,7 @@
+ 				 * poll callback will queue them in ep->ovflist.
+ 				 */
+ 				list_add_tail(&epi->rdllink, &ep->rdllist);
++				__pm_stay_awake(epi->ws);
+ 			}
+ 		}
+ 	}
+@@ -1595,6 +1694,14 @@
+ 	if (!tfile->f_op || !tfile->f_op->poll)
+ 		goto error_tgt_fput;
+ 
++	/* Unsupported/unprivileged wakeup requests retain ordinary epoll. */
++#ifdef CONFIG_PM_SLEEP
++	if ((epds.events & EPOLLWAKEUP) && !capable(CAP_BLOCK_SUSPEND))
++		epds.events &= ~EPOLLWAKEUP;
++#else
++	epds.events &= ~EPOLLWAKEUP;
++#endif
++
+ 	/*
+ 	 * We have to check that the file structure underneath the file descriptor
+ 	 * the user passed to us _is_ an eventpoll file. And also we do not permit
+--- a/include/linux/capability.h
++++ b/include/linux/capability.h
+@@ -359,8 +359,11 @@
+ 
+ #define CAP_WAKE_ALARM            35
+ 
+-
+-#define CAP_LAST_CAP         CAP_WAKE_ALARM
++/* Allow preventing system suspends while epoll events are pending */
++
++#define CAP_BLOCK_SUSPEND      36
++
++#define CAP_LAST_CAP         CAP_BLOCK_SUSPEND
+ 
+ #define cap_valid(x) ((x) >= 0 && (x) <= CAP_LAST_CAP)
+ 
+--- a/include/linux/eventpoll.h
++++ b/include/linux/eventpoll.h
+@@ -25,6 +25,18 @@
+ #define EPOLL_CTL_ADD 1
+ #define EPOLL_CTL_DEL 2
+ #define EPOLL_CTL_MOD 3
++
++/*
++ * Request the handling of system wakeup events so as to prevent system suspends
++ * from happening while those events are being processed.
++ *
++ * Assuming neither EPOLLET nor EPOLLONESHOT is set, system suspends will not be
++ * re-allowed until epoll_wait is called again after consuming the wakeup
++ * event(s).
++ *
++ * Requires CAP_BLOCK_SUSPEND
++ */
++#define EPOLLWAKEUP (1 << 29)
+ 
+ /* Set the One Shot behaviour for the target file descriptor */
+ #define EPOLLONESHOT (1 << 30)
+--- a/security/selinux/include/classmap.h
++++ b/security/selinux/include/classmap.h
+@@ -145,7 +145,8 @@
+ 	    "node_bind", "name_connect", NULL } },
+ 	{ "memprotect", { "mmap_zero", NULL } },
+ 	{ "peer", { "recv", NULL } },
+-	{ "capability2", { "mac_override", "mac_admin", "syslog", NULL } },
++	{ "capability2", { "mac_override", "mac_admin", "syslog",
++	    "wake_alarm", "block_suspend", NULL } },
+ 	{ "kernel_service", { "use_as_override", "create_files_as", NULL } },
+ 	{ "tun_socket",
+ 	  { COMMON_SOCK_PERMS, NULL } },

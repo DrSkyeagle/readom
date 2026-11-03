@@ -1,0 +1,119 @@
+--- a/drivers/power/max77696-battery.c
++++ b/drivers/power/max77696-battery.c
+@@ -202,6 +202,9 @@
+ void max77696_gauge_soclo_event(void);
+ void max77696_gauge_sochi_event(void);
+ static int max77696_gauge_check_cdata(struct max77696_gauge *me);
++#ifdef CONFIG_LAB126_ANDROID_POWER_SUPPLY_ABI
++static int max77696_gauge_android_snapshot(struct max77696_gauge *me, u8 *buf);
++#endif
+ static struct max77696_gauge* g_max77696_fg;
+ static struct max77696_gauge_config_data* g_max77696_fg_cdata = NULL;
+ void wario_battery_lobat_event(struct max77696_gauge *me, int crit_level);
+@@ -782,6 +785,22 @@
+ 
+ static SYSDEV_ATTR(fg_batt_learn, S_IWUSR|S_IRUGO, max77696_battlearn_show, max77696_battlearn_store);
+ 
++#ifdef CONFIG_LAB126_ANDROID_POWER_SUPPLY_ABI
++/*
++ * Root-readable, read-only snapshot. Unlike fg_batt_learn, a failed I2C
++ * read is returned to the caller instead of exposing a partial cache.
++ */
++static ssize_t max77696_android_snapshot_show(struct sys_device *dev,
++		struct sysdev_attribute *attr, char *buf)
++{
++	if (!g_max77696_fg)
++		return -ENODEV;
++	return max77696_gauge_android_snapshot(g_max77696_fg, (u8 *)buf);
++}
++static SYSDEV_ATTR(fg_android_snapshot, S_IRUSR,
++		max77696_android_snapshot_show, NULL);
++#endif
++
+ static ssize_t max77696_fg_cdata_check_show (struct sys_device *dev,
+ 		struct sysdev_attribute *devattr, char *buf)
+ {
+@@ -995,6 +1014,9 @@
+ 			sysdev_create_file(&wario_battery_device, &attr_fg_cdata_check);
+ 			sysdev_create_file(&wario_battery_device, &attr_fg_lobat_condition);
+ 			sysdev_create_file(&wario_battery_device, &attr_fg_batt_learn);
++#ifdef CONFIG_LAB126_ANDROID_POWER_SUPPLY_ABI
++			sysdev_create_file(&wario_battery_device, &attr_fg_android_snapshot);
++#endif
+ 			sysdev_create_file(&wario_battery_device, &attr_fg_learn_fullcap);
+ 			sysdev_create_file(&wario_battery_device, &attr_fg_learn_cycles);
+ 			sysdev_create_file(&wario_battery_device, &attr_fg_learn_rcomp0);
+@@ -1038,6 +1060,9 @@
+ 	sysdev_remove_file(&wario_battery_device, &attr_fg_cdata_check);
+ 	sysdev_remove_file(&wario_battery_device, &attr_fg_lobat_condition);
+ 	sysdev_remove_file(&wario_battery_device, &attr_fg_batt_learn);
++#ifdef CONFIG_LAB126_ANDROID_POWER_SUPPLY_ABI
++	sysdev_remove_file(&wario_battery_device, &attr_fg_android_snapshot);
++#endif
+ 	sysdev_remove_file(&wario_battery_device, &attr_fg_learn_fullcap);
+ 	sysdev_remove_file(&wario_battery_device, &attr_fg_learn_cycles);
+ 	sysdev_remove_file(&wario_battery_device, &attr_fg_learn_rcomp0);
+@@ -1185,6 +1210,63 @@
+ 		learned[id] = __le16_to_cpu(buf);
+ 	}
+ }
++
++#ifdef CONFIG_LAB126_ANDROID_POWER_SUPPLY_ABI
++/*
++ * FGS1 wire format, 32 bytes, all multibyte fields little-endian:
++ * 0..3 magic; 4 init_complete; 5 cached restore_pending; 6 hardware POR;
++ * 7 battery_id_valid; 8..11 battery_error; 12..31 ten learned u16 slots.
++ * Only slots 1..7 are valid, as in the stock learned-state workaround.
++ * Slots 0, 8 and 9 are explicitly zero, not stale system_battlearn data.
++ */
++static int max77696_gauge_android_snapshot(struct max77696_gauge *me, u8 *buf)
++{
++	u16 status_before, status_after, raw;
++	u32 errors;
++	int id, rc;
++
++	__lock(me);
++	if (!me->init_complete) {
++		rc = -EAGAIN;
++		goto out;
++	}
++	rc = max77696_gauge_reg_read_word(me, STATUS, &status_before);
++	if (rc)
++		goto out;
++	memset(buf, 0, 32);
++	for (id = 1; id < (GAUGE_LEARNED_NR_REGS - 2); id++) {
++		rc = max77696_bulk_read(me->i2c,
++				max77696_gauge_learned_regs[id], (u8 *)&raw, 2);
++		if (rc)
++			goto out;
++		raw = __le16_to_cpu(raw);
++		buf[12 + id * 2] = raw & 0xff;
++		buf[13 + id * 2] = raw >> 8;
++	}
++	rc = max77696_gauge_reg_read_word(me, STATUS, &status_after);
++	if (rc)
++		goto out;
++	if ((status_before ^ status_after) & FG_STATUS_POR) {
++		rc = -EAGAIN;
++		goto out;
++	}
++	memcpy(buf, "FGS1", 4);
++	buf[4] = 1;
++	/* Hardware POR has already been cleared by init_config(). */
++	buf[5] = !!me->por_bit_set;
++	buf[6] = !!(status_after & FG_STATUS_POR);
++	buf[7] = !!wario_battery_valid;
++	errors = (u32)wario_battery_error_flags;
++	buf[8] = errors & 0xff;
++	buf[9] = (errors >> 8) & 0xff;
++	buf[10] = (errors >> 16) & 0xff;
++	buf[11] = errors >> 24;
++	rc = 32;
++out:
++	__unlock(me);
++	return rc;
++}
++#endif
+ 
+ #define __is_timestamp_expired(me, timestamp) \
+ 	time_before(jiffies, (me)->timestamp + (me)->update_interval)

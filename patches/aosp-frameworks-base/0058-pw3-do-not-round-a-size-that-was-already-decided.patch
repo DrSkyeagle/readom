@@ -1,0 +1,49 @@
+From: PW3 Android port
+Subject: [PW3] StorageStatsService: do not round a size that was already decided
+
+Settings > 存储 on V85 says 「2.80 GB（总共 4.0 GB）」 and draws 70% 已使用.
+`df` on the same device says 615 MB of 1.7 GiB, 35%. The page is wrong by
+1.2 GB, and wrong in the direction that tells a reader with 1.1 GiB free that
+they are nearly out of room.
+
+Patch 0020 already dealt with the cause: `getPrimaryStorageSize()` rounds the
+data partition up to a power of two, for a phone whose flash chip is sold as
+a round number and whose other partitions take what /data does not show.
+Internal storage here is two image files on the Kindle's FAT volume -- 576 MiB
+of system and 1.75 GiB of data, 2.4 GB in all -- and there is no chip size to
+match, so `config_primaryStorageSizeExact` makes the method add the two and
+return that.
+
+`StorageStatsService.getTotalBytes()`, which is what Settings asks through
+`StorageStatsManager`, then rounds the answer a second time: 2.4 GB goes back
+up to 4.0 GB, and the donut's 「已使用」 is that minus the free space, so the
+1.6 GB that does not exist is all counted as used.
+
+The second rounding is dropped. `roundStorageSize()` returns val * pow with
+val a power of two up to 512 and pow a power of 1000, and feeding such a
+value back in returns it unchanged, so where `config_primaryStorageSizeExact`
+is not set -- every other device -- `getPrimaryStorageSize()` has already
+rounded and this returns exactly what it returned before. The other branch,
+for a volume that really is a disk, is left alone.
+
+ok
+--- a/services/usage/java/com/android/server/usage/StorageStatsService.java
++++ b/services/usage/java/com/android/server/usage/StorageStatsService.java
+@@ -168,7 +168,16 @@ public class StorageStatsService extends IStorageStatsManager.Stub {
+         // NOTE: No permissions required
+ 
+         if (volumeUuid == StorageManager.UUID_PRIVATE_INTERNAL) {
+-            return FileUtils.roundStorageSize(mStorage.getPrimaryStorageSize());
++            // PW3: getPrimaryStorageSize() has already decided whether to
++            // round. Where config_primaryStorageSizeExact is set it returns
++            // /data and /system as they are, because internal storage here
++            // is two image files on the Kindle's FAT volume and there is no
++            // flash chip of a round size to match; rounding that up again
++            // puts back everything the configuration took out. Where the
++            // configuration is not set the value is already rounded, and
++            // roundStorageSize of a rounded size is that same size, so this
++            // is unchanged for every other device.
++            return mStorage.getPrimaryStorageSize();
+         } else {
+             final VolumeInfo vol = mStorage.findVolumeByUuid(volumeUuid);
+             if (vol == null) {

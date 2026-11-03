@@ -1,0 +1,104 @@
+diff --git a/net/Kconfig b/net/Kconfig
+--- a/net/Kconfig
++++ b/net/Kconfig
+@@ -77,8 +77,20 @@
+ source "net/ipv6/Kconfig"
+ source "net/netlabel/Kconfig"
+ 
+ endif # if INET
++
++config ANDROID_INET_GROUP_PERMISSION
++	bool "Android INET group permission for IP socket creation"
++	depends on INET
++	default n
++	help
++	  Require effective or supplementary group AID_INET (3003), or
++	  CAP_NET_RAW, to create IPv4 and IPv6 sockets. This restores the
++	  Android 3.0 socket gate used by Android's INTERNET permission.
++	  It does not grant raw/admin capabilities or change other socket
++	  families. Enable for Android products whose package manager and
++	  zygote assign the inet group to applications with INTERNET.
+ 
+ config NETWORK_SECMARK
+ 	bool "Security Marking"
+ 	help
+diff --git a/net/ipv4/af_inet.c b/net/ipv4/af_inet.c
+--- a/net/ipv4/af_inet.c
++++ b/net/ipv4/af_inet.c
+@@ -118,8 +118,24 @@
+ #include <linux/mroute.h>
+ #endif
+ 
+ 
++/* Android common 3.0: INTERNET is represented by AID_INET.
++ * Keep CAP_NET_RAW's established privileged override and all LSM checks. */
++#ifdef CONFIG_ANDROID_INET_GROUP_PERMISSION
++#include <linux/android_aid.h>
++
++static inline int current_has_network(void)
++{
++	return in_egroup_p(AID_INET) || capable(CAP_NET_RAW);
++}
++#else
++static inline int current_has_network(void)
++{
++	return 1;
++}
++#endif
++
+ /* The inetsw table contains everything that inet_create needs to
+  * build a new socket.
+  */
+ static struct list_head inetsw[SOCK_MAX];
+@@ -272,8 +288,11 @@
+ 	unsigned char answer_flags;
+ 	char answer_no_check;
+ 	int try_loading_module = 0;
+ 	int err;
++
++	if (!current_has_network())
++		return -EACCES;
+ 
+ 	if (unlikely(!inet_ehash_secret))
+ 		if (sock->type != SOCK_RAW && sock->type != SOCK_DGRAM)
+ 			build_ehash_secret();
+diff --git a/net/ipv6/af_inet6.c b/net/ipv6/af_inet6.c
+--- a/net/ipv6/af_inet6.c
++++ b/net/ipv6/af_inet6.c
+@@ -62,8 +62,24 @@
+ #include <asm/uaccess.h>
+ #include <asm/system.h>
+ #include <linux/mroute6.h>
+ 
++/* Android common 3.0: INTERNET is represented by AID_INET.
++ * Keep CAP_NET_RAW's established privileged override and all LSM checks. */
++#ifdef CONFIG_ANDROID_INET_GROUP_PERMISSION
++#include <linux/android_aid.h>
++
++static inline int current_has_network(void)
++{
++	return in_egroup_p(AID_INET) || capable(CAP_NET_RAW);
++}
++#else
++static inline int current_has_network(void)
++{
++	return 1;
++}
++#endif
++
+ MODULE_AUTHOR("Cast of dozens");
+ MODULE_DESCRIPTION("IPv6 protocol stack for Linux");
+ MODULE_LICENSE("GPL");
+ 
+@@ -107,8 +123,11 @@
+ 	unsigned char answer_flags;
+ 	char answer_no_check;
+ 	int try_loading_module = 0;
+ 	int err;
++
++	if (!current_has_network())
++		return -EACCES;
+ 
+ 	if (sock->type != SOCK_RAW &&
+ 	    sock->type != SOCK_DGRAM &&
+ 	    !inet_ehash_secret)

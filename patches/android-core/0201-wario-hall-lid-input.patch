@@ -1,0 +1,311 @@
+--- a/drivers/char/Kconfig
++++ b/drivers/char/Kconfig
+@@ -233,6 +233,16 @@
+           Enable support for Wario hall sensor. To compile this driver as a
+ 	  module, choose M here; the module will be called wario_hall
+ 
++
++config WARIO_HALL_INPUT
++	bool "Wario Hall sensor lid-switch input events"
++	depends on WARIO_HALL && INPUT
++	default n
++	help
++	  Also expose the debounced cover state as EV_SW/SW_LID on an input
++	  device named wario_hall. A closed cover is 1; an open cover is 0.
++	  Existing Hall misc ioctls, uevents and wakeup handling are retained.
++	  Enable for an Android image whose lid policy consumes this input.
+ 
+ config NWBUTTON
+ 	tristate "NetWinder Button"
+--- a/drivers/char/wario_hall.c
++++ b/drivers/char/wario_hall.c
+@@ -27,6 +27,7 @@
+ #include <linux/delay.h>
+ #include <linux/platform_device.h>
+ #include <linux/miscdevice.h>
++#include <linux/input.h>
+ #include <linux/sysfs.h>
+ #include <linux/sysdev.h>
+ #include <linux/workqueue.h>
+@@ -73,6 +74,58 @@
+ static int hall_close_delay = 0;	/* delay to avoid multiple transitions within short duration */
+ static int current_state = 0;		/* OPEN=0, CLOSE=1 */
+ static int hall_enabled = HALL_CTRL_ENABLE;	/* Enable Hall control by default */
++static bool hall_irq_wake_enabled;
++#ifdef CONFIG_WARIO_HALL_INPUT
++static struct input_dev *hall_input;
++#endif
++
++static void hall_report_lid(int closed)
++{
++#ifdef CONFIG_WARIO_HALL_INPUT
++	if (hall_input) {
++		input_report_switch(hall_input, SW_LID, !!closed);
++		input_sync(hall_input);
++	}
++#endif
++}
++
++static int hall_input_register(struct platform_device *pdev)
++{
++#ifdef CONFIG_WARIO_HALL_INPUT
++	struct input_dev *input;
++	int error;
++
++	input = input_allocate_device();
++	if (!input)
++		return -ENOMEM;
++
++	input->name = HALL_DRIVER_NAME;
++	input->phys = HALL_DRIVER_NAME "/input0";
++	input->id.bustype = BUS_HOST;
++	input->dev.parent = &pdev->dev;
++	input_set_capability(input, EV_SW, SW_LID);
++	/* Seed EVIOCGSW before registration, including boot with cover shut. */
++	input_report_switch(input, SW_LID,
++			hall_enabled && gpio_hallsensor_detect());
++	error = input_register_device(input);
++	if (error) {
++		input_free_device(input);
++		return error;
++	}
++	hall_input = input;
++#endif
++	return 0;
++}
++
++static void hall_input_unregister(void)
++{
++#ifdef CONFIG_WARIO_HALL_INPUT
++	if (hall_input) {
++		input_unregister_device(hall_input);
++		hall_input = NULL;
++	}
++#endif
++}
+ 
+ static void hall_close_event_work_handler(struct work_struct *);
+ static DECLARE_DELAYED_WORK(hall_close_event_work, hall_close_event_work_handler);
+@@ -99,6 +152,8 @@
+ 	} else {								/* HALL CTRL DISABLED */
+ 		wario_onkey_down_ctrl(1);
+ 	}
++	/* A disabled Hall policy must not leave Android's lid latched closed. */
++	hall_report_lid(hall_enabled && current_state == STATE_CLOSED);
+ 	return;
+ }
+ 
+@@ -248,11 +303,60 @@
+ 	.cls	= &wario_hall_sysclass,
+ };
+ 
+-static void hall_send_close_event(void) 
++static struct sysdev_attribute *hall_attrs[] = {
++	&attr_hall_detect,
++	&attr_hall_enable,
++	&attr_hall_debug,
++	&attr_hall_trig_wkup,
++	&attr_hall_gpio_pullup,
++#if defined(CONFIG_MX6SL_WARIO_WOODY)
++	&attr_hall_oneshot,
++#endif
++};
++
++static int hall_sysfs_register(void)
++{
++	size_t i;
++	int error;
++
++	error = sysdev_class_register(&wario_hall_sysclass);
++	if (error)
++		return error;
++	error = sysdev_register(&wario_hall_device);
++	if (error)
++		goto fail_class;
++	for (i = 0; i < ARRAY_SIZE(hall_attrs); i++) {
++		error = sysdev_create_file(&wario_hall_device, hall_attrs[i]);
++		if (error)
++			goto fail_files;
++	}
++	return 0;
++
++fail_files:
++	while (i)
++		sysdev_remove_file(&wario_hall_device, hall_attrs[--i]);
++	sysdev_unregister(&wario_hall_device);
++fail_class:
++	sysdev_class_unregister(&wario_hall_sysclass);
++	return error;
++}
++
++static void hall_sysfs_unregister(void)
++{
++	size_t i = ARRAY_SIZE(hall_attrs);
++
++	while (i)
++		sysdev_remove_file(&wario_hall_device, hall_attrs[--i]);
++	sysdev_unregister(&wario_hall_device);
++	sysdev_class_unregister(&wario_hall_sysclass);
++}
++
++static void hall_send_close_event(void)
+ {
+ 	char *envp[] = {"HALLSENSOR=closed", NULL};
+ 	kobject_uevent_env(&hall_misc_device.this_device->kobj, KOBJ_ONLINE, envp);	
+ 	current_state = STATE_CLOSED;
++	hall_report_lid(1);
+ }
+ 
+ static void hall_close_event_work_handler(struct work_struct *work)
+@@ -307,6 +411,8 @@
+ 				if (hall_dbg) 
+ 					printk(KERN_INFO "KERNEL: I hall:opened::current_state=%d\n",current_state);
+ 			}
++			/* Also resync an open during the delayed boot initialization. */
++			hall_report_lid(0);
+ 			hall_close_delay = 1;
+ 			schedule_delayed_work(&hall_open_event_work, msecs_to_jiffies(HALL_EVENT_DELAY));
+ 		}
+@@ -331,8 +437,34 @@
+ static void hall_init_work_handler(struct work_struct *work)
+ {
+ 	int irq = gpio_hallsensor_irq();
++	int error;
++
+ 	hall_init_state();
+-	enable_irq_wake(irq);
++	error = enable_irq_wake(irq);
++	if (!error)
++		hall_irq_wake_enabled = true;
++	else
++		pr_err("%s: failed to enable wake IRQ %d: %d\n",
++			HALL_DRIVER_NAME, irq, error);
++}
++
++static void hall_stop_work(struct hall_platform_data *pdata)
++{
++	/*
++	 * Stop the producer before draining work. The detwq handler can
++	 * re-enable the IRQ it disabled, so keep our extra disable reference
++	 * until free_irq(). No work may outlive the misc or input device.
++	 */
++	disable_irq(pdata->hall_irq);
++	cancel_work_sync(&hall_detwq);
++	cancel_delayed_work_sync(&hall_init_work);
++	cancel_delayed_work_sync(&hall_open_event_work);
++	cancel_delayed_work_sync(&hall_close_event_work);
++	if (hall_irq_wake_enabled) {
++		disable_irq_wake(pdata->hall_irq);
++		hall_irq_wake_enabled = false;
++	}
++	free_irq(pdata->hall_irq, pdata);
+ }
+ 
+ static int __devinit wario_hall_probe(struct platform_device *pdev)
+@@ -341,6 +473,9 @@
+ 	int irq;
+ 	struct hall_drvdata* ddata;
+ 	struct hall_platform_data *pdata = pdev->dev.platform_data;
++
++	if (!pdata)
++		return -EINVAL;
+ 
+ #if defined(CONFIG_MX6SL_WARIO_WOODY)
+ 	/* Disable HALL (by default) for WhiskyHVT units */
+@@ -356,19 +491,23 @@
+ 	}
+ #endif
+ 
+-	ddata = kzalloc(sizeof(struct hall_drvdata) + sizeof(struct hall_drvdata),
+-			GFP_KERNEL);
++	ddata = kzalloc(sizeof(*ddata), GFP_KERNEL);
+ 	if (!ddata) {
+ 		error = -ENOMEM;
+ 		goto fail1;
+ 	}
+ 	platform_set_drvdata(pdev, ddata);
+ 	ddata->pdata = pdata;
++	hall_irq_wake_enabled = false;
++
++	error = hall_input_register(pdev);
++	if (error)
++		goto fail2;
+ 
+ 	if (misc_register(&hall_misc_device)) {
+ 		error = -EBUSY;
+ 		printk(KERN_ERR "%s Couldn't register device %d \n",__FUNCTION__, HALL_DEV_MINOR);
+-		goto fail2;
++		goto fail_input;
+ 	}
+ 
+ 	irq = pdata->hall_irq;
+@@ -382,26 +521,21 @@
+ 	/* Configure wakeup capable */
+ 	device_set_wakeup_capable(&pdev->dev, true); 
+ 
+-	error = sysdev_class_register(&wario_hall_sysclass);
+-	if (!error)
+-		error = sysdev_register(&wario_hall_device);
+-	if (!error) {
+-		error = sysdev_create_file(&wario_hall_device, &attr_hall_detect);
+-		error = sysdev_create_file(&wario_hall_device, &attr_hall_enable);
+-		error = sysdev_create_file(&wario_hall_device, &attr_hall_debug);
+-		error = sysdev_create_file(&wario_hall_device, &attr_hall_trig_wkup);
+-		error = sysdev_create_file(&wario_hall_device, &attr_hall_gpio_pullup);
+-#if defined(CONFIG_MX6SL_WARIO_WOODY)
+-		error = sysdev_create_file(&wario_hall_device, &attr_hall_oneshot);
+-#endif
+-	}
++	error = hall_sysfs_register();
++	if (error)
++		goto fail_irq;
+ 
+ 	schedule_delayed_work(&hall_init_work, msecs_to_jiffies(HALL_INIT_DELAY));
+ 
+ 	return 0;
+ 
++fail_irq:
++	hall_stop_work(pdata);
++	device_set_wakeup_capable(&pdev->dev, false);
+ fail3:
+ 	misc_deregister(&hall_misc_device);
++fail_input:
++	hall_input_unregister();
+ fail2:
+ 	platform_set_drvdata(pdev, NULL);
+ 	kfree(ddata);
+@@ -411,28 +545,16 @@
+ 
+ static int __devexit wario_hall_remove(struct platform_device *pdev)
+ {
++	struct hall_drvdata *ddata = platform_get_drvdata(pdev);
+ 	struct hall_platform_data *pdata = pdev->dev.platform_data;
+ 
+-	sysdev_remove_file(&wario_hall_device, &attr_hall_detect);
+-	sysdev_remove_file(&wario_hall_device, &attr_hall_enable);
+-	sysdev_remove_file(&wario_hall_device, &attr_hall_debug);
+-	sysdev_remove_file(&wario_hall_device, &attr_hall_trig_wkup);
+-	sysdev_remove_file(&wario_hall_device, &attr_hall_gpio_pullup);
+-#if defined(CONFIG_MX6SL_WARIO_WOODY)
+-	sysdev_remove_file(&wario_hall_device, &attr_hall_oneshot);
+-#endif
+-	sysdev_unregister(&wario_hall_device);
+-	sysdev_class_unregister(&wario_hall_sysclass);
+-
+-	cancel_delayed_work_sync(&hall_init_work);		
+-	cancel_delayed_work_sync(&hall_open_event_work);		
+-	cancel_delayed_work_sync(&hall_close_event_work);		
+-
++	hall_sysfs_unregister();
++	hall_stop_work(pdata);
+ 	misc_deregister(&hall_misc_device);
+-	device_set_wakeup_capable(&pdev->dev, false); 
+-	disable_irq_wake(pdata->hall_irq);
+-	free_irq(pdata->hall_irq, pdev->dev.platform_data);	
++	hall_input_unregister();
++	device_set_wakeup_capable(&pdev->dev, false);
+ 	platform_set_drvdata(pdev, NULL);
++	kfree(ddata);
+ 	return 0;
+ }
+ 

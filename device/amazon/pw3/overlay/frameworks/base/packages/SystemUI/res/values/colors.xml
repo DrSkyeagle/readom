@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Both bars are white with black icons everywhere, as the stock reader's
+         are, and so never change between applications (config.xml,
+         config_opaqueSystemBars). -->
+    <color name="system_bar_background_opaque">#ffffffff</color>
+    <!-- Status bar and navigation bar icons on a light background. AOSP draws
+         them at 60% black (and the filled part of the signal and battery
+         icons at 48%), which the panel shows as a middle grey; the stock
+         Kindle's are black. The unfilled part stays a light grey. -->
+    <color name="dark_mode_icon_color_single_tone">#ff000000</color>
+    <color name="dark_mode_icon_color_dual_tone_fill">#ff000000</color>
+</resources>

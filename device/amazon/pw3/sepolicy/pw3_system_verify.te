@@ -1,0 +1,48 @@
+# The record of the last complete check of the system image, written by the
+# start before any policy is loaded and therefore unlabeled until init's
+# restorecon reaches it (init.pw3-main.rc). Its own type, so that deleting it
+# is a permission one domain has and no other.
+type pw3_system_stamp_file, file_type, data_file_type;
+
+type pw3_system_verify, domain;
+typeattribute pw3_system_verify coredomain;
+type pw3_system_verify_exec, exec_type, file_type;
+init_daemon_domain(pw3_system_verify)
+
+# Reads the record the start left in the RAM root, and the mount table.
+allow pw3_system_verify rootfs:file { getattr open read };
+r_dir_file(pw3_system_verify, proc)
+
+# Reads the read-only device /system is mapped to, and nothing else that is
+# writable: dm-2, the data map, is relabelled userdata_block_device in
+# file_contexts, so what dm_device still covers is the two read-only maps.
+# BLKGETSIZE64 and BLKROGET are the only ioctls it makes; blk_file has no
+# extended permission rules in this policy, so there is nothing to list.
+allow pw3_system_verify dm_device:blk_file { getattr open read ioctl };
+# And the directory the node sits in, which the open walks first. The path is
+# not written in this program -- it comes out of the record the start left
+# (TestFileInit.h: block_node("dm-1", ...) makes "/dev/block/dm-1") -- so the
+# reasoning above about dm_device against userdata_block_device went through
+# the node and never reached /dev/block. Found on 2026-10-21 in an adversarial
+# review, which is the third time the same oversight has turned up: V65 was a
+# missing node rule, V66 a missing directory rule in pw3_boot_report, this one
+# a missing directory rule here. Without it the background SHA256 never runs:
+# the service starts after sys.boot_completed, waits, fails at open() and exits
+# 1, with the interface up and nothing having been verified.
+allow pw3_system_verify block_device:dir search;
+
+# Deletes the record of the last complete check, and only that: a mismatch has
+# to reach the next start, which is the one that can refuse to boot the image.
+allow pw3_system_verify pw3_system_stamp_file:dir { search write remove_name };
+allow pw3_system_verify pw3_system_stamp_file:file { getattr unlink };
+# Deleting the record is not the whole of it: the deletion has to survive a
+# power loss, which means fsync on the directory, which means opening the
+# directory -- open("/data/pw3", O_RDONLY | O_DIRECTORY) in SystemVerify.cpp.
+# `remove_name` is the permission to take a name out of a directory and says
+# nothing about opening it. Without these two the unlink succeeds, the fsync is
+# never reached, and a power loss in that window can leave the record in place
+# for a system image that failed its check -- which the next start would then
+# accept. Found in the same review on 2026-10-21.
+allow pw3_system_verify pw3_system_stamp_file:dir { open read };
+
+set_prop(pw3_system_verify, pw3_boot_prop)

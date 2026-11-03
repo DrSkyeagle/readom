@@ -1,0 +1,486 @@
+From: PW3 Android port
+Subject: [PW3] Launcher3: a layout change arrives without taking the home screen apart
+
+The default home screen is read once, into a database that was just created
+(loadDefaultFavoritesIfNecessary), and nothing reads it again. So a release
+that changes the layout had exactly one way to reach a device that already has
+a home screen, and this project took it three times: move SCHEMA_VERSION, let
+onUpgrade fall through to createEmptyDB, let the next load seed the empty
+table (0011, 0012, and 0014 as it was first written).
+
+What that costs is the whole workspace, because the table being dropped is the
+only record of it: every icon the reader has moved, every folder they have
+made, every application they have installed since the image was built. Which
+was then answered three more times -- an entry for WeRead in the layout by
+name, a rule that queued everything non-system back through the install path,
+SCHEMA_VERSION and downgrade_schema.json kept in step -- and three answers to
+the cost of one mechanism is the mechanism being wrong.
+
+It is wrong because two unrelated things were one number. SCHEMA_VERSION is
+about the tables: what the columns are, and how a database written by an older
+release is read by this one. A layout is about what is in those tables on a
+first open. Tying them together makes every layout edit a table migration,
+with the migration of last resort -- start over -- as its answer.
+
+So the layout carries its own version (pw3_workspace_layout_version in
+res/values/config.xml), and what a newer version brings to a home screen that
+already exists is the difference:
+
+  * an entry already on the screen is passed over -- wherever the reader has
+    since moved it, and whether it sits in a cell or inside a folder. Entries
+    are told apart by the activity they open, or, for an entry that opens no
+    activity, by its action. Not by the stored intent, which the layout parser
+    and an install write differently for the same application;
+  * an entry that is not on the screen is placed: in the cell the layout asks
+    for while that cell is free, in the first free cell of the same screen when
+    it is not, and not at all when the screen is full. The reader's arrangement
+    is never moved aside for an entry of the image's;
+  * nothing is removed. A row in this table belongs to whoever is holding the
+    device; the layout is the floor of what the home screen has, not a mirror
+    of it. Which also means that moving an entry from one cell to another, or
+    taking one out of the layout, reaches a first open and nobody else -- the
+    honest half of the trade.
+
+Row 0 of the first screen is the search box, and it is not a row of this table:
+the difference marks that row occupied exactly as LoaderCursor does, or an
+entry placed behind the box would be dropped by the next load rather than
+shown.
+
+What this does not carry is a folder, a widget, a hotseat cell or a <resolve>.
+None of them can be told from what is on the screen by the one thing compared
+above, and placing one of them a second time is worse than not placing it at
+all; each is logged and passed over, and the layout of this device has none of
+them. tools/tests/test_home_screen_entries.py keeps it that way, and holds the
+version number against a hash of the layout file so that an edit here cannot
+move without it.
+
+This runs before the workspace is read, on every device that installs the
+release that moves the version, so anything it throws is a home screen that does
+not come up -- and on this device the home screen is the whole interface. It is
+therefore caught, logged, and tried again on the next load, which is safe
+because the pass is idempotent: what it has already inserted is on the screen
+the next time it looks, and is passed over. Nothing is placed where the reader
+cannot see it either: the search for a free cell does not leave the screen the
+layout named.
+
+SCHEMA_VERSION stays at 29 and goes back to meaning what AOSP means by it. The
+entry for all applications (0014) is what reaches an existing device this way
+first.
+
+diff --git a/src/com/android/launcher3/WorkspaceLayoutDifference.java b/src/com/android/launcher3/WorkspaceLayoutDifference.java
+new file mode 100644
+--- /dev/null
++++ b/src/com/android/launcher3/WorkspaceLayoutDifference.java
+@@ -0,0 +1,209 @@
++// SPDX-License-Identifier: Apache-2.0
++package com.android.launcher3;
++
++import android.content.ContentValues;
++import android.content.Context;
++import android.content.Intent;
++import android.database.Cursor;
++import android.database.sqlite.SQLiteDatabase;
++import android.util.Log;
++
++import com.android.launcher3.LauncherSettings.Favorites;
++import com.android.launcher3.LauncherSettings.WorkspaceScreens;
++import com.android.launcher3.config.FeatureFlags;
++import com.android.launcher3.util.GridOccupancy;
++
++import java.net.URISyntaxException;
++import java.util.ArrayList;
++import java.util.HashMap;
++import java.util.HashSet;
++
++/**
++ * PW3: what the home screen layout has that the home screen has not.
++ *
++ * A release that changes default_workspace_pw3.xml has to reach a device that
++ * already has a home screen, and the only mechanism this project had for that
++ * was destroying the workspace: SCHEMA_VERSION moved, onUpgrade fell through to
++ * createEmptyDB, and the next load read the layout into an empty table (0011,
++ * 0012). Everything the reader had done went with it -- the cells they had
++ * arranged, the folders they had made, the applications they had installed --
++ * because the table being dropped is the only record of any of it.
++ *
++ * So the layout carries its own version (R.integer.pw3_workspace_layout_version)
++ * and what arrives is the difference. This object is read from the table once,
++ * before the layout is parsed, and every insert the parser makes goes through
++ * {@link #wants} (LauncherProvider.DatabaseHelper.insertAndCheck): an entry
++ * already on the screen is passed over, one that is not is placed, and nothing
++ * is removed or moved. The layout is the floor of what the home screen has, not
++ * a mirror of it -- once a row is in this table it is the reader's.
++ *
++ * What it carries is a favorite or a shortcut in a cell of a screen. A folder, a
++ * widget, a hotseat cell and a resolve are passed over with a line in the log,
++ * because none of them can be told apart from what is on the screen by the one
++ * thing this object compares ({@link #keyOf}), and placing one twice is worse
++ * than not placing it at all. Such an entry reaches a device on a first open and
++ * no other way, and tools/tests/test_home_screen_entries.py keeps the layout to
++ * what this carries.
++ */
++class WorkspaceLayoutDifference {
++
++    private static final String TAG = "PW3Layout";
++
++    /** The key ({@link #keyOf}) of everything in the table, folders included. */
++    private final HashSet<String> mOnTheScreen = new HashSet<>();
++    /** The cells taken on each screen the workspace has. */
++    private final HashMap<Long, GridOccupancy> mOccupancy = new HashMap<>();
++    private final ArrayList<Long> mScreens = new ArrayList<>();
++    private final int mColumns;
++    private final int mRows;
++
++    private WorkspaceLayoutDifference(int columns, int rows) {
++        mColumns = columns;
++        mRows = rows;
++    }
++
++    /**
++     * Reads the home screen as it stands, or returns null when there is no
++     * screen to place anything on -- a workspace without a single screen row is
++     * not one an entry can be added to, and FIRST_SCREEN_ID is never removed
++     * (Workspace), so this says the table is not what it should be.
++     */
++    static WorkspaceLayoutDifference read(Context context, SQLiteDatabase db) {
++        InvariantDeviceProfile profile = LauncherAppState.getIDP(context);
++        WorkspaceLayoutDifference difference =
++                new WorkspaceLayoutDifference(profile.numColumns, profile.numRows);
++        try (Cursor c = db.query(WorkspaceScreens.TABLE_NAME,
++                new String[] {WorkspaceScreens._ID}, null, null, null, null,
++                WorkspaceScreens.SCREEN_RANK)) {
++            while (c.moveToNext()) {
++                difference.addScreen(c.getLong(0));
++            }
++        }
++        if (difference.mScreens.isEmpty()) {
++            Log.e(TAG, "the workspace has no screen to place anything on");
++            return null;
++        }
++        try (Cursor c = db.query(Favorites.TABLE_NAME,
++                new String[] {Favorites.CONTAINER, Favorites.SCREEN, Favorites.CELLX,
++                        Favorites.CELLY, Favorites.SPANX, Favorites.SPANY, Favorites.INTENT},
++                null, null, null, null, null)) {
++            while (c.moveToNext()) {
++                // Every row of the table, whichever container it is in: an
++                // application the reader has dragged into a folder is on the
++                // home screen, and putting a second copy of it in a cell
++                // because the layout names it is not an improvement.
++                String key = keyOf(c.getString(6));
++                if (key != null) {
++                    difference.mOnTheScreen.add(key);
++                }
++                GridOccupancy occupancy = c.getLong(0) == Favorites.CONTAINER_DESKTOP
++                        ? difference.mOccupancy.get(c.getLong(1)) : null;
++                if (occupancy != null) {
++                    occupancy.markCells(c.getInt(2), c.getInt(3),
++                            Math.max(1, c.getInt(4)), Math.max(1, c.getInt(5)), true);
++                }
++            }
++        }
++        return difference;
++    }
++
++    private void addScreen(long id) {
++        GridOccupancy occupancy = new GridOccupancy(mColumns, mRows);
++        if (id == Workspace.FIRST_SCREEN_ID) {
++            // Row 0 of the first screen is the search box, which is not a row
++            // of this table. LoaderCursor marks the same row for the same
++            // reason: an entry placed behind the box is dropped the next time
++            // the workspace is loaded rather than shown.
++            occupancy.markCells(0, 0, mColumns, 1, FeatureFlags.QSB_ON_FIRST_SCREEN);
++        }
++        mScreens.add(id);
++        mOccupancy.put(id, occupancy);
++    }
++
++    /**
++     * Whether this entry of the layout is missing from the home screen, and if
++     * it is, where it goes: the cell the layout asks for when that cell is free,
++     * and the first free cell of the same screen when it is not. The reader's
++     * own arrangement is never moved aside to make room for an entry of the
++     * image's; an entry that finds no room at all is not placed, and said so in
++     * the log.
++     *
++     * Changes {@code values} when it places the entry somewhere else, which is
++     * what the parser is about to insert.
++     */
++    boolean wants(ContentValues values) {
++        Long container = values.getAsLong(Favorites.CONTAINER);
++        if (container == null || container != Favorites.CONTAINER_DESKTOP) {
++            Log.w(TAG, "only a first open places this entry: it is not in a cell of a screen "
++                    + "but in container " + container);
++            return false;
++        }
++        String key = keyOf(values.getAsString(Favorites.INTENT));
++        if (key == null) {
++            Log.w(TAG, "only a first open places this entry: there is nothing to tell it apart "
++                    + "from what is on the screen (a folder, or a widget)");
++            return false;
++        }
++        if (mOnTheScreen.contains(key)) {
++            return false;
++        }
++        Long screen = values.getAsLong(Favorites.SCREEN);
++        GridOccupancy occupancy = screen == null ? null : mOccupancy.get(screen);
++        if (occupancy == null) {
++            // The layout asks for a screen this workspace has not got. The
++            // first screen is the one a reader is looking at.
++            screen = mScreens.get(0);
++            occupancy = mOccupancy.get(screen);
++            values.put(Favorites.SCREEN, screen);
++        }
++        int x = number(values, Favorites.CELLX, 0);
++        int y = number(values, Favorites.CELLY, 0);
++        int spanX = Math.max(1, number(values, Favorites.SPANX, 1));
++        int spanY = Math.max(1, number(values, Favorites.SPANY, 1));
++        if (!occupancy.isRegionVacant(x, y, spanX, spanY)) {
++            int[] vacant = new int[2];
++            if (!occupancy.findVacantCell(vacant, spanX, spanY)) {
++                Log.w(TAG, "screen " + screen + " is full; " + key + " is not placed");
++                return false;
++            }
++            x = vacant[0];
++            y = vacant[1];
++            values.put(Favorites.CELLX, x);
++            values.put(Favorites.CELLY, y);
++        }
++        occupancy.markCells(x, y, spanX, spanY, true);
++        mOnTheScreen.add(key);
++        return true;
++    }
++
++    /**
++     * What tells two entries of this table apart.
++     *
++     * The activity a row opens, where there is one: the two writers of this
++     * table store the same application under different intents -- the layout
++     * parser puts no flags on it, an install puts FLAG_ACTIVITY_NEW_TASK on it
++     * -- and the application is the same application. Where there is no
++     * activity, the action, which is what the launcher answers such a row by
++     * (Utilities.ACTION_ALL_APPS_ENTRY); it does not move when the flags around
++     * it do. A row that has neither has no identity here and is passed over.
++     */
++    private static String keyOf(String uri) {
++        if (uri == null) {
++            return null;
++        }
++        try {
++            Intent parsed = Intent.parseUri(uri, 0);
++            if (parsed.getComponent() != null) {
++                return parsed.getComponent().flattenToShortString();
++            }
++            return parsed.getAction();
++        } catch (URISyntaxException e) {
++            return null;
++        }
++    }
++
++    private static int number(ContentValues values, String column, int fallback) {
++        Integer value = values.getAsInteger(column);
++        return value == null ? fallback : value;
++    }
++}
+diff --git a/res/values/config.xml b/res/values/config.xml
+--- a/res/values/config.xml
++++ b/res/values/config.xml
+@@ -158,4 +158,12 @@
+     <item type="id" name="search_container_hotseat" />
+     <item type="id" name="search_container_all_apps" />
+ 
++    <!-- PW3: the version of default_workspace_pw3.xml, which moves in every
++         release that edits that file. A device whose home screen was seeded by
++         an earlier version is given the entries it has not got and nothing
++         else (WorkspaceLayoutDifference); the number is what says there are
++         any, and tools/tests/test_home_screen_entries.py holds it against the
++         layout so that an edit cannot move without it. -->
++    <integer name="pw3_workspace_layout_version">2</integer>
++
+ </resources>
+diff --git a/res/xml/default_workspace_pw3.xml b/res/xml/default_workspace_pw3.xml
+--- a/res/xml/default_workspace_pw3.xml
++++ b/res/xml/default_workspace_pw3.xml
+@@ -34,11 +34,14 @@
+      and the icon size for a 1072 by 1448 panel is a separate question with its
+      own measurements.
+ 
+-     Editing this file is half a change. A database that exists is never seeded
+-     again at the same version, so SCHEMA_VERSION in LauncherProvider.java
++     Editing this file is half a change. A home screen that exists is never
++     seeded again, so pw3_workspace_layout_version in res/values/config.xml
+      moves with every edit here, or the edit reaches nobody who already has the
+      system. That is what happened to 0010 and then, from the other side, to
+-     0011.
++     0011. What the version brings is the entries added here and only those: a
++     device that has a home screen keeps it, in the arrangement its reader left
++     it in (WorkspaceLayoutDifference). Moving an entry from one cell to
++     another, or taking one out, reaches a first open and nobody else.
+ 
+      Row 0 of the first screen is the search box (0004), so the applications
+      start at row 1, in the order they are reached for: read, then the web,
+diff --git a/src/com/android/launcher3/LauncherProvider.java b/src/com/android/launcher3/LauncherProvider.java
+--- a/src/com/android/launcher3/LauncherProvider.java
++++ b/src/com/android/launcher3/LauncherProvider.java
+@@ -85,16 +85,25 @@
+     /**
+      * Represents the schema of the database. Changes in scheme need not be backwards compatible.
+      */
+-    /* PW3: 29 because the default home screen changed. The version is what
+-     * decides whether a workspace seeded by an older release is carried
+-     * forward or seeded again (onUpgrade below), and it moves in every release
+-     * that changes what the first open of the home screen shows: the layout
+-     * file, and the profile entry that names it. */
++    /* PW3: this is about the tables and nothing else, which is what AOSP
++     * means by it. Up to 29 this project also moved it for a change to the
++     * default home screen, because onUpgrade falling through to createEmptyDB
++     * was the only way a new layout reached a device that already had one
++     * (0011, 0012) -- and it took the reader's whole workspace with it. The
++     * layout has its own version now (R.integer.pw3_workspace_layout_version)
++     * and arrives as a difference (WorkspaceLayoutDifference), so this number
++     * moves only for a change to the tables, and 29 is where that stands. */
+     public static final int SCHEMA_VERSION = 29;
+ 
+     public static final String AUTHORITY = (BuildConfig.APPLICATION_ID + ".settings").intern();
+ 
+     static final String EMPTY_DATABASE_CREATED = "EMPTY_DATABASE_CREATED";
++    /**
++     * PW3: the version of the home screen layout this workspace has been given
++     * (R.integer.pw3_workspace_layout_version). Absent until a release that
++     * knows about it has run, which reads as 0: the version before the first.
++     */
++    private static final String LAYOUT_VERSION_APPLIED = "pw3_workspace_layout_version";
+ 
+     private static final String RESTRICTION_PACKAGE_NAME = "workspace.configuration.package.name";
+ 
+@@ -525,7 +534,70 @@
+                         getDefaultLayoutParser(widgetHost));
+             }
+             clearFlagEmptyDbCreated();
+-        }
++            // PW3: this workspace is the layout, whichever of the four sources
++            // above it came from, so there is no difference left to apply.
++            sp.edit().putInt(LAYOUT_VERSION_APPLIED, shippedLayoutVersion()).commit();
++        } else {
++            applyWhatTheLayoutGainedSinceThen(sp);
++        }
++    }
++
++    /**
++     * PW3: the version of the home screen layout this image carries.
++     *
++     * It is a resource rather than a constant here because the thing it is the
++     * version of is a resource, and whoever edits the layout is looking at
++     * res/, not at this file. SCHEMA_VERSION above says why the two numbers are
++     * not one number.
++     */
++    private int shippedLayoutVersion() {
++        return getContext().getResources().getInteger(R.integer.pw3_workspace_layout_version);
++    }
++
++    /**
++     * PW3: gives a home screen that already exists the entries a newer layout
++     * has added to it, and leaves everything else alone.
++     *
++     * Only the layout of this image: an app restriction, a package from the
++     * Play Store and a partner APK are all somebody's deliberate override of
++     * the home screen, this device carries none of the three, and the entries
++     * of this image have no business arriving on top of an override. A
++     * workspace seeded from one of those records this version above and is then
++     * left as it is.
++     *
++     * A layout that cannot be read is said so and tried again on the next load:
++     * that is a build which should not have shipped, and recording the version
++     * would hide it. The same for anything thrown below, and for the same
++     * reason it is caught at all -- this runs before the workspace is read
++     * (LoaderTask.loadWorkspace), on every device that installs this release, so
++     * an exception here is a home screen that does not come up, and the home
++     * screen is the whole interface of this device. Trying again is safe because
++     * the pass is idempotent: what it has already inserted is on the screen the
++     * next time it looks, and is passed over.
++     */
++    private void applyWhatTheLayoutGainedSinceThen(SharedPreferences sp) {
++        int shipped = shippedLayoutVersion();
++        int applied = sp.getInt(LAYOUT_VERSION_APPLIED, 0);
++        if (applied == shipped) {
++            return;
++        }
++        int added;
++        try {
++            added = mOpenHelper.loadWhatIsMissing(mOpenHelper.getWritableDatabase(),
++                    getDefaultLayoutParser(mOpenHelper.newLauncherWidgetHost()));
++        } catch (RuntimeException e) {
++            Log.e(TAG, "the home screen layout could not be applied; layout version "
++                    + shipped + " is not recorded", e);
++            return;
++        }
++        if (added < 0) {
++            Log.e(TAG, "the home screen layout could not be read; layout version "
++                    + shipped + " is not recorded");
++            return;
++        }
++        FileLog.d(TAG, "home screen layout " + applied + " to " + shipped + ": "
++                + added + " entries added");
++        sp.edit().putInt(LAYOUT_VERSION_APPLIED, shipped).commit();
+     }
+ 
+     /**
+@@ -577,6 +649,11 @@
+         private final Context mContext;
+         private long mMaxItemId = -1;
+         private long mMaxScreenId = -1;
++        /**
++         * PW3: not null only while loadWhatIsMissing below is reading the
++         * layout, which is when an insert has a question to answer first.
++         */
++        private WorkspaceLayoutDifference mDifference;
+ 
+         DatabaseHelper(Context context, Handler widgetHostResetHandler) {
+             this(context, widgetHostResetHandler, LauncherFiles.LAUNCHER_DB);
+@@ -1072,6 +1149,12 @@
+ 
+         @Override
+         public long insertAndCheck(SQLiteDatabase db, ContentValues values) {
++            if (mDifference != null && !mDifference.wants(values)) {
++                // Every caller of this reads a value below zero as "this entry
++                // was not added" and carries on with the next one
++                // (AutoInstallsLayout.addShortcut).
++                return -1;
++            }
+             return dbInsertAndCheck(this, db, Favorites.TABLE_NAME, null, values);
+         }
+ 
+@@ -1130,6 +1213,34 @@
+             mMaxScreenId = initializeMaxScreenId(db);
+ 
+             return count;
++        }
++
++        /**
++         * PW3: inserts the entries of this layout that the home screen has not
++         * got, and returns how many, or -1 when the layout could not be read.
++         *
++         * Not loadFavorites above: that one is for a database that was just
++         * created, and part of what it does is write the screen rows the layout
++         * asked for -- on a database that has those rows, an insert of an _id
++         * that is taken, which it answers with a RuntimeException. Here the
++         * screens are the ones the workspace has, and the entries go on them.
++         *
++         * mMaxItemId is deliberately not read again afterwards: an id generated
++         * for an entry this pass passed over is simply not used, which leaves a
++         * hole and nothing worse, while reading it again would ask the table for
++         * its largest _id and throw on a workspace with no rows at all
++         * (getMaxId).
++         */
++        int loadWhatIsMissing(SQLiteDatabase db, AutoInstallsLayout loader) {
++            mDifference = WorkspaceLayoutDifference.read(mContext, db);
++            if (mDifference == null) {
++                return -1;
++            }
++            try {
++                return loader.loadLayout(db, new ArrayList<Long>());
++            } finally {
++                mDifference = null;
++            }
+         }
+     }
+ 

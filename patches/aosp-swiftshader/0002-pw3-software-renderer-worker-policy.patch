@@ -1,0 +1,110 @@
+From: PW3 Android port
+Subject: [PATCH] Keep PW3 software-renderer workers in normal scheduling
+
+Integrate the previously exercised worker-entry policy into the normal build,
+only for the PW3 product. Preserve the main compositor policy and worker nice
+values. A failed scheduling setup terminates the process explicitly: returning
+would strand the renderer initialization barrier, and silently retaining RT
+would reintroduce the starvation risk. Full runtime acceptance remains required.
+
+--- a/src/Android.mk
++++ b/src/Android.mk
+@@ -143,6 +143,11 @@
+ COMMON_CFLAGS += -DPW3_CORTEX_A9_NO_HW_DIV=1
+ endif
+ 
++# PW3 software-rendering workers must not inherit SurfaceFlinger realtime scheduling.
++ifeq ($(TARGET_DEVICE),pw3)
++COMMON_CFLAGS += -DPW3_SOFTWARE_RENDERER_CFS=1
++endif
++
+ # Subzero target
+ LOCAL_CFLAGS_x86 += -DSZTARGET=X8632
+ LOCAL_CFLAGS_x86_64 += -DSZTARGET=X8664
+--- a/src/Renderer/Renderer.cpp
++++ b/src/Renderer/Renderer.cpp
+@@ -31,6 +31,15 @@
+ #include "Debug.hpp"
+ #include "Reactor/Reactor.hpp"
+ 
++#if defined(__ANDROID__) && defined(PW3_SOFTWARE_RENDERER_CFS)
++#include <android/log.h>
++#include <errno.h>
++#include <sched.h>
++#include <stdlib.h>
++#include <sys/resource.h>
++#include <unistd.h>
++#endif
++
+ #undef max
+ 
+ bool disableServer = true;
+@@ -693,10 +702,68 @@
+ 		blitter->blit3D(source, dest);
+ 	}
+ 
++#if defined(__ANDROID__) && defined(PW3_SOFTWARE_RENDERER_CFS)
++static void rendererWorkerSchedulingFailure(const char *stage, int threadIndex, int error)
++{
++	__android_log_print(ANDROID_LOG_FATAL, "PW3_SW_CFS",
++	                   "renderer_worker_failure pid=%d tid=%d index=%d stage=%s errno=%d",
++	                   getpid(), gettid(), threadIndex, stage, error);
++	// Returning from the worker would strand initializeThreads() at suspend.wait().
++	abort();
++}
++
++static void configureRendererWorkerScheduling(int threadIndex)
++{
++	const int policyBefore = sched_getscheduler(0);
++	if(policyBefore == -1) rendererWorkerSchedulingFailure("get_policy_before", threadIndex, errno);
++	sched_param paramBefore = {};
++	if(sched_getparam(0, &paramBefore) == -1) rendererWorkerSchedulingFailure("get_param_before", threadIndex, errno);
++	errno = 0;
++	const int niceBefore = getpriority(PRIO_PROCESS, 0);
++	if(errno != 0) rendererWorkerSchedulingFailure("get_nice_before", threadIndex, errno);
++
++	const int policyClass = policyBefore & ~SCHED_RESET_ON_FORK;
++	const bool inheritedRealtime = policyClass == SCHED_FIFO || policyClass == SCHED_RR;
++	if(inheritedRealtime)
++	{
++		// Software rendering must not inherit the compositor's realtime policy.
++		// pid 0 addresses this worker only; sched_setscheduler does not change nice.
++		sched_param normal = {};
++		if(sched_setscheduler(0, SCHED_OTHER, &normal) == -1)
++		{
++			rendererWorkerSchedulingFailure("set_other", threadIndex, errno);
++		}
++	}
++
++	const int policyAfter = sched_getscheduler(0);
++	if(policyAfter == -1) rendererWorkerSchedulingFailure("get_policy_after", threadIndex, errno);
++	sched_param paramAfter = {};
++	if(sched_getparam(0, &paramAfter) == -1) rendererWorkerSchedulingFailure("get_param_after", threadIndex, errno);
++	errno = 0;
++	const int niceAfter = getpriority(PRIO_PROCESS, 0);
++	if(errno != 0) rendererWorkerSchedulingFailure("get_nice_after", threadIndex, errno);
++	const bool policyValid = inheritedRealtime
++	    ? policyAfter == SCHED_OTHER && paramAfter.sched_priority == 0
++	    : policyAfter == policyBefore && paramAfter.sched_priority == paramBefore.sched_priority;
++	if(!policyValid || niceAfter != niceBefore)
++	{
++		rendererWorkerSchedulingFailure("verify_policy_and_nice", threadIndex, 0);
++	}
++	__android_log_print(ANDROID_LOG_INFO, "PW3_SW_CFS",
++	                   "renderer_worker pid=%d tid=%d index=%d policy_before=%d policy_after=%d rt_before=%d rt_after=%d nice_before=%d nice_after=%d changed=%d",
++	                   getpid(), gettid(), threadIndex, policyBefore, policyAfter,
++	                   paramBefore.sched_priority, paramAfter.sched_priority, niceBefore, niceAfter, inheritedRealtime ? 1 : 0);
++}
++#endif
++
+ 	void Renderer::threadFunction(void *parameters)
+ 	{
+ 		Renderer *renderer = static_cast<Parameters*>(parameters)->renderer;
+ 		int threadIndex = static_cast<Parameters*>(parameters)->threadIndex;
++
++		#if defined(__ANDROID__) && defined(PW3_SOFTWARE_RENDERER_CFS)
++			configureRendererWorkerScheduling(threadIndex);
++		#endif
+ 
+ 		if(logPrecision < IEEE)
+ 		{

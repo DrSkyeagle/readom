@@ -1,0 +1,25 @@
+--- a/arch/arm/mm/fault.c
++++ b/arch/arm/mm/fault.c
+@@ -383,13 +383,15 @@
+ 			SEGV_ACCERR : SEGV_MAPERR;
+ 	}
+ 
+-	#ifdef CONFIG_LAB126
+-	if (strncmp("cvm", tsk->comm, 3)!=0 &&
+-		strncmp("CVM", tsk->comm, 3)!=0) {
+-		printk("%s (%d) segfault pc: %08lx addr:%08lx\n", tsk->comm, (u32)tsk->pid, instruction_pointer(regs), addr);
+-	}
+-	#endif
+-
++	/*
++	 * No line per fault here. Lab126 logged every user fault except its
++	 * Java VM's (cvm), which handles SIGSEGV itself; on Android every
++	 * application process runs ART, which does the same for its implicit
++	 * null and stack checks: each NullPointerException thrown from compiled
++	 * code became a kernel log line (50 in one hour of PW3 Android, Test
++	 * V47, mostly WeRead), pushing real events out of the log. Crashes
++	 * are reported by debuggerd, with a backtrace.
++	 */
+ 	__do_user_fault(tsk, addr, fsr, sig, code, regs);
+ 	return 0;
+ 

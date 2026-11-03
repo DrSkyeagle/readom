@@ -1,0 +1,67 @@
+--- a/wpa_supplicant/hidl/1.0/sta_iface.cpp
++++ b/wpa_supplicant/hidl/1.0/sta_iface.cpp
+@@ -28,7 +28,9 @@
+ using android::hardware::wifi::supplicant::V1_0::implementation::HidlManager;
+ 
+ constexpr uint32_t kMaxAnqpElems = 100;
++#ifndef PW3_STANDARD_NL80211
+ constexpr char kGetMacAddress[] = "MACADDR";
++#endif
+ constexpr char kStartRxFilter[] = "RXFILTER-START";
+ constexpr char kStopRxFilter[] = "RXFILTER-STOP";
+ constexpr char kAddRxFilter[] = "RXFILTER-ADD";
+@@ -92,6 +94,17 @@
+ SupplicantStatus doOneArgDriverCommand(
+     struct wpa_supplicant *wpa_s, const char *cmd, const std::string &arg)
+ {
++#ifdef PW3_STANDARD_NL80211
++	if (strcmp(cmd, kSetCountryCode) == 0) {
++		if (arg.size() != 2) {
++			return {SupplicantStatusCode::FAILURE_ARGS_INVALID, ""};
++		}
++		if (wpa_drv_set_country(wpa_s, arg.c_str())) {
++			return {SupplicantStatusCode::FAILURE_UNKNOWN, ""};
++		}
++		return {SupplicantStatusCode::SUCCESS, ""};
++	}
++#endif
+ 	std::string cmd_str = std::string(cmd) + " " + arg;
+ 	return doZeroArgDriverCommand(wpa_s, cmd_str.c_str());
+ }
+@@ -729,6 +742,16 @@
+ StaIface::getMacAddressInternal()
+ {
+ 	struct wpa_supplicant *wpa_s = retrieveIfacePtr();
++#ifdef PW3_STANDARD_NL80211
++	std::array<uint8_t, 6> mac_addr;
++	os_memcpy(mac_addr.data(), wpa_s->own_addr, mac_addr.size());
++	bool all_zero = true;
++	for (uint8_t byte : mac_addr) all_zero &= byte == 0;
++	if (all_zero || (mac_addr[0] & 1)) {
++		return {{SupplicantStatusCode::FAILURE_UNKNOWN, ""}, {}};
++	}
++	return {{SupplicantStatusCode::SUCCESS, ""}, mac_addr};
++#else
+ 	std::vector<char> cmd(
+ 	    kGetMacAddress, kGetMacAddress + sizeof(kGetMacAddress));
+ 	char driver_cmd_reply_buf[4096] = {};
+@@ -752,6 +775,7 @@
+ 		return {{SupplicantStatusCode::FAILURE_UNKNOWN, ""}, {}};
+ 	}
+ 	return {{SupplicantStatusCode::SUCCESS, ""}, mac_addr};
++#endif
+ }
+ 
+ SupplicantStatus StaIface::startRxFilterInternal()
+--- a/wpa_supplicant/Android.mk
++++ b/wpa_supplicant/Android.mk
+@@ -54,6 +54,9 @@
+ 
+ # C++ flags for hidl interface
+ L_CPPFLAGS := -Wall -Werror
++ifeq ($(BOARD_PW3_WIFI_MODULE_CONTROL),true)
++L_CPPFLAGS += -DPW3_STANDARD_NL80211
++endif
+ # TODO: Remove these allowed warnings later.
+ L_CPPFLAGS += -Wno-unused-variable -Wno-unused-parameter
+ L_CPPFLAGS += -Wno-unused-private-field

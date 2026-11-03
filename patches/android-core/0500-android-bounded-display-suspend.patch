@@ -1,0 +1,1044 @@
+--- a/drivers/video/mxc/mxc_epdc_fb.c
++++ b/drivers/video/mxc/mxc_epdc_fb.c
+@@ -276,6 +276,10 @@
+ #ifdef CONFIG_LAB126_ANDROID_EPDC
+ 	bool android_waveform_verified;
+ 	bool android_startup_complete;
++	struct mutex android_pm_mutex;
++	bool android_suspended;
++	bool android_power_fault;
++	int android_saved_blank;
+ #endif
+ 	bool hw_initializing;
+ 	bool waiting_for_idle;
+@@ -480,7 +484,7 @@
+ static void epdc_force_powerdown(struct mxc_epdc_fb_data *fb_data);
+ static int mxc_epdc_fb_get_temp_index(struct mxc_epdc_fb_data *fb_data,
+ 						int temp);
+-static void mxc_epdc_fb_flush_updates(struct mxc_epdc_fb_data *fb_data);
++static int mxc_epdc_fb_flush_updates(struct mxc_epdc_fb_data *fb_data);
+ static int mxc_epdc_fb_blank(int blank, struct fb_info *info);
+ static int mxc_epdc_fb_init_hw(struct fb_info *info);
+ static int pxp_process_update(struct mxc_epdc_fb_data *fb_data,
+@@ -1185,7 +1189,7 @@
+ #undef HIST_PARAM
+ }
+ 
+-static void epdc_init_settings(struct mxc_epdc_fb_data *fb_data)
++static int epdc_init_settings(struct mxc_epdc_fb_data *fb_data)
+ {
+ 	struct imx_epdc_fb_mode *epdc_mode = fb_data->cur_mode;
+ 	struct fb_var_screeninfo *screeninfo = &fb_data->epdc_fb_var;
+@@ -1193,20 +1197,57 @@
+ 	int num_ce;
+ 	int i;
+ 
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	int ret, poll;
++	ret = clk_enable(fb_data->epdc_clk_axi);
++	if (ret)
++		return ret;
++	ret = clk_enable(fb_data->epdc_clk_pix);
++	if (ret) {
++		clk_disable(fb_data->epdc_clk_axi);
++		return ret;
++	}
++#else
+ 	/* Enable clocks to access EPDC regs */
+ 	clk_enable(fb_data->epdc_clk_axi);
+ 	clk_enable(fb_data->epdc_clk_pix);
++#endif
+ 
+ 	/* Reset */
+ 	__raw_writel(EPDC_CTRL_SFTRST, EPDC_CTRL_SET);
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	for (poll = 0; poll < 1000; ++poll) {
++		if (__raw_readl(EPDC_CTRL) & EPDC_CTRL_CLKGATE)
++			break;
++		udelay(10);
++	}
++	if (poll == 1000) {
++		ret = -ETIMEDOUT;
++		goto out_android_clocks;
++	}
++#else
+ 	while (!(__raw_readl(EPDC_CTRL) & EPDC_CTRL_CLKGATE))
+ 		;
++#endif
+ 	__raw_writel(EPDC_CTRL_SFTRST, EPDC_CTRL_CLEAR);
+ 
+ 	/* Enable clock gating (clear to enable) */
+ 	__raw_writel(EPDC_CTRL_CLKGATE, EPDC_CTRL_CLEAR);
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	for (poll = 0; poll < 1000; ++poll) {
++		if (!(__raw_readl(EPDC_CTRL) &
++			(EPDC_CTRL_SFTRST | EPDC_CTRL_CLKGATE)))
++			break;
++		udelay(10);
++	}
++	if (poll == 1000) {
++		ret = -ETIMEDOUT;
++		goto out_android_clocks;
++	}
++#else
+ 	while (__raw_readl(EPDC_CTRL) & (EPDC_CTRL_SFTRST | EPDC_CTRL_CLKGATE))
+ 		;
++#endif
+ 
+ 	/* EPDC_CTRL */
+ 	reg_val = __raw_readl(EPDC_CTRL);
+@@ -1376,9 +1417,18 @@
+ 	__raw_writel(fb_data->working_buffer_A_phys, EPDC_WB_ADDR);
+ 	__raw_writel(fb_data->working_buffer_A_phys, EPDC_WB_ADDR_TCE);
+ 
+-	/* Disable clock */
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	ret = 0;
++out_android_clocks:
++#endif
++	/* Release only the two references acquired by this invocation. */
+ 	clk_disable(fb_data->epdc_clk_pix);
+ 	clk_disable(fb_data->epdc_clk_axi);
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	return ret;
++#else
++	return 0;
++#endif
+ }
+ 
+ static inline __u32 get_waveform_by_type(struct mxc_epdc_fb_data *fb_data, __u32 waveform)
+@@ -1423,6 +1473,10 @@
+ static int epdc_powerup(struct mxc_epdc_fb_data *fb_data)
+ {
+ 	int ret = 0;
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	if (fb_data->android_power_fault)
++		return 0;
++#endif
+ 
+ 	/*
+ 	 * If power down request is pending, clear
+@@ -1517,6 +1571,10 @@
+ static int epdc_powerup_vcom(struct mxc_epdc_fb_data *fb_data, int waveform_mode, int temp)
+ {
+ 	int ret = 0;
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	if (fb_data->android_power_fault)
++		return 0;
++#endif
+ 
+ 	if (fb_data->power_state != POWER_STATE_GOING_UP)
+ 		return 0;
+@@ -1575,26 +1633,63 @@
+ 	mutex_unlock(&fb_data->power_mutex);
+ }
+ 
+-static void epdc_powerdown(struct mxc_epdc_fb_data *fb_data)
+-{
++static int epdc_powerdown(struct mxc_epdc_fb_data *fb_data)
++{
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	int ret, rollback;
++	if (fb_data->android_power_fault)
++		return -EIO;
++	if (fb_data->power_state == POWER_STATE_OFF)
++		return 0;
++#endif
+ 	/* If powering_down has been cleared, a powerup
+ 	 * request is pre-empting this powerdown request.
+ 	 */
+ 	if (!fb_data->powering_down
+ 		|| (fb_data->power_state == POWER_STATE_OFF)
+ 		|| (fb_data->updates_active)) {
+-		return;
+-	}
+-
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++		return -EBUSY;
++#else
++		return 0;
++#endif
++	}
++
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	if (fb_data->power_state != POWER_STATE_ON &&
++		fb_data->power_state != POWER_STATE_GOING_UP)
++		return -EBUSY;
++#endif
+ 	/* Reset counter to reduce chance of overflow */
+ 	fb_data->order_cnt = 0;
+ 
+ 	dev_dbg(fb_data->dev, "EPDC Powerdown. Power state: %d\n", fb_data->power_state);
+ 
+ 	/* Disable power to the EPD panel */
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	if (fb_data->power_state == POWER_STATE_ON) {
++		ret = regulator_disable(fb_data->vcom_regulator);
++		if (ret)
++			return ret;
++	}
++	ret = regulator_disable(fb_data->display_regulator);
++	if (ret) {
++		/* A cancelled first update can be drained while VCOM was never enabled. */
++		if (fb_data->power_state == POWER_STATE_ON) {
++			rollback = regulator_enable(fb_data->vcom_regulator);
++			if (rollback) {
++				/* No automatic clear: the physical rail state is now untrusted. */
++				fb_data->android_power_fault = true;
++				dev_err(fb_data->dev, "VCOM rollback failed: %d\n", rollback);
++			}
++		}
++		return ret;
++	}
++#else
+ 	if (fb_data->power_state == POWER_STATE_ON)
+ 		regulator_disable(fb_data->vcom_regulator);
+ 	regulator_disable(fb_data->display_regulator);
++#endif
+ 
+ 	/* Disable clocks to EPDC */
+ 	__raw_writel(EPDC_CTRL_CLKGATE, EPDC_CTRL_SET);
+@@ -1614,6 +1709,7 @@
+ 		fb_data->wait_for_powerdown = false;
+ 		complete(&fb_data->powerdown_compl);
+ 	}
++	return 0;
+ }
+ 
+ static void epdc_force_powerdown(struct mxc_epdc_fb_data *fb_data)
+@@ -1658,7 +1754,13 @@
+ 
+ 	do {
+ 		/* Initialize EPDC, passing pointer to EPDC registers */
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++		ret = epdc_init_settings(fb_data);
++		if (ret)
++			return ret;
++#else
+ 		epdc_init_settings(fb_data);
++#endif
+ 		mutex_lock(&fb_data->power_mutex);
+ 		if (!epdc_powerup(fb_data))
+ 		{
+@@ -1783,7 +1885,9 @@
+ 		if (cmap->len != 256)
+ 			return 1;
+ 
+-		mxc_epdc_fb_flush_updates(fb_data);
++		r = mxc_epdc_fb_flush_updates(fb_data);
++		if (r)
++			return r;
+ 
+ 		mutex_lock(&fb_data->pxp_mutex);
+ 		/*
+@@ -1933,7 +2037,9 @@
+ 	 * Can't change the FB parameters until current updates have completed.
+ 	 * This function returns when all active updates are done.
+ 	 */
+-	mxc_epdc_fb_flush_updates(fb_data);
++	ret = mxc_epdc_fb_flush_updates(fb_data);
++	if (ret)
++		return ret;
+ 
+ 	mutex_lock(&fb_data->queue_mutex);
+ 	/*
+@@ -2296,13 +2402,17 @@
+ 	struct mxc_epdc_fb_data *fb_data = info ?
+ 		(struct mxc_epdc_fb_data *)info:g_fb_data;
+ 
++	int ret;
++
+ 	dev_dbg(fb_data->dev, "Setting optimization level to %d\n", upd_scheme);
+ 
+ 	/*
+ 	 * Can't change the scheme until current updates have completed.
+ 	 * This function returns when all active updates are done.
+ 	 */
+-	mxc_epdc_fb_flush_updates(fb_data);
++	ret = mxc_epdc_fb_flush_updates(fb_data);
++	if (ret)
++		return ret;
+ 
+ 	if ((upd_scheme == UPDATE_SCHEME_SNAPSHOT)
+ 		|| (upd_scheme == UPDATE_SCHEME_QUEUE)
+@@ -3587,6 +3697,21 @@
+ 
+ #endif
+ 
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++/* queue_mutex held; rail fault writers (including done_work) hold power_mutex. */
++static int epdc_android_update_admission(struct mxc_epdc_fb_data *fb_data)
++{
++	int ret = 0;
++	mutex_lock(&fb_data->power_mutex);
++	if (fb_data->android_power_fault)
++		ret = -EIO;
++	else if (fb_data->waiting_for_idle || fb_data->blank != FB_BLANK_UNBLANK)
++		ret = -EPERM;
++	mutex_unlock(&fb_data->power_mutex);
++	return ret;
++}
++#endif
++
+ static int mxc_epdc_fb_send_single_update(struct mxcfb_update_data *upd_data,
+ 				   struct fb_info *info)
+ {
+@@ -3735,6 +3860,13 @@
+ 	 * If we are waiting to go into suspend, or the FB is blanked,
+ 	 * we do not accept new updates
+ 	 */
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	ret = epdc_android_update_admission(fb_data);
++	if (ret) {
++		mutex_unlock(&fb_data->queue_mutex);
++		return ret;
++	}
++#else
+ 	if ((fb_data->waiting_for_idle) ||
+ 		(fb_data->blank != FB_BLANK_UNBLANK)) {
+ 		dev_err(fb_data->dev, "EPDC not active."
+@@ -3742,6 +3874,7 @@
+ 		mutex_unlock(&fb_data->queue_mutex);
+ 		return -EPERM;
+ 	}
++#endif
+ 
+ #if defined(FIX_CURRENT_RESAMPLE)
+ 	dev_dbg(fb_data->dev,"mxc_epdc_fb: do pre_pixel_processing\n");
+@@ -3764,8 +3897,18 @@
+ 		 */
+ 		if (upd_data->update_mode == UPDATE_MODE_FULL) {
+ 			mutex_unlock(&fb_data->queue_mutex);
+-			mxc_epdc_fb_flush_updates(fb_data);
++			ret = mxc_epdc_fb_flush_updates(fb_data);
++			if (ret)
++				return ret;
+ 			mutex_lock(&fb_data->queue_mutex);
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++			/* blank/suspend may have closed admission while the lock was dropped. */
++			ret = epdc_android_update_admission(fb_data);
++			if (ret) {
++				mutex_unlock(&fb_data->queue_mutex);
++				return ret;
++			}
++#endif
+ 		}
+ 
+ 		/* Count buffers in free buffer list */
+@@ -4487,12 +4630,118 @@
+ 	mxc_epdc_fb_update_pages(fb_data, miny, maxy);
+ }
+ 
+-void mxc_epdc_fb_flush_updates(struct mxc_epdc_fb_data *fb_data)
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++/* queue_mutex and power_mutex held. Only this driver's update ownership. */
++static bool epdc_android_drained(struct mxc_epdc_fb_data *fb_data)
++{
++	return !fb_data->in_init &&
++		list_empty(&fb_data->upd_pending_list) &&
++		list_empty(&fb_data->upd_buf_queue) &&
++		list_empty(&fb_data->upd_buf_collision_list) &&
++		list_empty(&fb_data->full_marker_list) &&
++		is_free_list_full(fb_data) && !fb_data->cur_update &&
++		!fb_data->updates_active;
++}
++
++/* android_pm_mutex held; caller must release waiting_for_idle under queue_mutex. */
++static int epdc_android_drain_locked(struct mxc_epdc_fb_data *fb_data)
+ {
+ 	int ret;
+ 
++	mutex_lock(&fb_data->queue_mutex);
++	mutex_lock(&fb_data->power_mutex);
++	fb_data->waiting_for_idle = true;
++	init_completion(&fb_data->updates_done);
++	if (fb_data->android_power_fault)
++		ret = -EIO;
++	else if (fb_data->in_init)
++		ret = -EBUSY;
++	else if (epdc_android_drained(fb_data))
++		ret = 0;
++	else
++		ret = -EINPROGRESS;
++	mutex_unlock(&fb_data->power_mutex);
++	mutex_unlock(&fb_data->queue_mutex);
++	if (ret != -EINPROGRESS)
++		return ret;
++
++	ret = wait_for_completion_timeout(&fb_data->updates_done,
++		msecs_to_jiffies(8000));
++	mutex_lock(&fb_data->queue_mutex);
++	mutex_lock(&fb_data->power_mutex);
++	if (fb_data->android_power_fault)
++		ret = -EIO;
++	else if (!ret)
++		ret = -ETIMEDOUT;
++	else
++		ret = epdc_android_drained(fb_data) ? 0 : -EBUSY;
++	mutex_unlock(&fb_data->power_mutex);
++	mutex_unlock(&fb_data->queue_mutex);
++	return ret;
++}
++
++/* android_pm_mutex held, including the entire drain and blank commit. */
++static int epdc_android_blank_locked(int blank, struct mxc_epdc_fb_data *fb_data)
++{
++	bool old_powering_down;
++	int ret;
++
++	if (blank < FB_BLANK_UNBLANK || blank > FB_BLANK_POWERDOWN)
++		return -EINVAL;
++	if (fb_data->android_suspended)
++		return -EBUSY;
++	if (blank == FB_BLANK_UNBLANK) {
++		mutex_lock(&fb_data->queue_mutex);
++		mutex_lock(&fb_data->power_mutex);
++		ret = fb_data->android_power_fault ? -EIO : 0;
++		if (!ret)
++			fb_data->blank = blank;
++		mutex_unlock(&fb_data->power_mutex);
++		mutex_unlock(&fb_data->queue_mutex);
++		return ret;
++	}
++
++	ret = epdc_android_drain_locked(fb_data);
++	mutex_lock(&fb_data->queue_mutex);
++	mutex_lock(&fb_data->power_mutex);
++	/* No update can enter between the drain and the state transition. */
++	if (!ret && fb_data->android_power_fault)
++		ret = -EIO;
++	if (!ret && !epdc_android_drained(fb_data))
++		ret = -EBUSY;
++	if (!ret && blank == FB_BLANK_POWERDOWN) {
++		old_powering_down = fb_data->powering_down;
++		fb_data->powering_down = true;
++		ret = epdc_powerdown(fb_data);
++		if (ret)
++			fb_data->powering_down = old_powering_down;
++	}
++	if (!ret)
++		fb_data->blank = blank;
++	fb_data->waiting_for_idle = false;
++	mutex_unlock(&fb_data->power_mutex);
++	mutex_unlock(&fb_data->queue_mutex);
++	return ret;
++}
++#endif
++
++static int mxc_epdc_fb_flush_updates(struct mxc_epdc_fb_data *fb_data)
++{
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	int ret;
++	mutex_lock(&fb_data->android_pm_mutex);
++	ret = epdc_android_drain_locked(fb_data);
++	mutex_lock(&fb_data->queue_mutex);
++	fb_data->waiting_for_idle = false;
++	mutex_unlock(&fb_data->queue_mutex);
++	mutex_unlock(&fb_data->android_pm_mutex);
++	return ret;
++#else
++
++	int ret;
++
+ 	if (fb_data->in_init)
+-		return;
++		return 0;
+ 
+ 	/* Grab queue lock to prevent any new updates from being submitted */
+ 	mutex_lock(&fb_data->queue_mutex);
+@@ -4529,12 +4778,20 @@
+ 
+ 	mutex_unlock(&fb_data->power_mutex);
+ 	mutex_unlock(&fb_data->queue_mutex);
++	return 0;
++#endif
+ }
+ 
+ static int mxc_epdc_fb_blank(int blank, struct fb_info *info)
+ {
+ 	struct mxc_epdc_fb_data *fb_data = (struct mxc_epdc_fb_data *)info;
+ 	int ret;
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	mutex_lock(&fb_data->android_pm_mutex);
++	ret = epdc_android_blank_locked(blank, fb_data);
++	mutex_unlock(&fb_data->android_pm_mutex);
++	return ret;
++#else
+ 
+ 	dev_dbg(fb_data->dev, "blank = %d\n", blank);
+ 
+@@ -4592,6 +4849,7 @@
+ 		break;
+ 	}
+ 	return 0;
++#endif
+ }
+ 
+ static int mxc_epdc_fb_pan_display(struct fb_var_screeninfo *var,
+@@ -6964,6 +7222,9 @@
+ 	mutex_init(&fb_data->queue_mutex);
+ 	mutex_init(&fb_data->pxp_mutex);
+ 	mutex_init(&fb_data->power_mutex);
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	mutex_init(&fb_data->android_pm_mutex);
++#endif
+ 
+ 	/*
+ 	 * Fill out PxP config data structure based on FB info and
+@@ -7391,18 +7652,55 @@
+ static int mxc_epdc_fb_suspend(struct platform_device *pdev, pm_message_t state)
+ {
+ 	struct mxc_epdc_fb_data *data = platform_get_drvdata(pdev);
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	int ret, old_blank;
++	mutex_lock(&data->android_pm_mutex);
++	old_blank = data->blank;
++	ret = epdc_android_blank_locked(FB_BLANK_POWERDOWN, data);
++	if (!ret) {
++		data->android_saved_blank = old_blank;
++		data->android_suspended = true;
++	}
++	mutex_unlock(&data->android_pm_mutex);
++	return ret;
++#else
+ 	return mxc_epdc_fb_blank(FB_BLANK_POWERDOWN, &data->info);
++#endif
+ }
+ 
+ static int mxc_epdc_fb_resume(struct platform_device *pdev)
+ {
+ 	struct mxc_epdc_fb_data *data = platform_get_drvdata(pdev);
+ 
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	int ret = 0;
++	mutex_lock(&data->android_pm_mutex);
++	if (!data->android_suspended)
++		goto out;
++	mutex_lock(&data->queue_mutex);
++	mutex_lock(&data->power_mutex);
++	if (data->android_power_fault)
++		ret = -EIO;
++	else if (!epdc_android_drained(data) || data->power_state != POWER_STATE_OFF)
++		ret = -EBUSY;
++	else
++		ret = epdc_init_settings(data);
++	if (!ret) {
++		data->blank = data->android_saved_blank;
++		data->android_suspended = false;
++	}
++	mutex_unlock(&data->power_mutex);
++	mutex_unlock(&data->queue_mutex);
++out:
++	mutex_unlock(&data->android_pm_mutex);
++	return ret;
++#else
+ 	epdc_init_settings(data);
+ 	mxc_epdc_fb_blank(FB_BLANK_UNBLANK, &data->info);
+ 	data->updates_active = false;
+ 
+ 	return 0;
++#endif
+ }
+ 
+ static void mxc_epdc_fb_shutdown(struct platform_device *pdev)
+--- a/drivers/dma/pxp/pxp_dma_v2.c
++++ b/drivers/dma/pxp/pxp_dma_v2.c
+@@ -37,6 +37,10 @@
+ #include <linux/clk.h>
+ #include <linux/workqueue.h>
+ #include <linux/sched.h>
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++#include <linux/delay.h>
++#include <linux/err.h>
++#endif
+ 
+ #include "regs-pxp_v2.h"
+ 
+@@ -58,6 +62,14 @@
+ 	spinlock_t lock;
+ 	struct mutex clk_mutex;
+ 	int clk_stat;
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	unsigned long android_allocated;
++	bool android_pm_gate;
++	bool android_suspended;
++	bool android_clock_was_on;
++	bool android_timer_restore;
++	unsigned long android_timer_expires;
++#endif
+ #define	CLK_STAT_OFF		0
+ #define	CLK_STAT_ON		1
+ 	int pxp_ongoing;
+@@ -849,23 +861,61 @@
+ 	return 0;
+ }
+ 
+-static void pxp_clk_enable(struct pxps *pxp)
+-{
++static int pxp_clk_enable(struct pxps *pxp)
++{
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	unsigned long flags;
++	int ret;
+ 	mutex_lock(&pxp->clk_mutex);
+-
+ 	if (pxp->clk_stat == CLK_STAT_ON) {
+ 		mutex_unlock(&pxp->clk_mutex);
+-		return;
++		return 0;
++	}
++	ret = clk_enable(pxp->clk);
++	if (!ret) {
++		spin_lock_irqsave(&pxp->lock, flags);
++		pxp->clk_stat = CLK_STAT_ON;
++		spin_unlock_irqrestore(&pxp->lock, flags);
++	}
++	mutex_unlock(&pxp->clk_mutex);
++	return ret;
++#else
++
++	mutex_lock(&pxp->clk_mutex);
++
++	if (pxp->clk_stat == CLK_STAT_ON) {
++		mutex_unlock(&pxp->clk_mutex);
++		return 0;
+ 	}
+ 
+ 	clk_enable(pxp->clk);
+ 	pxp->clk_stat = CLK_STAT_ON;
+ 
+ 	mutex_unlock(&pxp->clk_mutex);
++	return 0;
++#endif
+ }
+ 
+ static void pxp_clk_disable(struct pxps *pxp)
+ {
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	unsigned long flags;
++	bool disable = false;
++	mutex_lock(&pxp->clk_mutex);
++	spin_lock_irqsave(&pxp->lock, flags);
++	if (!pxp->android_pm_gate && pxp->clk_stat == CLK_STAT_ON &&
++		!pxp->android_allocated && !pxp->pxp_ongoing && list_empty(&head) &&
++		!(__raw_readl(pxp->base + HW_PXP_CTRL) & BM_PXP_CTRL_ENABLE)) {
++		/* IRQ must observe OFF before the physical clock reference is released. */
++		pxp->clk_stat = CLK_STAT_OFF;
++		disable = true;
++	}
++	spin_unlock_irqrestore(&pxp->lock, flags);
++	if (disable)
++		clk_disable(pxp->clk);
++	mutex_unlock(&pxp->clk_mutex);
++#else
++
+ 	unsigned long flags;
+ 
+ 	mutex_lock(&pxp->clk_mutex);
+@@ -884,6 +934,7 @@
+ 		spin_unlock_irqrestore(&pxp->lock, flags);
+ 
+ 	mutex_unlock(&pxp->clk_mutex);
++#endif
+ }
+ 
+ static inline void clkoff_callback(struct work_struct *w)
+@@ -895,6 +946,20 @@
+ 
+ static void pxp_clkoff_timer(unsigned long arg)
+ {
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	struct pxps *pxp = (struct pxps *)arg;
++	unsigned long flags;
++	spin_lock_irqsave(&pxp->lock, flags);
++	if (!pxp->android_pm_gate) {
++		if (!pxp->android_allocated && !pxp->pxp_ongoing && list_empty(&head))
++			schedule_work(&pxp->work);
++		else
++			mod_timer(&pxp->clk_timer,
++				jiffies + msecs_to_jiffies(timeout_in_ms));
++	}
++	spin_unlock_irqrestore(&pxp->lock, flags);
++#else
++
+ 	struct pxps *pxp = (struct pxps *)arg;
+ 
+ 	if ((pxp->pxp_ongoing == 0) && list_empty(&head))
+@@ -902,6 +967,7 @@
+ 	else
+ 		mod_timer(&pxp->clk_timer,
+ 			  jiffies + msecs_to_jiffies(timeout_in_ms));
++#endif
+ }
+ 
+ static struct pxp_tx_desc *pxpdma_first_active(struct pxp_channel *pxp_chan)
+@@ -960,8 +1026,23 @@
+ 	struct pxp_channel *pxp_chan = NULL;
+ 	unsigned long flags, flags1;
+ 
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	{
++		int attempt;
++		for (attempt = 0; attempt < 1000; ++attempt) {
++			if (!(__raw_readl(pxp->base + HW_PXP_CTRL) & BM_PXP_CTRL_ENABLE))
++				break;
++			udelay(10);
++		}
++		if (attempt == 1000) {
++			dev_err(pxp->dev, "PXP start timed out; DMA ownership retained\n");
++			return;
++		}
++	}
++#else
+ 	while (__raw_readl(pxp->base + HW_PXP_CTRL) & BM_PXP_CTRL_ENABLE)
+ 		;
++#endif
+ 
+ 	spin_lock_irqsave(&pxp->lock, flags);
+ 	if (list_empty(&head)) {
+@@ -1123,15 +1204,22 @@
+ 	void *callback_param;
+ 	unsigned long flags;
+ 	u32 hist_status;
+-
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	spin_lock_irqsave(&pxp->lock, flags);
++	if (pxp->android_pm_gate || pxp->clk_stat != CLK_STAT_ON) {
++		spin_unlock_irqrestore(&pxp->lock, flags);
++		return IRQ_NONE;
++	}
++#endif
+ 	dump_pxp_reg(pxp);
+ 
+ 	hist_status =
+ 	    __raw_readl(pxp->base + HW_PXP_HIST_CTRL) & BM_PXP_HIST_CTRL_STATUS;
+ 
+ 	__raw_writel(BM_PXP_STAT_IRQ, pxp->base + HW_PXP_STAT_CLR);
+-
++#ifndef CONFIG_LAB126_ANDROID_EPDC
+ 	spin_lock_irqsave(&pxp->lock, flags);
++#endif
+ 
+ 	if (list_empty(&head)) {
+ 		pxp->pxp_ongoing = 0;
+@@ -1299,7 +1387,12 @@
+ 	spin_unlock_irqrestore(&pxp_chan->lock, flags);
+ 	spin_unlock_irqrestore(&pxp->lock, flags0);
+ 
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	if (pxp_clk_enable(pxp))
++		return;
++#else
+ 	pxp_clk_enable(pxp);
++#endif
+ 	if (!wait_event_interruptible_timeout(pxp->done, PXP_WAITCON, 2 * HZ) ||
+ 		signal_pending(current)) {
+ 		pxp_clk_disable(pxp);
+@@ -1345,6 +1438,37 @@
+ 
+ static int pxp_alloc_chan_resources(struct dma_chan *chan)
+ {
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	struct pxp_channel *pxp_chan = to_pxp_channel(chan);
++	struct pxp_dma *pxp_dma = to_pxp_dma(chan->device);
++	struct pxps *pxp = to_pxp(pxp_dma);
++	unsigned long flags, bit;
++	int ret;
++	if (chan->chan_id < 0 || chan->chan_id >= NR_PXP_VIRT_CHANNEL)
++		return -EINVAL;
++	bit = 1UL << chan->chan_id;
++	mutex_lock(&pxp_chan->chan_mutex);
++	spin_lock_irqsave(&pxp->lock, flags);
++	if (pxp->android_pm_gate || (pxp->android_allocated & bit)) {
++		spin_unlock_irqrestore(&pxp->lock, flags);
++		mutex_unlock(&pxp_chan->chan_mutex);
++		return -EBUSY;
++	}
++	pxp->android_allocated |= bit;
++	spin_unlock_irqrestore(&pxp->lock, flags);
++	chan->cookie = 1;
++	pxp_chan->completed = -ENXIO;
++	ret = pxp_init_channel(pxp_dma, pxp_chan);
++	if (ret < 0) {
++		spin_lock_irqsave(&pxp->lock, flags);
++		pxp->android_allocated &= ~bit;
++		spin_unlock_irqrestore(&pxp->lock, flags);
++	} else
++		pxp_chan->status = PXP_CHANNEL_INITIALIZED;
++	mutex_unlock(&pxp_chan->chan_mutex);
++	return ret;
++#else
++
+ 	struct pxp_channel *pxp_chan = to_pxp_channel(chan);
+ 	struct pxp_dma *pxp_dma = to_pxp_dma(chan->device);
+ 	int ret;
+@@ -1370,6 +1494,7 @@
+ 
+ err_chan:
+ 	return ret;
++#endif
+ }
+ 
+ static void pxp_free_chan_resources(struct dma_chan *chan)
+@@ -1377,6 +1502,10 @@
+ 	struct pxp_channel *pxp_chan = to_pxp_channel(chan);
+ 	struct pxp_dma *pxp_dma = to_pxp_dma(chan->device);
+ 
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	struct pxps *pxp = to_pxp(pxp_dma);
++	unsigned long flags;
++#endif
+ 	mutex_lock(&pxp_chan->chan_mutex);
+ 
+ 	__pxp_terminate_all(chan);
+@@ -1384,6 +1513,16 @@
+ 	pxp_chan->status = PXP_CHANNEL_FREE;
+ 
+ 	pxp_uninit_channel(pxp_dma, pxp_chan);
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	/* Teardown must finish before PM may see this provider as unowned. */
++	spin_lock_irqsave(&pxp->lock, flags);
++	pxp->android_allocated &= ~(1UL << chan->chan_id);
++	if (!pxp->android_pm_gate && pxp->clk_stat == CLK_STAT_ON &&
++		!pxp->android_allocated && !pxp->pxp_ongoing && list_empty(&head))
++		mod_timer(&pxp->clk_timer,
++			jiffies + msecs_to_jiffies(timeout_in_ms));
++	spin_unlock_irqrestore(&pxp->lock, flags);
++#endif
+ 
+ 	mutex_unlock(&pxp_chan->chan_mutex);
+ }
+@@ -1613,6 +1752,13 @@
+ 
+ 	spin_lock_init(&pxp->lock);
+ 	mutex_init(&pxp->clk_mutex);
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	INIT_WORK(&pxp->work, clkoff_callback);
++	init_waitqueue_head(&pxp->done);
++	init_timer(&pxp->clk_timer);
++	pxp->clk_timer.function = pxp_clkoff_timer;
++	pxp->clk_timer.data = (unsigned long)pxp;
++#endif
+ 
+ 	if (!request_mem_region(res->start, resource_size(res), "pxp-mem")) {
+ 		err = -EBUSY;
+@@ -1620,16 +1766,39 @@
+ 	}
+ 
+ 	pxp->base = ioremap(res->start, SZ_4K);
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	if (!pxp->base) {
++		err = -ENOMEM;
++		goto release;
++	}
++#endif
+ 	pxp->pdev = pdev;
+ 
+ 	pxp->clk = clk_get(NULL, "pxp_axi");
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	if (IS_ERR(pxp->clk)) {
++		err = PTR_ERR(pxp->clk);
++		iounmap(pxp->base);
++		goto release;
++	}
++	err = clk_enable(pxp->clk);
++	if (err) {
++		clk_put(pxp->clk);
++		iounmap(pxp->base);
++		goto release;
++	}
++#else
+ 	clk_enable(pxp->clk);
++#endif
+ 
+ 	err = pxp_hw_init(pxp);
+ 	if (err) {
+ 		dev_err(&pdev->dev, "failed to initialize hardware\n");
+ 		goto release;
+ 	}
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	dump_pxp_reg(pxp);
++#endif
+ 	clk_disable(pxp->clk);
+ 
+ 	err = request_irq(pxp->irq, pxp_irq, 0, "pxp-irq", pxp);
+@@ -1645,13 +1814,17 @@
+ 			"Unable to create file from clk_off_timeout\n");
+ 		goto err_dma_init;
+ 	}
++#ifndef CONFIG_LAB126_ANDROID_EPDC
+ 	dump_pxp_reg(pxp);
+-
++#endif
++
++#ifndef CONFIG_LAB126_ANDROID_EPDC
+ 	INIT_WORK(&pxp->work, clkoff_callback);
+ 	init_waitqueue_head(&pxp->done);
+ 	init_timer(&pxp->clk_timer);
+ 	pxp->clk_timer.function = pxp_clkoff_timer;
+ 	pxp->clk_timer.data = (unsigned long)pxp;
++#endif
+ exit:
+ 	return err;
+ err_dma_init:
+@@ -1682,10 +1855,135 @@
+ }
+ 
+ #ifdef CONFIG_PM
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++/* pxp->lock held. This describes only this DMA provider's ownership. */
++static bool pxp_android_unowned(struct pxps *pxp)
++{
++	return !pxp->android_allocated && !pxp->pxp_ongoing && list_empty(&head);
++}
++
++/* clk_mutex held, IRQ disabled and allocation gate closed. No reset on timeout. */
++static int pxp_android_wait_idle(struct pxps *pxp)
++{
++	int attempt;
++	for (attempt = 0; attempt < 100; ++attempt) {
++		if (!(__raw_readl(pxp->base + HW_PXP_CTRL) & BM_PXP_CTRL_ENABLE))
++			return 0;
++		msleep(1);
++	}
++	return -ETIMEDOUT;
++}
++
++/* pxp->lock held. Preserve a pending deadline, or restart a cancelled idle request. */
++static void pxp_android_restore_timer(struct pxps *pxp)
++{
++	unsigned long expires = pxp->android_timer_expires;
++	if (pxp->android_timer_restore && pxp->clk_stat == CLK_STAT_ON) {
++		if (time_before_eq(expires, jiffies))
++			expires = jiffies + 1;
++		mod_timer(&pxp->clk_timer, expires);
++	}
++}
++
++static int pxp_android_suspend(struct pxps *pxp)
++{
++	unsigned long flags;
++	int ret = 0;
++
++	mutex_lock(&pxp->clk_mutex);
++	spin_lock_irqsave(&pxp->lock, flags);
++	if (pxp->android_pm_gate || !pxp_android_unowned(pxp)) {
++		spin_unlock_irqrestore(&pxp->lock, flags);
++		mutex_unlock(&pxp->clk_mutex);
++		return -EBUSY;
++	}
++	pxp->android_pm_gate = true;
++	pxp->android_clock_was_on = pxp->clk_stat == CLK_STAT_ON;
++	pxp->android_timer_restore = timer_pending(&pxp->clk_timer) ||
++		pxp->android_clock_was_on;
++	pxp->android_timer_expires = timer_pending(&pxp->clk_timer) ?
++		pxp->clk_timer.expires : jiffies + msecs_to_jiffies(timeout_in_ms);
++	spin_unlock_irqrestore(&pxp->lock, flags);
++	mutex_unlock(&pxp->clk_mutex);
++
++	/* These synchronous waits must never hold clk_mutex or the provider lock. */
++	disable_irq(pxp->irq);
++	del_timer_sync(&pxp->clk_timer);
++	cancel_work_sync(&pxp->work);
++
++	mutex_lock(&pxp->clk_mutex);
++	if (pxp->clk_stat == CLK_STAT_ON) {
++		ret = pxp_android_wait_idle(pxp);
++		if (ret)
++			goto fail;
++		/* Release exactly the driver's one existing reference. */
++		spin_lock_irqsave(&pxp->lock, flags);
++		pxp->clk_stat = CLK_STAT_OFF;
++		spin_unlock_irqrestore(&pxp->lock, flags);
++		clk_disable(pxp->clk);
++	}
++	/* OFF comes only from probe initialization or the checked idle clock-off path. */
++	pxp->android_suspended = true;
++	mutex_unlock(&pxp->clk_mutex);
++	return 0;
++
++fail:
++	spin_lock_irqsave(&pxp->lock, flags);
++	pxp->android_pm_gate = false;
++	pxp_android_restore_timer(pxp);
++	spin_unlock_irqrestore(&pxp->lock, flags);
++	mutex_unlock(&pxp->clk_mutex);
++	enable_irq(pxp->irq);
++	return ret;
++}
++
++static int pxp_android_resume(struct pxps *pxp)
++{
++	unsigned long flags;
++	int ret;
++
++	mutex_lock(&pxp->clk_mutex);
++	if (!pxp->android_suspended) {
++		mutex_unlock(&pxp->clk_mutex);
++		return 0;
++	}
++	ret = clk_enable(pxp->clk);
++	if (ret) {
++		mutex_unlock(&pxp->clk_mutex);
++		return ret; /* Keep admission closed and IRQ disabled until a successful retry. */
++	}
++	spin_lock_irqsave(&pxp->lock, flags);
++	pxp->clk_stat = CLK_STAT_ON;
++	spin_unlock_irqrestore(&pxp->lock, flags);
++	/* No transaction was admitted since successful suspend. */
++	__raw_writel(0, pxp->base + HW_PXP_CTRL);
++	__raw_writel(0xFFFFFFFF, pxp->base + HW_PXP_OUT_AS_ULC);
++	__raw_writel(BM_PXP_STAT_IRQ, pxp->base + HW_PXP_STAT_CLR);
++	pxp->lut_state = 0;
++	if (!pxp->android_clock_was_on) {
++		spin_lock_irqsave(&pxp->lock, flags);
++		pxp->clk_stat = CLK_STAT_OFF;
++		spin_unlock_irqrestore(&pxp->lock, flags);
++		clk_disable(pxp->clk);
++	}
++	spin_lock_irqsave(&pxp->lock, flags);
++	pxp->android_suspended = false;
++	pxp->android_pm_gate = false;
++	pxp_android_restore_timer(pxp);
++	spin_unlock_irqrestore(&pxp->lock, flags);
++	mutex_unlock(&pxp->clk_mutex);
++	enable_irq(pxp->irq);
++	return 0;
++}
++#endif
++
+ static int pxp_suspend(struct platform_device *pdev, pm_message_t state)
+ {
+ 	struct pxps *pxp = platform_get_drvdata(pdev);
+ 
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	return pxp_android_suspend(pxp);
++#else
+ 	pxp_clk_enable(pxp);
+ 	while (__raw_readl(pxp->base + HW_PXP_CTRL) & BM_PXP_CTRL_ENABLE)
+ 		;
+@@ -1693,12 +1991,16 @@
+ 	__raw_writel(BM_PXP_CTRL_SFTRST, pxp->base + HW_PXP_CTRL);
+ 	pxp_clk_disable(pxp);
+ 	return 0;
++#endif
+ }
+ 
+ static int pxp_resume(struct platform_device *pdev)
+ {
+ 	struct pxps *pxp = platform_get_drvdata(pdev);
+ 
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	return pxp_android_resume(pxp);
++#else
+ 	pxp->lut_state = 0;
+ 	pxp_clk_enable(pxp);
+ 	/* Pull PxP out of reset */
+@@ -1706,6 +2008,7 @@
+ 	__raw_writel(0xFFFFFFFF, pxp->base + HW_PXP_OUT_AS_ULC);
+ 	pxp_clk_disable(pxp);
+ 	return 0;
++#endif
+ }
+ #else
+ #define	pxp_suspend	NULL

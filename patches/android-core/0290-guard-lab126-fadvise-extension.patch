@@ -1,0 +1,14 @@
+--- a/mm/fadvise.c
++++ b/mm/fadvise.c
+@@ -116,9 +116,11 @@
+ 	case POSIX_FADV_NOREUSE:
+ 		break;
+ 	case POSIX_FADV_DONTNEED:
++#ifdef CONFIG_LAB126
+ 		if (bdi->capabilities & BDI_CAP_FLAG_DONTNEED) {
+ 			file->f_flags |= O_ADVNONEED;
+ 		}
++#endif
+ 
+ 		if (!bdi_write_congested(mapping->backing_dev_info))
+ 			filemap_flush(mapping);

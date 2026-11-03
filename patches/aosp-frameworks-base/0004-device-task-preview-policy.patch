@@ -1,0 +1,128 @@
+--- a/services/core/java/com/android/server/am/ActivityRecord.java
++++ b/services/core/java/com/android/server/am/ActivityRecord.java
+@@ -143,6 +143,7 @@
+ import android.os.Process;
+ import android.os.RemoteException;
+ import android.os.SystemClock;
++import android.os.SystemProperties;
+ import android.os.Trace;
+ import android.os.UserHandle;
+ import android.os.storage.StorageManager;
+@@ -1520,10 +1521,11 @@
+     final Bitmap screenshotActivityLocked() {
+         if (DEBUG_SCREENSHOTS) Slog.d(TAG_SCREENSHOTS, "screenshotActivityLocked: " + this);
+ 
+-        if (ENABLE_TASK_SNAPSHOTS) {
+-            // No need to screenshot if snapshots are enabled.
++        if (SystemProperties.getBoolean("ro.pw3.disable_task_previews", false)
++                || ENABLE_TASK_SNAPSHOTS) {
++            // Do not fall back to legacy screenshots when task previews are disabled.
+             if (DEBUG_SCREENSHOTS) Slog.d(TAG_SCREENSHOTS,
+-                    "\tSnapshots are enabled, abort taking screenshot");
++                    "\tTask previews are disabled or snapshots enabled; abort screenshot");
+             return null;
+         }
+ 
+--- a/services/core/java/com/android/server/am/TaskRecord.java
++++ b/services/core/java/com/android/server/am/TaskRecord.java
+@@ -41,6 +41,7 @@
+ import android.os.Debug;
+ import android.os.ParcelFileDescriptor;
+ import android.os.RemoteException;
++import android.os.SystemProperties;
+ import android.os.Trace;
+ import android.os.UserHandle;
+ import android.provider.Settings;
+@@ -1029,6 +1030,9 @@
+      * @return whether the thumbnail was set
+      */
+     boolean setLastThumbnailLocked(Bitmap thumbnail) {
++        if (SystemProperties.getBoolean("ro.pw3.disable_task_previews", false)) {
++            return false;
++        }
+         int taskWidth = 0;
+         int taskHeight = 0;
+         if (mBounds != null) {
+@@ -1074,6 +1078,12 @@
+     }
+ 
+     void getLastThumbnail(TaskThumbnail thumbs) {
++        if (SystemProperties.getBoolean("ro.pw3.disable_task_previews", false)) {
++            thumbs.mainThumbnail = null;
++            thumbs.thumbnailInfo = mLastThumbnailInfo;
++            thumbs.thumbnailFileDescriptor = null;
++            return;
++        }
+         thumbs.mainThumbnail = mLastThumbnail;
+         thumbs.thumbnailInfo = mLastThumbnailInfo;
+         thumbs.thumbnailFileDescriptor = null;
+@@ -1459,7 +1469,8 @@
+     }
+ 
+     TaskThumbnail getTaskThumbnailLocked() {
+-        if (mStack != null) {
++        if (!SystemProperties.getBoolean("ro.pw3.disable_task_previews", false)
++                && mStack != null) {
+             final ActivityRecord resumedActivity = mStack.mResumedActivity;
+             if (resumedActivity != null && resumedActivity.getTask() == this) {
+                 final Bitmap thumbnail = resumedActivity.screenshotActivityLocked();
+--- a/services/core/java/com/android/server/wm/TaskSnapshotController.java
++++ b/services/core/java/com/android/server/wm/TaskSnapshotController.java
+@@ -33,6 +33,7 @@
+ import android.graphics.Rect;
+ import android.os.Environment;
+ import android.os.Handler;
++import android.os.SystemProperties;
+ import android.util.ArraySet;
+ import android.util.Slog;
+ import android.view.DisplayListCanvas;
+@@ -190,6 +191,9 @@
+      */
+     @Nullable TaskSnapshot getSnapshot(int taskId, int userId, boolean restoreFromDisk,
+             boolean reducedResolution) {
++        if (SystemProperties.getBoolean("ro.pw3.disable_task_previews", false)) {
++            return null;
++        }
+         return mCache.getSnapshot(taskId, userId, restoreFromDisk, reducedResolution
+                 || DISABLE_FULL_SIZED_BITMAPS);
+     }
+@@ -200,6 +204,9 @@
+      */
+     StartingSurface createStartingSurface(AppWindowToken token,
+             TaskSnapshot snapshot) {
++        if (SystemProperties.getBoolean("ro.pw3.disable_task_previews", false)) {
++            return null;
++        }
+         return TaskSnapshotSurface.create(mService, token, snapshot);
+     }
+ 
+@@ -225,7 +232,8 @@
+     }
+ 
+     private boolean shouldDisableSnapshots() {
+-        return !ENABLE_TASK_SNAPSHOTS || mIsRunningOnWear || mIsRunningOnTv || mIsRunningOnIoT;
++        return SystemProperties.getBoolean("ro.pw3.disable_task_previews", false)
++                || !ENABLE_TASK_SNAPSHOTS || mIsRunningOnWear || mIsRunningOnTv || mIsRunningOnIoT;
+     }
+ 
+     private Rect minRect(Rect rect1, Rect rect2) {
+--- a/services/core/java/com/android/server/wm/TaskSnapshotPersister.java
++++ b/services/core/java/com/android/server/wm/TaskSnapshotPersister.java
+@@ -29,6 +29,7 @@
+ import android.graphics.GraphicBuffer;
+ import android.os.Process;
+ import android.os.SystemClock;
++import android.os.SystemProperties;
+ import android.util.ArraySet;
+ import android.util.Slog;
+ 
+@@ -102,6 +103,9 @@
+      * @param snapshot The snapshot to persist.
+      */
+     void persistSnapshot(int taskId, int userId, TaskSnapshot snapshot) {
++        if (SystemProperties.getBoolean("ro.pw3.disable_task_previews", false)) {
++            return;
++        }
+         synchronized (mLock) {
+             mPersistedTaskIdsSinceLastRemoveObsolete.add(taskId);
+             sendToQueueLocked(new StoreWriteQueueItem(taskId, userId, snapshot));

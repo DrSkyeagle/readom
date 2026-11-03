@@ -1,0 +1,19 @@
+--- a/drivers/video/mxc/mxc_epdc_fb.c
++++ b/drivers/video/mxc/mxc_epdc_fb.c
+@@ -5956,6 +5956,16 @@
+ 	}
+ 
+ #ifdef CONFIG_LAB126_ANDROID_EPDC
++	/* PW3: the panel's first picture after a start is this buffer, and the
++	 * buffer was just allocated and comes back zeroed (dma_alloc_writecombine
++	 * -> __dma_alloc_buffer), while zero is black. draw_mode0() has driven
++	 * every pixel white with the INIT waveform a moment ago, so sending the
++	 * zeroed buffer turns the whole screen black and leaves it black until
++	 * something draws -- a second away at best, and half a minute away on a
++	 * cold start, with nothing on the glass to say the device is working.
++	 * White is what the panel already is and what everything drawn afterwards
++	 * sits on. */
++	memset((void *)fb_data->info.screen_base, 0xFF, fb_data->map_size);
+ 	memset(&update, 0, sizeof(update));
+ #endif
+ 	update.update_region.left = 0;

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Software silence sink for Android service compatibility. No speaker,
+     microphone, remote submix, Bluetooth, or USB audio route is provided. -->
+<audioPolicyConfiguration version="1.0" xmlns:xi="http://www.w3.org/2001/XInclude">
+    <modules>
+        <module name="primary" halVersion="2.0">
+            <attachedDevices><item>Silent Output</item></attachedDevices>
+            <defaultOutputDevice>Silent Output</defaultOutputDevice>
+            <mixPorts>
+                <mixPort name="silent output" role="source" flags="AUDIO_OUTPUT_FLAG_PRIMARY">
+                    <profile name="" format="AUDIO_FORMAT_PCM_16_BIT"
+                             samplingRates="44100" channelMasks="AUDIO_CHANNEL_OUT_STEREO"/>
+                </mixPort>
+            </mixPorts>
+            <devicePorts>
+                <devicePort tagName="Silent Output" type="AUDIO_DEVICE_OUT_STUB" role="sink"/>
+            </devicePorts>
+            <routes><route type="mix" sink="Silent Output" sources="silent output"/></routes>
+        </module>
+    </modules>
+    <xi:include href="audio_policy_volumes.xml"/>
+    <xi:include href="default_volume_tables.xml"/>
+</audioPolicyConfiguration>

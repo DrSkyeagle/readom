@@ -1,0 +1,47 @@
+A cached icon is only as good as the rules that drew it
+
+0017 changed how every icon on the home screen is drawn: no white adaptive
+tile around an icon that is not adaptive, no baked shadow under it. On a clean
+install that is all there is to it, because there is no cache yet. An update is
+the other half, and every update keeps the data image -- books, accounts,
+settings, and /data/data/com.android.launcher3/databases/app_icons.db with it.
+
+IconCache does not redraw what it already has. updateDBIcons() asks the package
+manager for each application's versionCode and lastUpdateTime, compares them
+with the row, and leaves the row alone when they match; IconProvider's system
+state, the other thing it compares, is the locale and the SDK level. None of
+that changes when the rules for drawing change, so after an update the reader
+would see the new treatment on the applications they happened to reinstall and
+the old white tiles and shadows on all the rest -- the one thing 0017 set out
+to end, mixed icons, arrived by a different door.
+
+The mechanism for this is already in the file: the cache's version is the key
+of the database, and upstream counts LAUNCHER3_DISABLE_ICON_NORMALIZATION into
+it precisely because that flag changes how an icon is drawn. The two flags 0017
+turns off are of exactly that kind, so they are counted the same way, each with
+its own bit so that the version says which combination drew the rows. The cost
+is one re-read of every icon and label on the first start after an update, the
+same cost upstream pays when that flag moves.
+
+diff --git a/src/com/android/launcher3/IconCache.java b/src/com/android/launcher3/IconCache.java
+--- a/src/com/android/launcher3/IconCache.java
++++ b/src/com/android/launcher3/IconCache.java
+@@ -762,8 +762,17 @@
+     private static final class IconDB extends SQLiteCacheHelper {
+         private final static int DB_VERSION = 17;
+
++        /* PW3: the version is what tells a cached icon from a stale one, and
++         * upstream already counts one flag into it because that flag changes
++         * how an icon is drawn. 0017 turns off two more of exactly that kind,
++         * so they are counted the same way. Without this, an update that keeps
++         * the data image -- which every update does -- would go on showing the
++         * white tiles and shadows cached by the version before it, for every
++         * application whose own version and install time had not changed. */
+         private final static int RELEASE_VERSION = DB_VERSION +
+-                (FeatureFlags.LAUNCHER3_DISABLE_ICON_NORMALIZATION ? 0 : 1);
++                (FeatureFlags.LAUNCHER3_DISABLE_ICON_NORMALIZATION ? 0 : 1) +
++                (FeatureFlags.LEGACY_ICON_TREATMENT ? 0 : 2) +
++                (FeatureFlags.ADAPTIVE_ICON_SHADOW ? 0 : 4);
+
+         private final static String TABLE_NAME = "icons";
+         private final static String COLUMN_ROWID = "rowid";

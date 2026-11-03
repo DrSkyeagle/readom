@@ -1,0 +1,186 @@
+[
+  {
+    "repo": "platform/system/core",
+    "ref": "android-8.1.0_r81",
+    "source_path": "adb/daemon/usb.cpp",
+    "url": "https://android.googlesource.com/platform/system/core/+/android-8.1.0_r81/adb/daemon/usb.cpp?format=TEXT",
+    "local_path": "<project>/work/android-port/hardware-research/usb-component/adb-contract/sources/adb__daemon__usb.cpp",
+    "bytes": 14884,
+    "sha256": "9c94558cad026d71fe9be65565d50e2b323d313adba978f8a876d8adb0c54ccf"
+  },
+  {
+    "repo": "platform/system/core",
+    "ref": "android-8.1.0_r81",
+    "source_path": "adb/daemon/usb.h",
+    "url": "https://android.googlesource.com/platform/system/core/+/android-8.1.0_r81/adb/daemon/usb.h?format=TEXT",
+    "local_path": "<project>/work/android-port/hardware-research/usb-component/adb-contract/sources/adb__daemon__usb.h",
+    "bytes": 1335,
+    "sha256": "a6d98154e4a975e9601c27e1df49fd94bea6b61157bff614d5e72b5835c641b3"
+  },
+  {
+    "repo": "platform/system/core",
+    "ref": "android-8.1.0_r81",
+    "source_path": "adb/daemon/main.cpp",
+    "url": "https://android.googlesource.com/platform/system/core/+/android-8.1.0_r81/adb/daemon/main.cpp?format=TEXT",
+    "local_path": "<project>/work/android-port/hardware-research/usb-component/adb-contract/sources/adb__daemon__main.cpp",
+    "bytes": 7930,
+    "sha256": "478c3b094f657bb0eadd797ebd663021458a38c9a20785b6bf8d54378b6ef219"
+  },
+  {
+    "repo": "platform/system/core",
+    "ref": "android-8.1.0_r81",
+    "source_path": "adb/adbd_auth.cpp",
+    "url": "https://android.googlesource.com/platform/system/core/+/android-8.1.0_r81/adb/adbd_auth.cpp?format=TEXT",
+    "local_path": "<project>/work/android-port/hardware-research/usb-component/adb-contract/sources/adb__adbd_auth.cpp",
+    "bytes": 6751,
+    "sha256": "f61b8a9556ac13b7f53810d6009de04a106ce4ff03e330a77c84275e1accdc3f"
+  },
+  {
+    "repo": "platform/system/core",
+    "ref": "android-8.1.0_r81",
+    "source_path": "adb/adb.cpp",
+    "url": "https://android.googlesource.com/platform/system/core/+/android-8.1.0_r81/adb/adb.cpp?format=TEXT",
+    "local_path": "<project>/work/android-port/hardware-research/usb-component/adb-contract/sources/adb__adb.cpp",
+    "bytes": 46845,
+    "sha256": "709e4f77fa121beac07107536e0fd223d0afeb408bd9ab2b796d232ebb3c129e"
+  },
+  {
+    "repo": "platform/system/core",
+    "ref": "android-8.1.0_r81",
+    "source_path": "adb/Android.bp",
+    "url": "https://android.googlesource.com/platform/system/core/+/android-8.1.0_r81/adb/Android.bp?format=TEXT",
+    "local_path": "<project>/work/android-port/hardware-research/usb-component/adb-contract/sources/adb__Android.bp",
+    "bytes": 1108,
+    "sha256": "9c806ed403b8ca037cc29299defdef0383a37824133f6c3bf8ed08e5e8b2063b"
+  },
+  {
+    "repo": "platform/system/core",
+    "ref": "android-8.1.0_r81",
+    "source_path": "adb/Android.mk",
+    "url": "https://android.googlesource.com/platform/system/core/+/android-8.1.0_r81/adb/Android.mk?format=TEXT",
+    "local_path": "<project>/work/android-port/hardware-research/usb-component/adb-contract/sources/adb__Android.mk",
+    "bytes": 10785,
+    "sha256": "9142b6ff1f21b1c57e2c78fecf64b860c3e4de34776a41332ba1619b5e482874"
+  },
+  {
+    "repo": "platform/system/core",
+    "ref": "android-8.1.0_r81",
+    "source_path": "adb/transport_usb.cpp",
+    "url": "https://android.googlesource.com/platform/system/core/+/android-8.1.0_r81/adb/transport_usb.cpp?format=TEXT",
+    "local_path": "<project>/work/android-port/hardware-research/usb-component/adb-contract/sources/adb__transport_usb.cpp",
+    "bytes": 5512,
+    "sha256": "b954def6645cbdc4fc640488549291726d473e8ab363c8a6365b158a1d7d5b1a"
+  },
+  {
+    "repo": "platform/system/core",
+    "ref": "android-8.1.0_r81",
+    "source_path": "adb/client/usb_libusb.cpp",
+    "url": "https://android.googlesource.com/platform/system/core/+/android-8.1.0_r81/adb/client/usb_libusb.cpp?format=TEXT",
+    "local_path": "<project>/work/android-port/hardware-research/usb-component/adb-contract/sources/adb__client__usb_libusb.cpp",
+    "bytes": 22713,
+    "sha256": "df90e6d918847679345bded930cbddc47088daf65222eb207199f02eb0b254d6"
+  },
+  {
+    "repo": "platform/system/core",
+    "ref": "android-8.1.0_r81",
+    "source_path": "adb/client/usb_linux.cpp",
+    "url": "https://android.googlesource.com/platform/system/core/+/android-8.1.0_r81/adb/client/usb_linux.cpp?format=TEXT",
+    "local_path": "<project>/work/android-port/hardware-research/usb-component/adb-contract/sources/adb__client__usb_linux.cpp",
+    "bytes": 20235,
+    "sha256": "e0d93af0bb6c40444a89bd783fe7b4fe0d152ca264e7c3f7a93f877aa19ad3d6"
+  },
+  {
+    "repo": "platform/system/core",
+    "ref": "android-8.1.0_r81",
+    "source_path": "adb/client/usb_osx.cpp",
+    "url": "https://android.googlesource.com/platform/system/core/+/android-8.1.0_r81/adb/client/usb_osx.cpp?format=TEXT",
+    "local_path": "<project>/work/android-port/hardware-research/usb-component/adb-contract/sources/adb__client__usb_osx.cpp",
+    "bytes": 19017,
+    "sha256": "ca512ae0d42334f114e049aa441049f653145a498215ba9a531f673c013b6600"
+  },
+  {
+    "repo": "platform/frameworks/base",
+    "ref": "android-8.1.0_r81",
+    "source_path": "services/usb/java/com/android/server/usb/UsbService.java",
+    "url": "https://android.googlesource.com/platform/frameworks/base/+/android-8.1.0_r81/services/usb/java/com/android/server/usb/UsbService.java?format=TEXT",
+    "local_path": "<project>/work/android-port/hardware-research/usb-component/adb-contract/sources/frameworks_base__UsbService.java",
+    "bytes": 26689,
+    "sha256": "db693628ac3f6e89532995e7a9d8d3a2695bd93d9542cadc1b76bc8efec919ed"
+  },
+  {
+    "repo": "platform/frameworks/base",
+    "ref": "android-8.1.0_r81",
+    "source_path": "services/usb/java/com/android/server/usb/UsbDeviceManager.java",
+    "url": "https://android.googlesource.com/platform/frameworks/base/+/android-8.1.0_r81/services/usb/java/com/android/server/usb/UsbDeviceManager.java?format=TEXT",
+    "local_path": "<project>/work/android-port/hardware-research/usb-component/adb-contract/sources/frameworks_base__UsbDeviceManager.java",
+    "bytes": 63771,
+    "sha256": "3e7193d268a6dc53414c0ff69ff50e366e472f8847d32839350033553ed6bc57"
+  },
+  {
+    "repo": "platform/frameworks/base",
+    "ref": "android-8.1.0_r81",
+    "source_path": "services/usb/java/com/android/server/usb/UsbDebuggingManager.java",
+    "url": "https://android.googlesource.com/platform/frameworks/base/+/android-8.1.0_r81/services/usb/java/com/android/server/usb/UsbDebuggingManager.java?format=TEXT",
+    "local_path": "<project>/work/android-port/hardware-research/usb-component/adb-contract/sources/frameworks_base__UsbDebuggingManager.java",
+    "bytes": 16528,
+    "sha256": "523e60327be18655849dcbfd802394ae014b0046cd7d44862613e18217e387fc"
+  },
+  {
+    "repo": "platform/system/core",
+    "ref": "android-8.1.0_r81",
+    "source_path": "adb/adb.h",
+    "url": "https://android.googlesource.com/platform/system/core/+/android-8.1.0_r81/adb/adb.h?format=TEXT",
+    "local_path": "<project>/work/android-port/hardware-research/usb-component/adb-contract/sources/adb__adb.h",
+    "bytes": 7185,
+    "sha256": "76fd4fb1088e129273e02c99970faa5a20b706faa6847e62e962b8011f2430fd"
+  },
+  {
+    "repo": "platform/system/core",
+    "ref": "android-8.1.0_r81",
+    "source_path": "adb/usb.h",
+    "url": "https://android.googlesource.com/platform/system/core/+/android-8.1.0_r81/adb/usb.h?format=TEXT",
+    "local_path": "<project>/work/android-port/hardware-research/usb-component/adb-contract/sources/adb__usb.h",
+    "bytes": 1918,
+    "sha256": "26f77fe425e82a96c4402eb8ef0678644d2776fc59a80b988b619d002f27cdba"
+  },
+  {
+    "repo": "platform/system/core",
+    "ref": "android-8.1.0_r81",
+    "source_path": "init/firmware_handler.cpp",
+    "url": "https://android.googlesource.com/platform/system/core/+/android-8.1.0_r81/init/firmware_handler.cpp?format=TEXT",
+    "local_path": "<project>/work/android-port/hardware-research/aosp-8.1/firmware_handler.cpp",
+    "bytes": 4025,
+    "sha256": "53dfa8474792ab640f33e856485c39c73e77b105f71c095c21b28e9bdaedf7b6",
+    "official_tag_bytes_match": true
+  },
+  {
+    "repo": "platform/system/core",
+    "ref": "android-8.1.0_r81",
+    "source_path": "init/ueventd.cpp",
+    "url": "https://android.googlesource.com/platform/system/core/+/android-8.1.0_r81/init/ueventd.cpp?format=TEXT",
+    "local_path": "<project>/work/android-port/kernel-research/android81-init/sources/platform_system_core__init__ueventd.cpp",
+    "bytes": 11255,
+    "sha256": "96dbb4ccea8128caaef30d0f5ac248a8074dcf3adeecd62a749f34e01378b5c3",
+    "official_tag_bytes_match": true
+  },
+  {
+    "repo": "platform/system/core",
+    "ref": "android-8.1.0_r81",
+    "source_path": "init/devices.cpp",
+    "url": "https://android.googlesource.com/platform/system/core/+/android-8.1.0_r81/init/devices.cpp?format=TEXT",
+    "local_path": "<project>/work/android-port/kernel-research/android81-init/sources/platform_system_core__init__devices.cpp",
+    "bytes": 16192,
+    "sha256": "8c82d93e40a381fef210fe45fadc09d8b8735bb66ac79f545281470494fbff02",
+    "official_tag_bytes_match": true
+  },
+  {
+    "repo": "platform/system/core",
+    "ref": "android-8.1.0_r81",
+    "source_path": "init/init.cpp",
+    "url": "https://android.googlesource.com/platform/system/core/+/android-8.1.0_r81/init/init.cpp?format=TEXT",
+    "local_path": "<project>/work/android-port/kernel-research/android81-init/sources/platform_system_core__init__init.cpp",
+    "bytes": 42429,
+    "sha256": "41971174ea2d88357903b2ae9f438da91fe225a6fc9715977bc50aaaaf471c8e",
+    "official_tag_bytes_match": true
+  }
+]

@@ -1,0 +1,9 @@
+type pw3_fg_state, domain;
+type pw3_fg_state_exec, exec_type, vendor_file_type, file_type;
+init_daemon_domain(pw3_fg_state)
+type sysfs_pw3_fg_snapshot, fs_type, sysfs_type;
+allow pw3_fg_state sysfs:dir search;
+allow pw3_fg_state sysfs_pw3_fg_snapshot:file r_file_perms;
+# This program only reads: it opens the gauge snapshot and says whether the
+# state could be saved. Writing it back went on 2026-10-29, so there is no
+# write permission to give.

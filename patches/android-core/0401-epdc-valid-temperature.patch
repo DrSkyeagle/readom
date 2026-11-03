@@ -1,0 +1,397 @@
+--- a/drivers/hwmon/max77696-adc.c
++++ b/drivers/hwmon/max77696-adc.c
+@@ -30,6 +30,11 @@
+ #include <linux/hwmon.h>
+ #include <linux/hwmon-sysfs.h>
+ #include <linux/mfd/max77696.h>
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++#include <linux/spinlock.h>
++#include <linux/jiffies.h>
++#include <linux/math64.h>
++#endif
+ #include <mach/boardid.h>
+ #include <max77696_registers.h>
+ 
+@@ -47,6 +52,7 @@
+ 
+ signed int display_temp_c = DISP_DEFAULT_TEMP;
+ EXPORT_SYMBOL(display_temp_c);
++#include "max77696-display-temperature.h"
+ 
+ struct max77696_adc {
+ 	struct max77696_chip *chip;
+@@ -309,7 +315,14 @@
+ static ssize_t max77696_adc_display_temp_show (struct device *dev,
+     struct device_attribute *devattr, char *buf) {
+ 
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	int temperature, ret = max77696_adc_get_display_temp(&temperature);
++	if (ret)
++		return ret;
++	return scnprintf(buf, PAGE_SIZE, "%d\n", temperature);
++#else
+ 	return sprintf(buf, "%d\n", display_temp_c);
++#endif
+ }
+ 
+ static DEVICE_ATTR(display_temp_c, S_IWUSR | S_IRUGO,
+@@ -473,7 +486,13 @@
+     if (adc_ch > 7) {
+         adc_sel0 = 0;
+         adc_sel1 = (1 << (adc_ch - 8));
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++        rc = max77696_adc_reg_read(me, ADCSEL1, &tmp);
++        if (rc)
++            goto out;
++#else
+         max77696_adc_reg_read(me, ADCSEL1, &tmp);
++#endif
+         rc = max77696_adc_reg_write(me, ADCSEL1, (tmp & ~adc_sel1));
+         if (unlikely(rc)) {
+             dev_err(me->dev, "ADCSEL1 write error [%d]\n", rc);
+@@ -482,7 +501,13 @@
+     } else {
+         adc_sel0 = (1 << adc_ch);
+         adc_sel1 = 0;
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++        rc = max77696_adc_reg_read(me, ADCSEL0, &tmp);
++        if (rc)
++            goto out;
++#else
+         max77696_adc_reg_read(me, ADCSEL0, &tmp);
++#endif
+         rc = max77696_adc_reg_write(me, ADCSEL0, (tmp & ~adc_sel0));
+         if (unlikely(rc)) {
+             dev_err(me->dev, "ADCSEL0 write error [%d]\n", rc);
+@@ -496,7 +521,12 @@
+ static int max77696_adc_channel_convert (struct max77696_adc *me,
+     u8 channel, u16 *data)
+ {
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++    u8 adc_busy = 0, adc_ch, tmp;
++    int disable_rc;
++#else
+     u8 adc_busy, adc_ch, tmp;
++#endif
+     u16 val;
+     unsigned long timeout;
+     int rc;
+@@ -541,11 +571,21 @@
+     do {
+         if (unlikely(time_after(jiffies, timeout))) {
+             dev_err(me->dev, "adc conversion timed out\n");
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++            rc = -ETIMEDOUT;
++#else
+             rc = - -ETIMEDOUT;
++#endif
+             goto out;
+         }
+         msleep(1);
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++        rc = max77696_adc_reg_get_bit(me, ADCCNTL, ADCCONV, &adc_busy);
++        if (rc)
++            goto out;
++#else
+         max77696_adc_reg_get_bit(me, ADCCNTL, ADCCONV, &adc_busy);
++#endif
+     } while (likely(adc_busy));
+ 
+     /* Read ADC conversion result. */
+@@ -555,7 +595,13 @@
+         goto out;
+     }
+ 
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++    rc = max77696_read(me->i2c, 0x2A, &tmp);
++    if (rc)
++        goto out;
++#else
+     max77696_read(me->i2c, 0x2A, &tmp);
++#endif
+ 
+     rc = max77696_adc_reg_read(me, ADCDATAH, &tmp);
+     if (unlikely(rc)) {
+@@ -577,13 +623,23 @@
+ 
+     /* Release ADC channel after conversion */
+     if (likely(max77696_adc_channels[channel].release)) {
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++        rc = max77696_adc_channels[channel].release(me, channel);
++#else
+         max77696_adc_channels[channel].release(me, channel);
++#endif
+     }
+ 
+ out:
+     /* Disable the ADC Block and Reference when not in use
+      * to save power. */
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++    disable_rc = max77696_adc_reg_write(me, ADCCNTL, 0);
++    if (!rc)
++        rc = disable_rc;
++#else
+     max77696_adc_reg_write(me, ADCCNTL, 0);
++#endif
+ 
+     return rc;
+ }
+@@ -644,6 +700,9 @@
+ static struct attribute* max77696_adc_attr[] = {
+     /* Display temperature in Celsius */
+     &dev_attr_display_temp_c.attr,
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++    &dev_attr_display_temp_status.attr,
++#endif
+ 
+     /* ADC Sample Average Rate */
+     &dev_attr_adc_samples.attr,
+@@ -742,6 +801,9 @@
+     dev_info(me->dev, "ADC delay: %u nsec\n", pdata->adc_delay);
+     dev_info(me->dev, "ADC cur src: %u uA\n", pdata->current_src);
+ 
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++    max77696_display_temp_invalidate(-EAGAIN);
++#endif
+     schedule_delayed_work(&adc_disp_temp_work, msecs_to_jiffies(0));
+ 
+     pr_info(DRIVER_DESC" "DRIVER_VERSION" Installed\n");
+@@ -763,6 +825,9 @@
+     struct max77696_adc *me = platform_get_drvdata(pdev);
+ 
+     cancel_delayed_work_sync(&adc_disp_temp_work);
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++    max77696_display_temp_invalidate(-ENODEV);
++#endif
+     sysfs_remove_group(me->kobj, &max77696_adc_attr_group);
+     hwmon_device_unregister(me->hwmon);
+ 
+@@ -1034,8 +1099,13 @@
+ static void adc_disp_gettemp_work(struct work_struct *work)
+ {
+     u16 data = 0x0;
+-
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++    int rc = max77696_adc_read(MAX77696_ADC_CH_AIN0, &data);
++    if (rc)
++        goto publish_sample;
++#else
+     max77696_adc_read(MAX77696_ADC_CH_AIN0, &data);
++#endif
+ 
+     /* Remove ADC grnd ref noise in boards with analog grnd island */
+     if(lab126_board_rev_greater(BOARD_ID_WARIO_2) ||
+@@ -1056,13 +1126,25 @@
+ 	lab126_board_is(BOARD_ID_WHISKY_WAN) ||
+ 	lab126_board_is(BOARD_ID_WOODY)) { 
+             u16 noise = 0x0;
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++            rc = max77696_adc_read(MAX77696_ADC_CH_AIN2, &noise);
++            if (rc)
++                goto publish_sample;
++#else
+             max77696_adc_read(MAX77696_ADC_CH_AIN2, &noise);
++#endif
+             /* diff to compensate */
+             data = abs(data - noise);
+     }
+ 
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++publish_sample:
++    /* Never run the thermistor lookup on a failed/partial ADC transaction. */
++    max77696_display_temp_publish(rc, rc ? 0 : lkup_temp_data(data));
++#else
+     /*this is the only place display_temp gets updated, so no mutex needed! */
+     display_temp_c = lkup_temp_data(data);
++#endif
+ 
+     schedule_delayed_work(&adc_disp_temp_work, msecs_to_jiffies(DISP_ADC_TEMP_THRESHOLD));
+     return;
+--- a/drivers/video/mxc/mxc_epdc_fb.c
++++ b/drivers/video/mxc/mxc_epdc_fb.c
+@@ -41,6 +41,9 @@
+ #include <linux/uaccess.h>
+ #include <linux/cpufreq.h>
+ #include <linux/firmware.h>
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++#include <linux/mfd/max77696.h>
++#endif
+ #include <linux/kthread.h>
+ #include <linux/dmaengine.h>
+ #include <linux/pxp_dma.h>
+@@ -1235,8 +1238,13 @@
+ 	       EPDC_FIFOCTRL_FIFO_L_LEVEL_MASK);
+ 	__raw_writel(reg_val, EPDC_FIFOCTRL);
+ 
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	/* Before mode0, do_epdc_init_sequence requires a measured cached temperature. */
++	epdc_set_temp(fb_data->temp_index);
++#else
+ 	/* EPDC_TEMP - Use default temp to get index */
+ 	epdc_set_temp(mxc_epdc_fb_get_temp_index(fb_data, DEFAULT_TEMP));
++#endif
+ 
+ 	/* EPDC_RES */
+ 	epdc_set_screen_res(epdc_mode->vmode->xres, epdc_mode->vmode->yres);
+@@ -3978,12 +3986,47 @@
+ 	return 0;
+ }
+ 
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++static int mxc_epdc_android_startup_temperature(int *temperature)
++{
++	int attempt, ret;
++	/* Allow the already queued first sample to run; do not start a new ADC read. */
++	for (attempt = 0; attempt < 20; ++attempt) {
++		ret = max77696_adc_get_display_temp(temperature);
++		if (ret != -EAGAIN)
++			return ret;
++		msleep(100);
++	}
++	return max77696_adc_get_display_temp(temperature);
++}
++
++static int mxc_epdc_android_resolve_temperature(struct mxcfb_update_data *update)
++{
++	int temperature, ret;
++	if (update->temp != TEMP_USE_AUTO)
++		return 0;
++	ret = max77696_adc_get_display_temp(&temperature);
++	if (ret)
++		return ret;
++	/* Freeze one successful measurement for the entire update, including splits. */
++	update->temp = temperature;
++	return 0;
++}
++#endif
++
+ int mxc_epdc_fb_send_update(struct mxcfb_update_data *upd_data,
+ 				   struct fb_info *info)
+ {
+ 	struct mxc_epdc_fb_data *fb_data = info ?
+ 		(struct mxc_epdc_fb_data *)info:g_fb_data;
+ 
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	{
++		int ret = mxc_epdc_android_resolve_temperature(upd_data);
++		if (ret)
++			return ret;
++	}
++#endif
+ 	if (!fb_data->restrict_width) {
+ 		/* No width restriction, send entire update region */
+ 		return mxc_epdc_fb_send_single_update(upd_data, info);
+@@ -4336,8 +4379,15 @@
+ 
+ 			if (fb_data->temp_override != TEMP_USE_AUTO)
+ 				temp = fb_data->temp_override;
+-			else
++			else {
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++				ret = max77696_adc_get_display_temp(&temp);
++				if (ret)
++					break;
++#else
+ 				temp = display_temp_c;
++#endif
++			}
+ 			ret = 0;
+ 			if (put_user(temp, (int __user *)argp))
+ 				ret = -EFAULT;
+@@ -5601,6 +5651,13 @@
+ 	struct mxcfb_update_data update;
+ 	struct mxcfb_update_marker_data upd_marker_data;
+ 	struct fb_var_screeninfo *screeninfo = &fb_data->epdc_fb_var;
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	int temperature;
++	ret = mxc_epdc_android_startup_temperature(&temperature);
++	if (ret)
++		return ret; /* No mode0 or panel power-up from the unmeasured 25 C default. */
++	fb_data->temp_index = mxc_epdc_fb_get_temp_index(fb_data, temperature);
++#endif
+ 
+ 	clk_enable(fb_data->epdc_clk_axi);
+ 	clk_enable(fb_data->epdc_clk_pix);
+--- a/include/linux/mfd/max77696.h
++++ b/include/linux/mfd/max77696.h
+@@ -900,6 +900,10 @@
+ 
+ /* @ADC */
+ extern int max77696_adc_read (u8 channel, u16 *data);
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++/* Cached successful measurement; unchanged output on error; never performs I/O. */
++extern int max77696_adc_get_display_temp(int *celsius);
++#endif
+ #define max77696_adc_read_buck_current(buck, data_ptr) \
+         max77696_adc_read(MAX77696_ADC_CH_IMONB##buck, data_ptr)
+ #define max77696_adc_read_ldo_current(ldo, data_ptr) \
+--- /dev/null
++++ b/drivers/hwmon/max77696-display-temperature.h
+@@ -0,0 +1,67 @@
++/* Included by max77696-adc.c; no I/O occurs in these cache/status operations. */
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++static DEFINE_SPINLOCK(display_temp_lock);
++static bool display_temp_valid;
++static int display_temp_error = -EAGAIN;
++static u64 display_temp_last_success;
++
++static void max77696_display_temp_publish(int error, int celsius)
++{
++	unsigned long flags;
++	spin_lock_irqsave(&display_temp_lock, flags);
++	display_temp_error = error > 0 ? -EIO : error;
++	if (!error) {
++		display_temp_c = celsius;
++		display_temp_valid = true;
++		display_temp_last_success = get_jiffies_64();
++	}
++	spin_unlock_irqrestore(&display_temp_lock, flags);
++}
++
++static void max77696_display_temp_invalidate(int error)
++{
++	unsigned long flags;
++	spin_lock_irqsave(&display_temp_lock, flags);
++	display_temp_valid = false;
++	display_temp_error = error;
++	display_temp_last_success = 0;
++	spin_unlock_irqrestore(&display_temp_lock, flags);
++}
++
++/* Success means at least one completed sample, not that the last attempt worked.
++ * On a later failed attempt the previously measured temperature is retained.
++ */
++int max77696_adc_get_display_temp(int *celsius)
++{
++	unsigned long flags;
++	int ret;
++	if (!celsius)
++		return -EINVAL;
++	spin_lock_irqsave(&display_temp_lock, flags);
++	ret = display_temp_valid ? 0 : (display_temp_error ? display_temp_error : -EAGAIN);
++	if (!ret)
++		*celsius = display_temp_c;
++	spin_unlock_irqrestore(&display_temp_lock, flags);
++	return ret;
++}
++EXPORT_SYMBOL(max77696_adc_get_display_temp);
++
++static ssize_t max77696_adc_display_temp_status_show(struct device *dev,
++		struct device_attribute *attr, char *buf)
++{
++	unsigned long flags;
++	bool valid;
++	int error;
++	u64 age;
++	spin_lock_irqsave(&display_temp_lock, flags);
++	valid = display_temp_valid;
++	error = display_temp_error;
++	age = valid ? get_jiffies_64() - display_temp_last_success : 0;
++	spin_unlock_irqrestore(&display_temp_lock, flags);
++	/* This is jiffies-based elapsed time, not a wall-clock freshness guarantee. */
++	return scnprintf(buf, PAGE_SIZE, "valid=%u last_error=%d age_ms=%llu\n",
++		valid ? 1 : 0, error, (unsigned long long)div_u64(age * 1000, HZ));
++}
++static DEVICE_ATTR(display_temp_status, S_IRUGO,
++		max77696_adc_display_temp_status_show, NULL);
++#endif

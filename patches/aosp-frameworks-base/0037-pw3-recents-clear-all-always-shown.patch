@@ -1,0 +1,35 @@
+From: PW3 Android port
+Subject: [PW3] SystemUI recents: clear all shown whenever there are tasks
+
+0024 puts the newest six tasks on one screen of icon cards that never scrolls,
+"between the status bar and the clear-all button", and leaves the older tasks
+to clear all. But the low ram layout shows that button only when the user
+scrolls up to older tasks or dismisses a task: on the device it was missing
+(Test V45, 25 recent tasks, six shown), so the other 19 could not be removed
+from the screen until a card had been closed first.
+
+With icon cards the button now follows the grid layout's rule: shown whenever
+the stack has tasks, hidden when it has none: a static outlined button at the
+bottom (0024), shown from the first layout instead of after a gesture.
+
+--- a/packages/SystemUI/src/com/android/systemui/recents/views/TaskStackView.java
++++ b/packages/SystemUI/src/com/android/systemui/recents/views/TaskStackView.java
+@@ -2408,6 +2408,18 @@
+     }
+ 
+     private void updateStackActionButtonVisibility() {
++        // PW3: icon cards do not scroll (TaskStackLowRamLayoutAlgorithm), so clear all is shown
++        // whenever there are tasks, as in grid layout. The low ram layout shows it only once the
++        // user scrolls up or dismisses a task: with six cards that never scroll it stayed hidden
++        // until a card was closed, and the older tasks could not be removed (Test V45).
++        if (Recents.getConfiguration().iconCards) {
++            if (mStack.getTaskCount() > 0) {
++                EventBus.getDefault().send(new ShowStackActionButtonEvent(false /* translate */));
++            } else {
++                EventBus.getDefault().send(new HideStackActionButtonEvent());
++            }
++            return;
++        }
+         if (Recents.getConfiguration().isLowRamDevice) {
+             return;
+         }

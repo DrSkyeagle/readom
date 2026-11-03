@@ -1,0 +1,75 @@
+--- a/adb/daemon/main.cpp
++++ b/adb/daemon/main.cpp
+@@ -133,19 +133,23 @@
+                 LOG(FATAL) << "Could not set SELinux context";
+             }
+         }
++#ifndef PW3_USB_ONLY_ADBD
+         std::string error;
+         std::string local_name =
+             android::base::StringPrintf("tcp:%d", server_port);
+         if (install_listener(local_name, "*smartsocket*", nullptr, 0, nullptr, &error)) {
+             LOG(FATAL) << "Could not install *smartsocket* listener: " << error;
+         }
+-    }
+-}
+-
++#endif
++    }
++}
++
++#ifndef PW3_USB_ONLY_ADBD
+ static void setup_port(int port) {
+     local_init(port);
+     setup_mdns(port);
+ }
++#endif
+ 
+ int adbd_main(int server_port) {
+     umask(0);
+@@ -176,6 +180,22 @@
+ 
+     drop_privileges(server_port);
+ 
++#ifdef PW3_USB_ONLY_ADBD
++    // The opt-in boot flag and effective authentication must survive service restarts.
++    if (android::base::GetProperty("ro.boot.pw3.adb", "") != "1" || !auth_required) {
++        LOG(ERROR) << "PW3 USB ADB requires explicit boot opt-in and authentication";
++        return 1;
++    }
++    // Check under adbd's final UID and SELinux context, not init's root context.
++    // No descriptors are written here. Closing resets the empty FunctionFS state.
++    const int probe_fd = adb_open(USB_FFS_ADB_EP0, O_RDWR | O_CLOEXEC);
++    if (probe_fd < 0) {
++        PLOG(ERROR) << "PW3 USB ADB cannot open FunctionFS ep0";
++        return 1;
++    }
++    adb_close(probe_fd);
++    usb_init();
++#else
+     bool is_usb = false;
+     if (access(USB_FFS_ADB_EP0, F_OK) == 0) {
+         // Listen on USB.
+@@ -200,6 +220,8 @@
+         // Listen on default port.
+         setup_port(DEFAULT_ADB_LOCAL_TRANSPORT_PORT);
+     }
++
++#endif
+ 
+     D("adbd_main(): pre init_jdwp()");
+     init_jdwp();
+--- a/adb/Android.mk
++++ b/adb/Android.mk
+@@ -351,6 +351,11 @@
+     -Wno-deprecated-declarations \
+ 
+ LOCAL_CFLAGS += -DALLOW_ADBD_NO_AUTH=$(if $(filter userdebug eng,$(TARGET_BUILD_VARIANT)),1,0)
++
++# PW3's legacy FunctionFS gadget is the only authorized ADB transport.
++ifeq ($(BOARD_PW3_USB_ONLY_ADBD),true)
++LOCAL_CFLAGS += -DPW3_USB_ONLY_ADBD
++endif
+ 
+ ifneq (,$(filter userdebug eng,$(TARGET_BUILD_VARIANT)))
+ LOCAL_CFLAGS += -DALLOW_ADBD_DISABLE_VERITY=1

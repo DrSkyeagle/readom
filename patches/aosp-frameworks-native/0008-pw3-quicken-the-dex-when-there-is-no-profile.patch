@@ -1,0 +1,111 @@
+From: PW3 Android port
+Subject: [PW3] installd asks for quicken when the profile a filter wants is missing
+
+The other half of frameworks/base patch 0051, which carries the reasoning and
+the measurements. Two paths set this filter and both now ask for "quicken":
+
+  - No reference profile. The dex gets quickened either way (kSpeedProfile has
+    IsQuickeningCompilationEnabled() true), so what this saves is the work:
+    147 s to compile WeRead from a profile that is not there, against 62 s to
+    ask for quickening, for the same 1,057,192-byte odex. The filter it used to
+    ask for, "speed", costs 1214 s and buys a cold start six paired rounds put
+    3.9 s away (95% CI 0.3 to 7.5 s).
+  - A reference profile that is there and cannot be read. dex2oat does not
+    compile nothing then, it fails ("Failed to process profile file"), and the
+    application is left with neither compiled code nor quickened dex. Here the
+    fallback is what keeps it usable at all.
+
+--- a/cmds/installd/otapreopt.cpp
++++ b/cmds/installd/otapreopt.cpp
+@@ -81,8 +81,8 @@
+ // PW3: the parameter protocol above is not what carries this flag. It is set by
+ // PackageDexOptimizer for the recompilation after a system update, which runs in
+ // installd; OtaDexoptService, the only writer of these parameters, never sets it.
+-static_assert(DEXOPT_SPEED_IF_NO_PROFILE == 1 << 9,
+-              "DEXOPT_SPEED_IF_NO_PROFILE unexpected.");
++static_assert(DEXOPT_QUICKEN_IF_NO_PROFILE == 1 << 9,
++              "DEXOPT_QUICKEN_IF_NO_PROFILE unexpected.");
+ 
+ static_assert(DEXOPT_MASK           == 0x3fe, "DEXOPT_MASK unexpected.");
+ 
+--- a/cmds/installd/installd_constants.h
++++ b/cmds/installd/installd_constants.h
+@@ -49,10 +49,11 @@
+ constexpr int DEXOPT_FORCE          = 1 << 6;
+ constexpr int DEXOPT_STORAGE_CE     = 1 << 7;
+ constexpr int DEXOPT_STORAGE_DE     = 1 << 8;
+-// PW3: compile with "speed" when the filter asks for a usage profile and there is
+-// no profile to compile from. Set for the recompilation after a system update,
+-// where the alternative is an application left with no compiled code; see dexopt().
+-constexpr int DEXOPT_SPEED_IF_NO_PROFILE = 1 << 9;
++// PW3: compile with "quicken" when the filter asks for a usage profile and there
++// is no profile to compile from. Set for the recompilation after a system update,
++// where asking for the profile that is not there costs two and a half times as
++// much and produces the same odex; see dexopt().
++constexpr int DEXOPT_QUICKEN_IF_NO_PROFILE = 1 << 9;
+ 
+ /* all known values for dexopt flags */
+ constexpr int DEXOPT_MASK =
+@@ -64,7 +65,7 @@
+     | DEXOPT_FORCE
+     | DEXOPT_STORAGE_CE
+     | DEXOPT_STORAGE_DE
+-    | DEXOPT_SPEED_IF_NO_PROFILE;
++    | DEXOPT_QUICKEN_IF_NO_PROFILE;
+ 
+ // NOTE: keep in sync with StorageManager
+ constexpr int FLAG_STORAGE_DE = 1 << 0;
+--- a/cmds/installd/dexopt.cpp
++++ b/cmds/installd/dexopt.cpp
+@@ -1636,20 +1636,19 @@
+ 
+     // PW3: a filter that compiles from a usage profile, with no profile to compile
+-    // from, compiles nothing at all ("If we are using a profile filter but do not
+-    // have a profile compilation info, compile nothing", compiler_driver.cc), and an
+-    // application with no compiled code is unusable on this CPU: WeRead takes over
+-    // two minutes to reach its bookshelf and shows "isn't responding" (Test V32).
+-    // The caller sets this flag where compiling everything is the better of the two.
+-    if (profile_guided && (dexopt_flags & DEXOPT_SPEED_IF_NO_PROFILE) != 0
++    // from, compiles no method ("If we are using a profile filter but do not have
++    // a profile compilation info, compile nothing", compiler_driver.cc) but quickens
++    // the dex all the same. So this flag does not rescue the application; it saves
++    // the work: 147 s and an unused application image against 62 s for one odex.
++    if (profile_guided && (dexopt_flags & DEXOPT_QUICKEN_IF_NO_PROFILE) != 0
+             && !reference_profile_exists(pkgname, dex_path, is_secondary_dex)) {
+         LOG(INFO) << "dexopt: no profile for " << pkgname << ", compiling " << dex_path
+-                  << " with speed instead of " << compiler_filter;
+-        compiler_filter = "speed";
++                  << " with quicken instead of " << compiler_filter;
++        compiler_filter = "quicken";
+         profile_guided = false;
+     }
+ 
+     // PW3: the compilation is an attempt, because it may be worth making twice;
+-    // see the DEXOPT_SPEED_IF_NO_PROFILE branch at the end of it. Each attempt
++    // see the DEXOPT_QUICKEN_IF_NO_PROFILE branch at the end of it. Each attempt
+     // opens its own files so that a failed one leaves nothing of itself behind.
+     for (int attempt = 1; ; ++attempt) {
+         // Open the input file.
+@@ -1733,7 +1732,7 @@
+                 ALOGV("DexInv: --- END '%s' (success) ---\n", dex_path);
+             } else {
+                 ALOGE("DexInv: --- END '%s' --- status=0x%04x, process failed\n", dex_path, res);
+-                // PW3: the second half of DEXOPT_SPEED_IF_NO_PROFILE. A profile that
++                // PW3: the second half of DEXOPT_QUICKEN_IF_NO_PROFILE. A profile that
+                 // is there but cannot be read -- truncated by a reboot in the middle
+                 // of the merge that writes it, say -- does not make dex2oat compile
+                 // nothing, it makes it fail ("Failed to process profile file",
+@@ -1742,10 +1741,10 @@
+                 // when the iteration ends, the half-written oat and vdex included,
+                 // so the next one starts from nothing.
+                 if (attempt == 1 && profile_guided
+-                        && (dexopt_flags & DEXOPT_SPEED_IF_NO_PROFILE) != 0) {
++                        && (dexopt_flags & DEXOPT_QUICKEN_IF_NO_PROFILE) != 0) {
+                     LOG(WARNING) << "dexopt: compiling " << dex_path << " from the profile of "
+-                                 << pkgname << " failed; compiling it with speed instead";
+-                    compiler_filter = "speed";
++                                 << pkgname << " failed; compiling it with quicken instead";
++                    compiler_filter = "quicken";
+                     profile_guided = false;
+                     continue;
+                 }

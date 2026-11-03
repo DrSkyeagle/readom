@@ -1,0 +1,39 @@
+From: PW3 Android port
+Subject: [PW3] SystemUI: no auto-dim of navigation buttons with bars that always look the same
+
+2.25 s after the last touch of the navigation bar its buttons fade to 60% when
+no wallpaper shows, that is in every application. With config_opaqueSystemBars
+(patch 0015: the bars look the same over every window) that is a change of the
+bar the user did not ask for: on e-paper a slow update each time, and grey
+buttons. An application asking
+for low profile (SYSTEM_UI_FLAG_LOW_PROFILE) still dims them.
+
+--- a/packages/SystemUI/src/com/android/systemui/statusbar/phone/NavigationBarTransitions.java
++++ b/packages/SystemUI/src/com/android/systemui/statusbar/phone/NavigationBarTransitions.java
+@@ -41,6 +41,8 @@
+ 
+     private boolean mLightsOut;
+     private boolean mAutoDim;
++    // Bars that always look the same (config_opaqueSystemBars) are not dimmed on their own.
++    private final boolean mAutoDimAllowed;
+ 
+     public NavigationBarTransitions(NavigationBarView view) {
+         super(view, R.drawable.nav_background);
+@@ -49,6 +51,8 @@
+                 ServiceManager.getService(Context.STATUS_BAR_SERVICE));
+         mLightTransitionsController = new LightBarTransitionsController(view.getContext(),
+                 this::applyDarkIntensity);
++        mAutoDimAllowed = !view.getContext().getResources().getBoolean(
++                R.bool.config_opaqueSystemBars);
+ 
+         IWindowManager windowManagerService = Dependency.get(IWindowManager.class);
+         Handler handler = Handler.getMain();
+@@ -80,7 +84,7 @@
+ 
+     @Override
+     protected boolean isLightsOut(int mode) {
+-        return super.isLightsOut(mode) || (mAutoDim && !mWallpaperVisible);
++        return super.isLightsOut(mode) || (mAutoDim && mAutoDimAllowed && !mWallpaperVisible);
+     }
+ 
+     public LightBarTransitionsController getLightTransitionsController() {

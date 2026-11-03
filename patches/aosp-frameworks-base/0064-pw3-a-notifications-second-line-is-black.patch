@@ -1,0 +1,50 @@
+From: PW3 Android port
+Subject: [PW3] framework: a notification's second line is black
+
+Measured on the device on 2026-10-27, on V89, from a raw framebuffer grab of
+the shade. The title of a notification is grey 33 (#de000000, the colour the
+system itself calls primary), and everything else in the card is grey 117:
+the time after the app name, the body line under the title, and the whole
+header of a notification that is collapsed because it is low priority.
+
+Patch 0061 made the app name black by settling the accent. This is the other
+half of the same thing: 117 is `secondary_text_material_light` reaching the
+card through `notification_secondary_text_color_light`, which is the text
+colour of TextAppearance.Material.Notification -- the base style, so it is the
+body line as well as the header's own secondary parts.
+
+On this panel the choice is not the one Material is making. A display gives
+#8a000000 a contrast of 4.7:1 against a bright white; this panel's white
+reflects about 42%, there are sixteen levels in between, and grey 117 is the
+eighth of them. Rule 8 of docs/design/eink-ui.md already separates a line from
+the one above it by size and weight, which is how a Kindle has always done it,
+and rule 1 asks for black text on white. So the second line takes the colour
+the title has.
+
+Only notifications, and in three places rather than the two first written
+here: the base style and the Info style take it as a text colour
+(core/res/res/values/styles_material.xml:469, 485), and
+NotificationColorUtil.resolveSecondaryColor() returns it at run time for a
+notification that carries a light background of its own
+(core/java/com/android/internal/util/NotificationColorUtil.java:548). All
+three are notifications, so the change reaches every one of them, which is
+what is wanted -- but the count was wrong and is corrected here rather than
+left to be rediscovered.
+
+`secondary_text_material_light` itself is left alone -- it is textColorTertiary
+and textColorSecondaryInverse for every theme, and `notification_progress_
+background_color` reads it too (colors.xml:141), none of which this change is
+about. One value, no name added, nothing written above an entry, so the boot
+image is as it was.
+
+--- a/core/res/res/values/colors.xml
++++ b/core/res/res/values/colors.xml
+@@ -130,7 +130,7 @@
+     <drawable name="notification_template_divider_media">#29ffffff</drawable>
+     <color name="notification_primary_text_color_light">@color/primary_text_default_material_light</color>
+     <color name="notification_primary_text_color_dark">@color/primary_text_default_material_dark</color>
+-    <color name="notification_secondary_text_color_light">@color/secondary_text_material_light</color>
++    <color name="notification_secondary_text_color_light">@color/primary_text_default_material_light</color>
+     <color name="notification_secondary_text_color_dark">@color/secondary_text_material_dark</color>
+ 
+     <color name="notification_material_background_color">#ffffffff</color>

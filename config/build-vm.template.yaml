@@ -1,0 +1,53 @@
+# Host build environment only. No USB passthrough and no Kindle storage mounts.
+minimumLimaVersion: 2.0.0
+vmType: vz
+arch: aarch64
+cpus: 6
+memory: 12GiB
+disk: 160GiB
+images:
+  - location: https://cloud-images.ubuntu.com/releases/jammy/release-20260926/ubuntu-22.04-server-cloudimg-arm64.img
+    arch: aarch64
+    digest: sha256:04f2ca6af841918df1fa1aaba485f2b5f3d451f90459e48c066bbd70ebed174f
+mountType: virtiofs
+mounts:
+  - location: @PW3_PORT_ROOT@
+    mountPoint: /mnt/port
+    writable: false
+  - location: @PW3_KERNEL_INPUTS@
+    mountPoint: /mnt/kernel-inputs
+    writable: false
+  - location: @PW3_BUILD_SHARE@
+    mountPoint: /mnt/build-share
+    writable: true
+user:
+  name: builder
+  uid: 1000
+  home: /home/builder
+ssh:
+  loadDotSSHPubKeys: false
+  forwardAgent: false
+  forwardX11: false
+containerd:
+  system: false
+  user: false
+portForwards:
+  - guestIP: 0.0.0.0
+    proto: any
+    ignore: true
+provision:
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -euo pipefail
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update
+      apt-get install -y --no-install-recommends build-essential gcc-arm-linux-gnueabi binutils-arm-linux-gnueabi git ca-certificates curl bison flex libssl-dev libncurses-dev u-boot-tools bc python3 xz-utils cpio rsync file
+probes:
+  - mode: readiness
+    description: ARM cross compiler and mkimage are installed
+    script: |
+      #!/bin/bash
+      set -eu
+      command -v arm-linux-gnueabi-gcc
+      command -v mkimage

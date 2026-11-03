@@ -1,0 +1,89 @@
+From: PW3 Android port
+Subject: [PW3] What holds the previous screen is the animation, not the
+ visibility
+
+Patches 0069 and 0070 were both run on the device (2026-11-03,
+eng.builde.20261103.024249) and the screen was still black. This time the log
+0070 added said what was happening, which is what it was for:
+
+    PW3: the deadline passed with nothing to show; keeping 1 screen(s)
+         until 1 application(s) draw
+
+So the hold was taken, `dumpsys window windows` showed the launcher in
+mHeldOverClosingApps, its surface still existed and its client still wanted it
+visible (mViewVisibility=0x0) -- and isOnScreen was false all the same.
+
+What WindowState.isOnScreen() reads:
+
+    (!isParentWindowHidden() && !atoken.hiddenRequested)
+        || mWinAnimator.mAnimation != null
+        || atoken.mAppAnimator.animation != null
+
+Measured on the device before the deadline, while the launcher was on screen:
+hidden=false, hiddenRequested=true, mClientHidden=false. hiddenRequested is set
+from the start of the transition, so the first clause is false the whole time
+and the third is what holds the previous screen up. That animation is
+AppWindowAnimator.sDummyAnimation -- a flag, not a cost: getTransformation()
+returns false, and stepAnimationLocked() returns before doing anything with the
+comment "count it as not animating for purposes of scheduling transactions".
+
+handleClosingApps() clears it with appAnimator.setNullAnimation() three lines
+above where 0069 put its decision. So 0069 skipped the hiding and the screen
+emptied anyway, from a line it had read past.
+
+This moves the decision above that call: a held application keeps its dummy
+animation, and releasing it clears the animation before hiding, which is the
+other half of the same thing.
+
+What this says about the design, now that the mechanism is known: holding the
+screen past the deadline is the same act as a longer deadline (patch 0067), done
+to one transition instead of all of them. That is a narrower change, not a
+different one -- which is the honest reading of what 0067 and this do together,
+and is worth saying because the first version of this patch was written as
+though it were doing something else.
+
+Not run on the device yet when this patch was written.
+
+--- a/services/core/java/com/android/server/wm/WindowSurfacePlacer.java
++++ b/services/core/java/com/android/server/wm/WindowSurfacePlacer.java
+@@ -459,7 +459,30 @@
+             final AppWindowAnimator appAnimator = wtoken.mAppAnimator;
+             if (DEBUG_APP_TRANSITIONS) Slog.v(TAG, "Now closing app " + wtoken);
+             appAnimator.clearThumbnail();
+-            appAnimator.setNullAnimation();
++            if (!holdOver) {
++                // What keeps a window on screen while a transition is pending
++                // is this animation, not its visibility. WindowState.isOnScreen()
++                // reads
++                //
++                //     (!isParentWindowHidden() && !atoken.hiddenRequested)
++                //         || mWinAnimator.mAnimation != null
++                //         || atoken.mAppAnimator.animation != null
++                //
++                // and hiddenRequested is already true from the start of the
++                // transition (measured on the device, 2026-11-03: the outgoing
++                // launcher reads hidden=false hiddenRequested=true and is on
++                // screen), so the first clause is false and the third is what
++                // holds it. The animation is AppWindowAnimator.sDummyAnimation,
++                // which is a flag and not a cost: getTransformation() returns
++                // false and stepAnimationLocked() returns before doing anything
++                // ("count it as not animating for purposes of scheduling
++                // transactions").
++                //
++                // Patch 0069 skipped the hiding below and left this line alone,
++                // so the screen went black anyway and the patch looked like it
++                // was not in the image.
++                appAnimator.setNullAnimation();
++            }
+             // TODO: Do we need to add to mNoAnimationNotifyOnTransitionFinished like above if not
+             //       animating?
+             if (holdOver) {
+@@ -618,6 +641,8 @@
+                 // placement that is about to lay out anyway, and asking for
+                 // another one from in here calls performSurfacePlacement()
+                 // before mInLayout is set, which is a recursive traversal.
++                // The dummy animation held it; clearing it is half of letting go.
++                wtoken.mAppAnimator.setNullAnimation();
+                 wtoken.setVisibility(null, false, AppTransition.TRANSIT_UNSET,
+                         false /* performLayout */, wtoken.mVoiceInteraction);
+                 wtoken.updateReportedVisibilityLocked();

@@ -1,0 +1,60 @@
+type pw3_wifi_modules_prop, property_type;
+set_prop(wificond, pw3_wifi_modules_prop)
+# Verify module presence and exact wlan0 SDIO driver binding using sysfs.
+# No register, firmware, or other sysfs-file write access is granted.
+allow wificond sysfs:dir { search getattr };
+allow wificond sysfs:lnk_file read;
+
+# wpa_supplicant's nl80211_configure_data_frame_filters() opens four files for
+# writing -- /proc/sys/net/ipv{4,6}/conf/wlan0/drop_unicast_in_l2_multicast,
+# .../ipv4/conf/wlan0/drop_gratuitous_arp and .../ipv6/conf/wlan0/
+# drop_unsolicited_na (driver_nl80211.c). AOSP grants the supplicant only
+# r_dir_file(hal_wifi_supplicant, proc_net), so on a kernel that has those
+# files the open is denied and the log carries
+#   avc: denied { write } for name="drop_unicast_in_l2_multicast"
+#        scontext=u:r:hal_wifi_supplicant_default:s0 tcontext=u:object_r:proc_net:s0
+#   nl80211: Failed to open .../drop_unicast_in_l2_multicast: Permission denied
+#
+# Only the log. Read in this tree, `wpa_drv_configure_frame_filters()` has
+# exactly three callers and every one of them is inside `#ifdef CONFIG_HS20`
+# (CONFIG_HS20=y here) and throws the return value away: events.c:286 and
+# wpa_supplicant.c:579 clear the filters with flag 0 while the interface is
+# being torn down, and hs20_supplicant.c:101 returns before it calls unless
+# the BSS it is associated to is a Hotspot 2.0 network. On an ordinary access
+# point the only calls are the two teardown ones, writing 0 to filters that
+# were never set to 1, and `nl80211_write_to_file()` returns 0 even when the
+# write itself fails. So the denial changes no behaviour at all.
+#
+# An earlier version of this file granted the write and credited it with
+# fixing two other things in the same log. Both of those readings were wrong,
+# and the measurements that settled them are kept here so they are not made
+# again:
+#   - `ISupplicantStaIface.setSuspendModeEnabled failed: FAILURE_UNKNOWN` is a
+#     different path. `StaIface::setSuspendModeEnabledInternal()` sends the
+#     "SETSUSPENDMODE 1" DRIVER command, which ends at a private ioctl on
+#     wlan0, and `ath6kl_netdev_ops` has no `.ndo_do_ioctl` -- there is no
+#     handler, so it can never succeed and nothing in `WifiStateMachine` looks
+#     at the result.
+#   - `wlan0: CTRL-EVENT-DISCONNECTED reason=3 locally_generated=1` is the
+#     radio being turned off on purpose. Measured across a 1 h 42 m
+#     screen-off on V86 (2026-10-27): about four minutes after the screen
+#     went off the regulatory domain was reset to world, which made the
+#     associated channel invalid, the supplicant disconnected locally with
+#     reason=3, and `ath6kl_sdio` was removed. Waking the device brought it
+#     back by itself in about three seconds with the domain back to CN. No
+#     hand was needed.
+#
+# What the device gives up by not granting it: on a Hotspot 2.0 access point
+# the GTK, proxy-ARP and unsolicited-NA filters stay off, so a few more frames
+# reach this CPU there. Against that, the grant would be `write` over the
+# whole of proc_net for a domain that already holds CAP_NET_ADMIN -- a real
+# widening bought with nothing on any network this reader is likely to join.
+# The denial is silenced instead of answered.
+dontaudit hal_wifi_supplicant proc_net:file write;
+
+# netd looks up interfaces by name, also wlan0 while Wi-Fi is off and its
+# module is not loaded. For a name that does not exist the kernel's dev_load()
+# checks CAP_SYS_MODULE before it would load a module of that name: netd is
+# not meant to load modules, and nothing needs to, so the refusal stays and is
+# not logged (four times each boot on the device, Test V40).
+dontaudit netd self:capability sys_module;

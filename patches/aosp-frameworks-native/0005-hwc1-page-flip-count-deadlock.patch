@@ -1,0 +1,14 @@
+--- a/services/surfaceflinger/SurfaceFlinger_hwc1.cpp
++++ b/services/surfaceflinger/SurfaceFlinger_hwc1.cpp
+@@ -3503,7 +3503,10 @@
+                 reply->writeInt32(mDebugDisableHWC);
+                 return NO_ERROR;
+             case 1013: {
+-                Mutex::Autolock _l(mStateLock);
++                // PW3: getDefaultDisplayDevice() takes mStateLock itself; holding
++                // it here as well deadlocked SurfaceFlinger on the first call
++                // (the lock is not recursive). The HWC2 path in
++                // SurfaceFlinger.cpp takes no lock here either.
+                 sp<const DisplayDevice> hw(getDefaultDisplayDevice());
+                 reply->writeInt32(hw->getPageFlipCount());
+                 return NO_ERROR;

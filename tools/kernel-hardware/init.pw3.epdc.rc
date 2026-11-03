@@ -1,0 +1,6 @@
+# Per-device firmware must already be installed under /firmware/image with root-only DAC and its dedicated label.
+# Public rebuilt EPDC module; no readiness property is asserted here.
+# ueventd must be running; private firmware must be root-only with its dedicated label.
+on post-fs-data
+    insmod /vendor/lib/modules/mxc_epdc_fb.ko
+# InitCheck must require MXCFB_GET_ANDROID_INFO before framework start.

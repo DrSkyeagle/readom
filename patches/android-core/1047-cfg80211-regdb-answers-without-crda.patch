@@ -1,0 +1,125 @@
+--- a/compat-wireless/net/wireless/reg.c
++++ b/compat-wireless/net/wireless/reg.c
+@@ -319,7 +319,7 @@
+ 
+ #ifdef CONFIG_CFG80211_INTERNAL_REGDB
+ struct reg_regdb_search_request {
+-	char alpha2[2];
++	const struct ieee80211_regdomain *regdom;
+ 	struct list_head list;
+ };
+ 
+@@ -329,8 +329,8 @@
+ static void reg_regdb_search(struct work_struct *work)
+ {
+ 	struct reg_regdb_search_request *request;
+-	const struct ieee80211_regdomain *curdom, *regdom;
+-	int i, r;
++	const struct ieee80211_regdomain *regdom;
++	int r;
+ 
+ 	mutex_lock(&reg_regdb_search_mutex);
+ 	while (!list_empty(&reg_regdb_search_list)) {
+@@ -338,19 +338,12 @@
+ 					   struct reg_regdb_search_request,
+ 					   list);
+ 		list_del(&request->list);
+-
+-		for (i=0; i<reg_regdb_size; i++) {
+-			curdom = reg_regdb[i];
+ 
+-			if (!memcmp(request->alpha2, curdom->alpha2, 2)) {
+-				r = reg_copy_regd(&regdom, curdom);
+-				if (r)
+-					break;
+-				mutex_lock(&cfg80211_mutex);
+-				set_regdom(regdom);
+-				mutex_unlock(&cfg80211_mutex);
+-				break;
+-			}
++		r = reg_copy_regd(&regdom, request->regdom);
++		if (!r) {
++			mutex_lock(&cfg80211_mutex);
++			set_regdom(regdom);
++			mutex_unlock(&cfg80211_mutex);
+ 		}
+ 
+ 		kfree(request);
+@@ -360,27 +353,44 @@
+ 
+ static DECLARE_WORK(reg_regdb_work, reg_regdb_search);
+ 
+-static void reg_regdb_query(const char *alpha2)
++static int reg_regdb_query(const char *alpha2)
+ {
++	const struct ieee80211_regdomain *regdom = NULL;
+ 	struct reg_regdb_search_request *request;
++	int i;
+ 
+ 	if (!alpha2)
+-		return;
++		return -EINVAL;
+ 
++	for (i = 0; i < reg_regdb_size; i++) {
++		if (!memcmp(alpha2, reg_regdb[i]->alpha2, 2)) {
++			regdom = reg_regdb[i];
++			break;
++		}
++	}
++
++	if (!regdom)
++		return -ENODATA;
++
+ 	request = kzalloc(sizeof(struct reg_regdb_search_request), GFP_KERNEL);
+ 	if (!request)
+-		return;
++		return -ENOMEM;
+ 
+-	memcpy(request->alpha2, alpha2, 2);
++	request->regdom = regdom;
+ 
+ 	mutex_lock(&reg_regdb_search_mutex);
+ 	list_add_tail(&request->list, &reg_regdb_search_list);
+ 	mutex_unlock(&reg_regdb_search_mutex);
+ 
+ 	schedule_work(&reg_regdb_work);
++
++	return 0;
+ }
+ #else
+-static inline void reg_regdb_query(const char *alpha2) {}
++static inline int reg_regdb_query(const char *alpha2)
++{
++	return -ENODATA;
++}
+ #endif /* CONFIG_CFG80211_INTERNAL_REGDB */
+ 
+ /*
+@@ -390,15 +400,24 @@
+  */
+ static int call_crda(const char *alpha2)
+ {
++	/*
++	 * A domain the built-in database holds is applied from it alone, as
++	 * mainline does since 4.4 (c7d319e542a3, "cfg80211: reg: search
++	 * built-in database directly"). The uevent asks a CRDA helper, which
++	 * Android does not have. A cut-power suspend drops the link, which
++	 * restores the world domain; the uevent sent then woke healthd's
++	 * uevent socket (EPOLLWAKEUP) and aborted every suspend while Wi-Fi
++	 * was on, and each abort reconnected (PW3 Android, Test V46/V47).
++	 */
++	if (reg_regdb_query(alpha2) == 0)
++		return 0;
++
+ 	if (!is_world_regdom((char *) alpha2))
+ 		pr_info("Calling CRDA for country: %c%c\n",
+ 			alpha2[0], alpha2[1]);
+ 	else
+ 		pr_info("Calling CRDA to update world regulatory domain\n");
+ 
+-	/* query internal regulatory database (if it exists) */
+-	reg_regdb_query(alpha2);
+-
+ 	return kobject_uevent(&reg_pdev->dev.kobj, KOBJ_CHANGE);
+ }
+ 

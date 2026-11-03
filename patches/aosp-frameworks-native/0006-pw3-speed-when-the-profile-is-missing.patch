@@ -1,0 +1,104 @@
+From: PW3 Android port
+Subject: [PW3] installd compiles everything when the profile a filter asks for is missing
+
+A compiler filter that compiles from a usage profile, with no profile to compile
+from, compiles nothing at all: "If we are using a profile filter but do not have
+a profile compilation info, compile nothing" (art/compiler/driver/
+compiler_driver.cc). Nothing is a working answer on a phone, where the
+interpreter and the JIT catch up in a few seconds. Here it is not: WeRead with
+no compiled code takes over two minutes to reach its bookshelf and shows "isn't
+responding" (Test V32).
+
+A new flag, DEXOPT_SPEED_IF_NO_PROFILE, lets the caller say which of the two it
+would rather have. installd is where the question can be answered: the profile
+belongs to the application's own user and group, and the system server cannot
+read it. When the flag is set and there is no reference profile with anything in
+it, the compilation is done with "speed" instead, and profile_guided is dropped
+with it so that no application image is written from the classes of a profile
+that is not there.
+
+The caller that sets it is the recompilation after a system update
+(PackageManagerService.performDexOptUpgrade, frameworks/base patch 0047).
+
+diff --git a/cmds/installd/installd_constants.h b/cmds/installd/installd_constants.h
+--- a/cmds/installd/installd_constants.h
++++ b/cmds/installd/installd_constants.h
+@@ -49,6 +49,10 @@
+ constexpr int DEXOPT_FORCE          = 1 << 6;
+ constexpr int DEXOPT_STORAGE_CE     = 1 << 7;
+ constexpr int DEXOPT_STORAGE_DE     = 1 << 8;
++// PW3: compile with "speed" when the filter asks for a usage profile and there is
++// no profile to compile from. Set for the recompilation after a system update,
++// where the alternative is an application left with no compiled code; see dexopt().
++constexpr int DEXOPT_SPEED_IF_NO_PROFILE = 1 << 9;
+ 
+ /* all known values for dexopt flags */
+ constexpr int DEXOPT_MASK =
+@@ -59,7 +63,8 @@
+     | DEXOPT_SECONDARY_DEX
+     | DEXOPT_FORCE
+     | DEXOPT_STORAGE_CE
+-    | DEXOPT_STORAGE_DE;
++    | DEXOPT_STORAGE_DE
++    | DEXOPT_SPEED_IF_NO_PROFILE;
+ 
+ // NOTE: keep in sync with StorageManager
+ constexpr int FLAG_STORAGE_DE = 1 << 0;
+diff --git a/cmds/installd/otapreopt.cpp b/cmds/installd/otapreopt.cpp
+--- a/cmds/installd/otapreopt.cpp
++++ b/cmds/installd/otapreopt.cpp
+@@ -78,8 +78,13 @@
+ static_assert(DEXOPT_FORCE          == 1 << 6, "DEXOPT_FORCE unexpected.");
+ static_assert(DEXOPT_STORAGE_CE     == 1 << 7, "DEXOPT_STORAGE_CE unexpected.");
+ static_assert(DEXOPT_STORAGE_DE     == 1 << 8, "DEXOPT_STORAGE_DE unexpected.");
++// PW3: the parameter protocol above is not what carries this flag. It is set by
++// PackageDexOptimizer for the recompilation after a system update, which runs in
++// installd; OtaDexoptService, the only writer of these parameters, never sets it.
++static_assert(DEXOPT_SPEED_IF_NO_PROFILE == 1 << 9,
++              "DEXOPT_SPEED_IF_NO_PROFILE unexpected.");
+ 
+-static_assert(DEXOPT_MASK           == 0x1fe, "DEXOPT_MASK unexpected.");
++static_assert(DEXOPT_MASK           == 0x3fe, "DEXOPT_MASK unexpected.");
+ 
+ 
+ 
+diff --git a/cmds/installd/dexopt.cpp b/cmds/installd/dexopt.cpp
+--- a/cmds/installd/dexopt.cpp
++++ b/cmds/installd/dexopt.cpp
+@@ -1213,6 +1213,15 @@
+     return swap_fd;
+ }
+ 
++// PW3: whether there is a reference profile with something in it to compile from.
++static bool reference_profile_exists(const std::string& pkgname, const std::string& dex_path,
++        bool is_secondary_dex) {
++    const std::string location = is_secondary_dex ? dex_path : pkgname;
++    struct stat st;
++    return stat(create_reference_profile_path(location, is_secondary_dex).c_str(), &st) == 0
++            && st.st_size > 0;
++}
++
+ // Opens the reference profiles if needed.
+ // Note that the reference profile might not exist so it's OK if the fd will be -1.
+ Dex2oatFileWrapper maybe_open_reference_profile(const std::string& pkgname,
+@@ -1625,6 +1634,20 @@
+         CHECK((dexopt_flags & DEXOPT_STORAGE_DE) == 0);
+     }
+ 
++    // PW3: a filter that compiles from a usage profile, with no profile to compile
++    // from, compiles nothing at all ("If we are using a profile filter but do not
++    // have a profile compilation info, compile nothing", compiler_driver.cc), and an
++    // application with no compiled code is unusable on this CPU: WeRead takes over
++    // two minutes to reach its bookshelf and shows "isn't responding" (Test V32).
++    // The caller sets this flag where compiling everything is the better of the two.
++    if (profile_guided && (dexopt_flags & DEXOPT_SPEED_IF_NO_PROFILE) != 0
++            && !reference_profile_exists(pkgname, dex_path, is_secondary_dex)) {
++        LOG(INFO) << "dexopt: no profile for " << pkgname << ", compiling " << dex_path
++                  << " with speed instead of " << compiler_filter;
++        compiler_filter = "speed";
++        profile_guided = false;
++    }
++
+     // Open the input file.
+     unique_fd input_fd(open(dex_path, O_RDONLY, 0));
+     if (input_fd.get() < 0) {

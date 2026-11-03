@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- PW3: Files with a white toolbar and black title and icons (colors.xml). Its toolbars are
+     drawn in the theme's colorPrimary, white here, while @color/primary, the colour of some
+     button text and fills, is black. Both styles are AOSP's with only these changed: the
+     toolbar's theme overlay is the light one (ThemeOverlay.Material.ActionBar, as in
+     Theme.Material.Light), colorPrimary and colorPrimaryDark are white. An overlay replaces
+     a style whole, so the other items are copied unchanged. The status bar keeps its own
+     opaque white whatever colorPrimaryDark says (frameworks/base 0015). -->
+<resources xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <style name="ActionBarTheme" parent="@android:style/ThemeOverlay.Material.ActionBar">
+        <item name="android:textSelectHandle">@drawable/text_select_handle_middle</item>
+        <item name="android:textSelectHandleLeft">@drawable/text_select_handle_left</item>
+        <item name="android:textSelectHandleRight">@drawable/text_select_handle_right</item>
+        <item name="android:textCursorDrawable">@drawable/text_cursor</item>
+        <item name="android:textColorHighlight">@color/text_highlight</item>
+    </style>
+
+    <style name="DocumentsTheme" parent="@style/Theme.AppCompat.Light.DarkActionBar">
+        <item name="actionBarWidgetTheme">@null</item>
+        <item name="actionBarTheme">@style/ActionBarTheme</item>
+        <item name="actionBarPopupTheme">@style/ActionBarPopupTheme</item>
+
+        <item name="android:windowBackground">@color/window_background</item>
+        <item name="android:colorPrimaryDark">@android:color/white</item>
+        <item name="android:colorPrimary">@android:color/white</item>
+        <item name="android:colorAccent">@color/accent</item>
+        <item name="android:colorControlActivated">?android:attr/colorAccent</item>
+        <item name="android:queryBackground">@color/menu_search_background</item>
+
+        <item name="android:listDivider">@*android:drawable/list_divider_material</item>
+
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:windowNoTitle">true</item>
+
+        <item name="android:windowSoftInputMode">stateUnspecified|adjustUnspecified</item>
+    </style>
+</resources>

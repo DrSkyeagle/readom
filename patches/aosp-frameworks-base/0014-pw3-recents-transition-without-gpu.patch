@@ -1,0 +1,59 @@
+From: PW3 Android port
+Subject: [PW3] Recents: draw transition bitmaps in software without a GPU
+
+PW3 Test V34: opening the recents screen from an application, or an
+application from the recents screen, blocks SystemUI's main thread for 24 s
+("Long monitor contention with owner main ... ThreadedRenderer
+.nCreateHardwareBitmap", RenderThread busy for 16 s) and ends in "System UI
+isn't responding". RecentsTransitionHelper.drawViewIntoGraphicBuffer() draws
+the task header for the window transition into a hardware bitmap; without a
+GPU that is rendered by GLES on the CPU.
+
+When SystemUI's own windows are drawn by the software canvas (every process
+is, by patch 0006 and ro.pw3.software_canvas; SystemUI had a switch of its own
+until 2026-10-29, when it went as a duplicate), the header is drawn the same
+way, straight into the graphic buffer.
+
+--- a/packages/SystemUI/src/com/android/systemui/recents/views/RecentsTransitionHelper.java
++++ b/packages/SystemUI/src/com/android/systemui/recents/views/RecentsTransitionHelper.java
+@@ -31,6 +31,8 @@
+ import android.graphics.Canvas;
+ import android.graphics.Color;
+ import android.graphics.GraphicBuffer;
++import android.graphics.PixelFormat;
++import android.graphics.PorterDuff;
+ import android.graphics.Rect;
+ import android.os.Bundle;
+ import android.os.Handler;
+@@ -420,6 +422,31 @@
+ 
+     public static GraphicBuffer drawViewIntoGraphicBuffer(int bufferWidth, int bufferHeight,
+             View view, float scale, int eraseColor) {
++        if (ThreadedRenderer.sRendererDisabled) {
++            // This process draws its windows with the software canvas: there is
++            // no GPU, a hardware bitmap would be rendered by GLES on the CPU.
++            final GraphicBuffer buffer = GraphicBuffer.create(bufferWidth, bufferHeight,
++                    PixelFormat.RGBA_8888, GraphicBuffer.USAGE_SW_WRITE_RARELY
++                            | GraphicBuffer.USAGE_HW_TEXTURE | GraphicBuffer.USAGE_HW_COMPOSER);
++            if (buffer == null) {
++                return null;
++            }
++            final Canvas canvas = buffer.lockCanvas();
++            if (canvas == null) {
++                buffer.destroy();
++                return null;
++            }
++            canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.SRC);
++            canvas.scale(scale, scale);
++            if (eraseColor != 0) {
++                canvas.drawColor(eraseColor);
++            }
++            if (view != null) {
++                view.draw(canvas);
++            }
++            buffer.unlockCanvasAndPost(canvas);
++            return buffer;
++        }
+         RenderNode node = RenderNode.create("RecentsTransition", null);
+         node.setLeftTopRightBottom(0, 0, bufferWidth, bufferHeight);
+         node.setClipToBounds(false);

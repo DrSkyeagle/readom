@@ -1,0 +1,108 @@
+From: PW3 Android port
+Subject: [PW3] PackageInstaller: say why a long install stands still
+
+The installing screen shows a progress bar for the copy of the package
+into the session and "Installing…" below it. The package manager then
+compiles the app with the install filter (speed) before it reports, and
+nothing on the screen moves meanwhile: WeRead (13 dex files, 70.5 MB)
+takes 1199 s, 20 minutes, on the single Cortex-A9 of the PW3 (Test V40.1).
+A user who sees the same screen for minutes is likely to take the device
+for hung and restart it in the middle.
+
+Ten seconds after the package manager has the package (after the commit,
+or when the screen comes back while the session is still running), the
+text below the bar says that the app is being optimized for this device,
+that a large one can take 20 minutes or more, that the screen may turn
+off meanwhile and that the device must not be turned off or restarted.
+Ten seconds is where a wait stops holding attention and should say when
+it ends (Nielsen, Usability Engineering, 1993); an install that finishes
+sooner never shows it. "Optimizing" is the word Android uses for
+compiling apps on the screen of the first boot after an update.
+---
+--- a/src/com/android/packageinstaller/InstallInstalling.java
++++ b/src/com/android/packageinstaller/InstallInstalling.java
+@@ -30,8 +30,10 @@
+ import android.os.Bundle;
+ import android.support.annotation.Nullable;
+ import android.util.Log;
++import android.view.View;
+ import android.widget.Button;
+ import android.widget.ProgressBar;
++import android.widget.TextView;
+ 
+ import com.android.internal.content.PackageHelper;
+ 
+@@ -74,6 +76,18 @@
+     /** The button that can cancel this dialog */
+     private Button mCancelButton;
+ 
++    /**
++     * PW3: once the package manager has had the package this long, the text below the
++     * progress bar says why it can take long. Ten seconds is where a wait stops holding
++     * the user's attention and needs to say when it will end (Nielsen, Usability
++     * Engineering, 1993). The package manager compiles the app before it reports, with
++     * the bar standing still: 20 minutes for WeRead (70.5 MB of dex) on this hardware.
++     */
++    private static final long SLOW_INSTALL_HINT_DELAY_MS = 10 * 1000;
++
++    private final Runnable mShowSlowInstallHint = () ->
++            ((TextView) findViewById(R.id.center_text)).setText(R.string.installing_slow);
++
+     @Override
+     protected void onCreate(@Nullable Bundle savedInstanceState) {
+         super.onCreate(savedInstanceState);
+@@ -222,6 +236,7 @@
+                 // we will receive a broadcast when the install is finished
+                 mCancelButton.setEnabled(false);
+                 setFinishOnTouchOutside(false);
++                scheduleSlowInstallHint();
+             }
+         }
+     }
+@@ -265,10 +280,17 @@
+         }
+ 
+         InstallEventReceiver.removeObserver(this, mInstallId);
++        findViewById(R.id.center_text).removeCallbacks(mShowSlowInstallHint);
+ 
+         super.onDestroy();
+     }
+ 
++    private void scheduleSlowInstallHint() {
++        View text = findViewById(R.id.center_text);
++        text.removeCallbacks(mShowSlowInstallHint);
++        text.postDelayed(mShowSlowInstallHint, SLOW_INSTALL_HINT_DELAY_MS);
++    }
++
+     /**
+      * Launch the appropriate finish activity (success or failed) for the installation result.
+      *
+@@ -398,6 +420,7 @@
+                 session.commit(pendingIntent.getIntentSender());
+                 mCancelButton.setEnabled(false);
+                 setFinishOnTouchOutside(false);
++                scheduleSlowInstallHint();
+             } else {
+                 getPackageManager().getPackageInstaller().abandonSession(mSessionId);
+ 
+--- a/res/values/strings.xml
++++ b/res/values/strings.xml
+@@ -25,6 +25,8 @@
+     <string name="unknown">Unknown</string>
+     <string name="installing">Installing\u2026</string>
+     <string name="installing_app">Installing <xliff:g id="package_label">%1$s</xliff:g>\u2026</string>
++    <!-- PW3: shown instead of "Installing" when the package manager takes long, i.e. while it compiles the app [CHAR LIMIT=NONE] -->
++    <string name="installing_slow">Optimizing the app for this device\u2026\nA large app can take 20 minutes or more. The screen may turn off meanwhile; do not turn the device off or restart it.</string>
+     <string name="install_done">App installed.</string>
+     <!-- Message for installing a new app that requires some permissions [CHAR LIMIT=NONE] -->
+     <string name="install_confirm_question">Do you want to install this application?
+--- a/res/values-zh-rCN/strings.xml
++++ b/res/values-zh-rCN/strings.xml
+@@ -25,6 +25,7 @@
+     <string name="unknown" msgid="4742479012767208045">"未知"</string>
+     <string name="installing" msgid="8613631001631998372">"正在安装..."</string>
+     <string name="installing_app" msgid="4097935682329028894">"正在安装<xliff:g id="PACKAGE_LABEL">%1$s</xliff:g>…"</string>
++    <string name="installing_slow">"正在为本机优化应用…\n较大的应用可能需要 20 分钟或更久。期间屏幕可能熄灭，请不要关机或重启。"</string>
+     <string name="install_done" msgid="3682715442154357097">"应用安装完成。"</string>
+     <string name="install_confirm_question" msgid="7295206719219043890">"要安装此应用吗？它将获得以下权限："</string>
+     <string name="install_confirm_question_no_perms" msgid="5918305641302873520">"您要安装此应用吗？此应用不需要任何特殊权限。"</string>

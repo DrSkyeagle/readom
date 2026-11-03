@@ -1,0 +1,58 @@
+--- a/init/builtins.cpp
++++ b/init/builtins.cpp
+@@ -73,6 +73,37 @@
+ 
+ static constexpr std::chrono::nanoseconds kCommandRetryTimeout = 5s;
+ 
++// Older kernels expose init_module but not the fd-based finit_module syscall.
++// Keep the already-open descriptor and reject unsupported force-load flags.
++static int insmod_legacy(int fd, const char* options) {
++    struct stat st {};
++    if (fstat(fd, &st) == -1) return -1;
++    constexpr off_t kMaxLegacyModuleBytes = 32 * 1024 * 1024;
++    if (!S_ISREG(st.st_mode) || st.st_size <= 0) {
++        errno = EINVAL;
++        return -1;
++    }
++    if (st.st_size > kMaxLegacyModuleBytes) {
++        errno = EFBIG;
++        return -1;
++    }
++    void* image = malloc(static_cast<size_t>(st.st_size));
++    if (image == nullptr) {
++        errno = ENOMEM;
++        return -1;
++    }
++    int rc = -1;
++    if (android::base::ReadFully(fd, image, static_cast<size_t>(st.st_size))) {
++        rc = syscall(__NR_init_module, image, static_cast<size_t>(st.st_size), options);
++    } else {
++        errno = EIO;
++    }
++    const int saved_errno = errno;
++    free(image);
++    errno = saved_errno;
++    return rc;
++}
++
+ static int insmod(const char *filename, const char *options, int flags) {
+     int fd = open(filename, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+     if (fd == -1) {
+@@ -80,10 +111,15 @@
+         return -1;
+     }
+     int rc = syscall(__NR_finit_module, fd, options, flags);
++    if (rc == -1 && errno == ENOSYS && flags == 0) {
++        rc = insmod_legacy(fd, options);
++    }
+     if (rc == -1) {
+-        PLOG(ERROR) << "finit_module for \"" << filename << "\" failed";
+-    }
++        PLOG(ERROR) << "module load for \"" << filename << "\" failed";
++    }
++    const int saved_errno = errno;
+     close(fd);
++    errno = saved_errno;
+     return rc;
+ }
+ 

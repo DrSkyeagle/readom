@@ -1,0 +1,252 @@
+{
+  "schema_version": 1,
+  "local_sources": [
+    {
+      "path": "<project>/work/android-port/kernel-research/amazon-5.16.2.1.1/linux-3.0.35/drivers/usb/gadget/g_ffs.c",
+      "bytes": 8333,
+      "sha256": "033463828cbf2a57df7c92f03941668dc6b6ca285c7ab2927a41a07589541ed4",
+      "role": "read-only source"
+    },
+    {
+      "path": "<project>/work/android-port/kernel-research/amazon-5.16.2.1.1/linux-3.0.35/drivers/usb/gadget/f_fs.c",
+      "bytes": 55635,
+      "sha256": "5a4aa9e4d611b01d2183ae9657e34370fa2b6aa3a44b47a19d796fb868a04f5c",
+      "role": "read-only source"
+    },
+    {
+      "path": "<project>/work/android-port/kernel-research/amazon-5.16.2.1.1/linux-3.0.35/drivers/usb/gadget/composite.c",
+      "bytes": 37683,
+      "sha256": "d8525b0484200c77014f74722fd9f78a11bb88d7c9951f21684c9829ff4a7cb2",
+      "role": "read-only source"
+    },
+    {
+      "path": "<project>/work/android-port/kernel-research/amazon-5.16.2.1.1/linux-3.0.35/drivers/usb/gadget/usbstring.c",
+      "bytes": 3505,
+      "sha256": "0521ecdc64678f80152e374541784737a8613fa78cdbce98b3063b51eccf32c5",
+      "role": "read-only source"
+    },
+    {
+      "path": "<project>/work/android-port/kernel-research/amazon-5.16.2.1.1/linux-3.0.35/drivers/usb/gadget/arcotg_udc.c",
+      "bytes": 99680,
+      "sha256": "08cb731b6643707cc7015e4a79011db0a46a139b9339acee9d39940b75ae04db",
+      "role": "read-only source"
+    },
+    {
+      "path": "<project>/work/android-port/kernel-research/amazon-5.16.2.1.1/linux-3.0.35/drivers/usb/gadget/Kconfig",
+      "bytes": 37304,
+      "sha256": "27032c78178b674994640b83a6f1238973524cb340fc33efa7b3ec3e4a514c33",
+      "role": "read-only source"
+    },
+    {
+      "path": "<project>/work/android-port/kernel-research/amazon-5.16.2.1.1/linux-3.0.35/drivers/usb/gadget/Makefile",
+      "bytes": 2325,
+      "sha256": "79e0295d5f28e123b7b840effe8abfb70fd5161e54c4e4828b0e7a4517a7523d",
+      "role": "read-only source"
+    },
+    {
+      "path": "<project>/work/android-port/kernel-research/amazon-5.16.2.1.1/linux-3.0.35/include/linux/usb/functionfs.h",
+      "bytes": 5866,
+      "sha256": "2e1d257ac62d221b59cebaf4c1a625c30e6861df401b90bd42931c9e56f26c3c",
+      "role": "read-only source"
+    },
+    {
+      "path": "<project>/android-port/device/amazon/pw3/rootdir/init.pw3.usb.rc",
+      "bytes": 1539,
+      "sha256": "63ac8703701dd02b0a1b93ce184db3b15f67a323ba75b67939e105b985d508a2",
+      "role": "read-only source"
+    },
+    {
+      "path": "<project>/android-port/device/amazon/pw3/rootdir/init.pw3.rc",
+      "bytes": 1425,
+      "sha256": "fce8f7b91342f677ac4c1bf2606f48d3d70b198053857fcf62c28623dfa1357e",
+      "role": "read-only source"
+    },
+    {
+      "path": "<project>/android-port/device/amazon/pw3/rootdir/init.pw3-main.rc",
+      "bytes": 27803,
+      "sha256": "744713a01c2d43859456b67329fad76035f307ea877f2a3af77c9a1ca2c91b60",
+      "role": "read-only source"
+    },
+    {
+      "path": "<project>/android-port/device/amazon/pw3/initialization.mk",
+      "bytes": 714,
+      "sha256": "8028d2a3089a085be8af236f607593e9aa0f5283b212301497aed16477b8771b",
+      "role": "read-only source"
+    },
+    {
+      "path": "<project>/android-port/device/amazon/pw3/initcheck/InitCheck.cpp",
+      "bytes": 9309,
+      "sha256": "02cbb8dec34375bba2a7c374aaffc388a6b1c6202ada076f5e2b2278ab512347",
+      "role": "read-only source"
+    },
+    {
+      "path": "<project>/android-port/device/amazon/pw3/sepolicy/pw3_init_check.te",
+      "bytes": 1575,
+      "sha256": "8dfa5af1bd60805e372a04acd3c848fa802990488cd5cfbfba914eda7e6ef36b",
+      "role": "read-only source"
+    },
+    {
+      "path": "<project>/work/android-port/kernel-research/android81-init/sources/platform_system_sepolicy__public__adbd.te",
+      "bytes": 157,
+      "sha256": "4dfd7b4b0ce5bacb2802480d08102dc4a390826588101b23f49f7db3cf9f4a56",
+      "role": "read-only source"
+    },
+    {
+      "path": "<project>/work/android-port/kernel-research/android81-init/sources/platform_system_sepolicy__private__genfs_contexts",
+      "bytes": 8617,
+      "sha256": "1a59208c217df9cfc79d97bd12c87f78f003f6668716dfa0198b40a77d6fa122",
+      "role": "read-only source"
+    }
+  ],
+  "aosp_sources_manifest": "aosp-sourcehashes.json",
+  "owned_android_core_patches": [
+    {
+      "path": "<project>/android-port/patches/android-core/0000-enable-staging-kconfig.patch",
+      "sha256": "d16fe2f67ff344c208183a1d8f550a9a0a0d462381f058aec96d6a1ee3aea37a"
+    },
+    {
+      "path": "<project>/android-port/patches/android-core/0001-aosp30-binder-ashmem-selinux-hooks.patch",
+      "sha256": "19b328a1d992e4d6ed89d996cb7b6455e6d3029a4b0fa17b9eb0126fa374e31b"
+    },
+    {
+      "path": "<project>/android-port/patches/android-core/0002-lineage30-selinux-policy30-xperms.patch",
+      "sha256": "d6882002f93c4ac357d75e91a41ea9a692bcd350247b0b6ae54a132ac92db08c"
+    },
+    {
+      "path": "<project>/android-port/patches/android-core/0003-rinando-oreo-binder-contexts-sg.patch",
+      "sha256": "0e7df373ae679e1c48a99b1436a223cbd2ab53a37d2cbddaaf3a26f71278b991"
+    },
+    {
+      "path": "<project>/android-port/patches/android-core/0004-rinando-lmk-oom-score-adj.patch",
+      "sha256": "f0dfc37d9612c5da5d154a3f5aa6d17ac5ff843119e0c5fccb50a30e04886b15"
+    },
+    {
+      "path": "<project>/android-port/patches/android-core/0005-seccomp-filter-tsync-arm-nnp.patch",
+      "sha256": "303b507ab489b77b252cf0e494d3c4b3452477f2a951b1a448bd83039c460da2"
+    },
+    {
+      "path": "<project>/android-port/patches/android-core/0006-seccomp-task-struct-type.patch",
+      "sha256": "90e8ee4d144366902de540285d07f0b32d8906150a0b5c573aaea6b08ede3b8b"
+    },
+    {
+      "path": "<project>/android-port/patches/android-core/0007-arm-separate-seccomp-trace-flags.patch",
+      "sha256": "f8246a85d31c15c6bb929b9a881a0a367c3f2e34611736255eec9cd3caced7e2"
+    },
+    {
+      "path": "<project>/android-port/patches/android-core/0008-binder-fdset-freezer-size-compat.patch",
+      "sha256": "8c834935608c8170a684f53c804572956e3600838b1a989fe3c0ae082a64380a"
+    },
+    {
+      "path": "<project>/android-port/patches/android-core/0100-timerfd-alarm-boottime.patch",
+      "sha256": "f5d3807d83b9acbb840cbda00c3e088ae1b3cc3264c41f453755b446508862f8"
+    },
+    {
+      "path": "<project>/android-port/patches/android-core/0101-pm-userspace-wakeup-sources.patch",
+      "sha256": "cd1383400abed679c90b87d50b51c1d53ad173c83c78afb7a8eefb3b6427143a"
+    },
+    {
+      "path": "<project>/android-port/patches/android-core/0102-epoll-wakeup-capability.patch",
+      "sha256": "1260e3b04370443b5096479f56242cdb34a644cd5092c37b8f6f0d837f406542"
+    },
+    {
+      "path": "<project>/android-port/patches/android-core/0200-android-power-supply-abi.patch",
+      "sha256": "ccff8109e7830c8b560f38963fe774ded0f3e8af876560547ce6265bdd35d109"
+    },
+    {
+      "path": "<project>/android-port/patches/android-core/0201-wario-hall-lid-input.patch",
+      "sha256": "a9281951ed32c6dc7c620a4286548a1b40a79cfedd8e8f47f4f76a38c86953bc"
+    },
+    {
+      "path": "<project>/android-port/patches/android-core/0202-android-frontlight-blanking.patch",
+      "sha256": "260507d636fa5d91475790d69a3425e81c9ea4b0f05a18236a41164aebc7ffdd"
+    },
+    {
+      "path": "<project>/android-port/patches/android-core/0290-guard-lab126-fadvise-extension.patch",
+      "sha256": "aae2592855f2011d80a071f3bb1cc607715fa01b355603c8676d6c1ed5dadd1c"
+    },
+    {
+      "path": "<project>/android-port/patches/android-core/0291-guard-lab126-uptime-fields.patch",
+      "sha256": "1444646e3064a971b3e0929ed9ad570643a26b53609dfa02ba0f2e539712e723"
+    },
+    {
+      "path": "<project>/android-port/patches/android-core/0300-mount-namespace-proc-setns.patch",
+      "sha256": "4fde2a9634584ae6c4cb90481ac4ab945382c41c5d9f8c68c65cdf44c81b74e4"
+    },
+    {
+      "path": "<project>/android-port/patches/android-core/0301-proc-hidepid-gid-enforcement.patch",
+      "sha256": "146e2d7d03bea3d3dd69aae934b76390eb114ba60455aee7f0ca77d8ee53d2bb"
+    },
+    {
+      "path": "<project>/android-port/patches/android-core/0310-android-ath6kl-firmware-policy.patch",
+      "sha256": "2d3bfa53efb00a4547d18005057dc3121c613b6cb15cf8b3693570729edf31d5"
+    },
+    {
+      "path": "<project>/android-port/patches/android-core/0311-android-disable-touch-loader.patch",
+      "sha256": "cefdb845444211c24ac76ac5a361fc0096ae7f9fb313e538b5094c8286a68416"
+    },
+    {
+      "path": "<project>/android-port/patches/android-core/0320-android-fg-readonly-snapshot.patch",
+      "sha256": "6e657850128e3523d632f55e0d5537327b789da815dce4c1f295578623afe215"
+    },
+    {
+      "path": "<project>/android-port/patches/android-core/0330-android-qtaguid-and-socket-lookup.patch",
+      "sha256": "21f72760d15137c99368dc581bc170d18975290e15a44f96cae4880a8af3fe45"
+    },
+    {
+      "path": "<project>/android-port/patches/android-core/0331-android-quota2.patch",
+      "sha256": "493335ed1df48b16e6bb02b72e7d76ea256936b1f58e0c813cb6498ae60e01f6"
+    },
+    {
+      "path": "<project>/android-port/patches/android-core/0332-android-idletimer-rev1.patch",
+      "sha256": "c6c999422f58a4f203b532059c1f1f6c20b3216299512129e10043e4b3b7c138"
+    },
+    {
+      "path": "<project>/android-port/patches/android-core/0333-android81-uidrange-routing.patch",
+      "sha256": "c7433ea332822d57fbbb24351b3cabba4354c9325a28c4e15005efe5416d310d"
+    },
+    {
+      "path": "<project>/android-port/patches/android-core/0334-ipv6-accept-ra-rt-table.patch",
+      "sha256": "9e261b40578b7c30da72e9ffe94c8f9c6915017c605c26dd7a9942c93e475547"
+    },
+    {
+      "path": "<project>/android-port/patches/android-core/0400-device-owned-epdc-waveform.patch",
+      "sha256": "3b197d3ea5b48967a7d00bf6b4e44e650da6c9a05301affe117851d54b24fd3d"
+    },
+    {
+      "path": "<project>/android-port/patches/android-core/0401-epdc-valid-temperature.patch",
+      "sha256": "2110cdeb187cb988eb0cf8fac27c0e896264dfa768c42a3246a0a74ce60f3b68"
+    },
+    {
+      "path": "<project>/android-port/patches/android-core/0402-android-network-gid-capabilities.patch",
+      "sha256": "37891ebff8f5b6bec44ed2681ff673387b54fbc826124c6c6ee34bac8d628d86"
+    },
+    {
+      "path": "<project>/android-port/patches/android-core/0490-kbuild-gnu-make-hash-escape.patch",
+      "sha256": "288596d50f7db9ca189df75f0274f89c3345102d370c220cbd60bd21f480ccf6"
+    },
+    {
+      "path": "<project>/android-port/patches/android-core/0500-android-bounded-display-suspend.patch",
+      "sha256": "942b792115f593c428f2687a57966907e8e6ed6d98af9ddbe80626501eb59734"
+    },
+    {
+      "path": "<project>/android-port/patches/android-core/0600-android-inet-group-permission.patch",
+      "sha256": "a610494f40d6fcc95792a35c8b2e46bc45608964018e39fc445efe8ff24ea746"
+    },
+    {
+      "path": "<project>/android-port/patches/android-core/0700-device-bound-wbf-wrf-envelope.patch",
+      "sha256": "1b23a1dc4423941b850801d6f7bab44cc75a0e5f35b182ea12796af46771ad82"
+    },
+    {
+      "path": "<project>/android-port/patches/android-core/0710-android-proc-eink-private.patch",
+      "sha256": "a1ea51f60c4fbca89cc971b519f7cc21cde01b01768f8866bbd433158e07b7c4"
+    },
+    {
+      "path": "<project>/android-port/patches/android-core/0800-ashmem-serialize-size-publication.patch",
+      "sha256": "a8fc1062c8d973cc9159f86b42f8ba9e70cc00facac0d2e9b3f61eeb2b42ffb1"
+    }
+  ],
+  "usb_implementation_files_touched_by_owned_patches": [],
+  "device_access": false,
+  "private_assets_read": false,
+  "keys_read": false
+}

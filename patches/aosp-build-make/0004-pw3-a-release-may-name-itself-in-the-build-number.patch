@@ -1,0 +1,69 @@
+From: PW3 Android port
+Subject: [PW3] build: a release may name itself in the build number
+
+`ro.build.display.id` is the line Settings shows as 「版本号」 / Build number,
+and on this port it reads `OC dev-keys`: the `BUILD_ID` the tree ships with and
+the key tag. Nothing in the image says which release it is, so a reader filing
+a problem cannot say what they have, and the `builde10271833` inside the
+fingerprint is not a version anyone can read out (docs/open-items.md).
+
+Setting `BUILD_DISPLAY_ID` in the environment does not reach it, which is what
+this patch is for. 8.1 assigns the variable with `:=` in both branches of
+`core/Makefile`, unconditionally, so whatever the environment holds is
+overwritten before `tools/buildinfo.sh` reads it back out. Measured rather than
+assumed: V91 was first built with `BUILD_DISPLAY_ID="Readom V91"` exported to
+kati beside `BUILD_DATETIME` and `BUILD_NUMBER`, and the image's build.prop
+came out `ro.build.display.id=OC dev-keys` all the same. Soong is not what
+dropped it -- `build/soong/ui/build/config.go` unsets a named list of fifteen
+variables and this is not one of them.
+
+The guard is the one later AOSP carries in `version_defaults.mk`: fill the
+variable in only when it is empty. Both assignments, their condition and their
+comments are untouched; they are skipped only when there is already an answer,
+so a build that passes nothing gets exactly what it got before, in every
+variant.
+
+Nothing else reads `BUILD_DISPLAY_ID`. It reaches `build.prop` through
+`buildinfo.sh` and goes nowhere near `BUILD_ID`, `BUILD_NUMBER`, the
+fingerprint or `build_desc`, so two builds that differ only in this differ in
+that single line of build.prop.
+
+--- a/core/Makefile
++++ b/core/Makefile
+@@ -212,19 +212,26 @@
+     $(PRODUCTS.$(INTERNAL_PRODUCT).PRODUCT_OEM_PROPERTIES))
+ 
+ # Display parameters shown under Settings -> About Phone
+-ifeq ($(TARGET_BUILD_VARIANT),user)
+-  # User builds should show:
+-  # release build number or branch.buld_number non-release builds
++# PW3: only when the build did not bring one of its own. Later AOSP guards
++# these assignments the same way, in version_defaults.mk; 8.1 assigns with :=
++# over whatever the environment holds, so a release had no way to name itself
++# in the one line Settings shows as the build number. A build that passes
++# nothing gets exactly what it got before, in every variant.
++ifeq (,$(strip $(BUILD_DISPLAY_ID)))
++  ifeq ($(TARGET_BUILD_VARIANT),user)
++    # User builds should show:
++    # release build number or branch.buld_number non-release builds
+ 
+-  # Dev. branches should have DISPLAY_BUILD_NUMBER set
+-  ifeq (true,$(DISPLAY_BUILD_NUMBER))
+-    BUILD_DISPLAY_ID := $(BUILD_ID).$(BUILD_NUMBER_FROM_FILE) $(BUILD_KEYS)
++    # Dev. branches should have DISPLAY_BUILD_NUMBER set
++    ifeq (true,$(DISPLAY_BUILD_NUMBER))
++      BUILD_DISPLAY_ID := $(BUILD_ID).$(BUILD_NUMBER_FROM_FILE) $(BUILD_KEYS)
++    else
++      BUILD_DISPLAY_ID := $(BUILD_ID) $(BUILD_KEYS)
++    endif
+   else
+-    BUILD_DISPLAY_ID := $(BUILD_ID) $(BUILD_KEYS)
++    # Non-user builds should show detailed build information
++    BUILD_DISPLAY_ID := $(build_desc)
+   endif
+-else
+-  # Non-user builds should show detailed build information
+-  BUILD_DISPLAY_ID := $(build_desc)
+ endif
+ 
+ # Accepts a whitespace separated list of product locales such as

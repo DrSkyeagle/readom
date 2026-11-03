@@ -1,0 +1,24 @@
+{
+  "repository": "platform/system/core",
+  "base_tag": "android-8.1.0_r81",
+  "patches": [
+    {
+      "patch": "0002-pw3-adbd-usb-only.patch",
+      "sha256": "de5aad8fb78b66183f1730f652c42e5cf60f86ed23f65d13af0e74c61b963ac5"
+    },
+    {
+      "patch": "0005-pw3-adbd-without-boot-opt-in.patch",
+      "sha256": "b7d001395289740e58b2861d8239e41d268f932fae2321cbfdf86f49380e3b9f"
+    }
+  ],
+  "files": {
+    "adb/daemon/main.cpp": {
+      "before": "478c3b094f657bb0eadd797ebd663021458a38c9a20785b6bf8d54378b6ef219",
+      "after": "3f895361ad7b85cf391d10435d7a1265ff4813f32c66406f1ade1cdba76b643d"
+    },
+    "adb/Android.mk": {
+      "before": "9142b6ff1f21b1c57e2c78fecf64b860c3e4de34776a41332ba1619b5e482874",
+      "after": "6b4f79095681b83517fca218da4dc5263d53a479fbcb928605441b918f33302b"
+    }
+  }
+}

@@ -1,0 +1,116 @@
+{
+  "source_commit": "b7ffe7f2aea2391737cdeac2a33217ee0ea4f2ba",
+  "source_kernel": "3.0.101",
+  "applies_after": "0001-aosp30-binder-ashmem-selinux-hooks.patch",
+  "scope": "generic SELinux policy27-30 and ioctl xperms; no hardware files",
+  "files": [
+    {
+      "path": "security/selinux/hooks.c",
+      "source": "https://github.com/LineageOS/android_kernel_samsung_smdk4412/blob/b7ffe7f2aea2391737cdeac2a33217ee0ea4f2ba/security/selinux/hooks.c",
+      "old_sha256": "954dabcc2dca7c2744700c0110ba0d9898c9a3d2725d72e87460082e4f109ffb",
+      "new_sha256": "6e53793e2c5b313b62661865b81efdbb3a2fd62286b556baa20c77f378384d83"
+    },
+    {
+      "path": "security/selinux/avc.c",
+      "source": "https://github.com/LineageOS/android_kernel_samsung_smdk4412/blob/b7ffe7f2aea2391737cdeac2a33217ee0ea4f2ba/security/selinux/avc.c",
+      "old_sha256": "812c1062009b803718153fd7ce61784cac3b04f84f2b39e3aa923409e9e64710",
+      "new_sha256": "4dbb8692dd4ddd775cbf320db2b624e5d672d72e9bb44788256700b333d534fe"
+    },
+    {
+      "path": "security/selinux/include/avc.h",
+      "source": "https://github.com/LineageOS/android_kernel_samsung_smdk4412/blob/b7ffe7f2aea2391737cdeac2a33217ee0ea4f2ba/security/selinux/include/avc.h",
+      "old_sha256": "c517b6cfaba0e842231a874a83217c54b65d0cd16f29ddfbc5e0282b1ca59354",
+      "new_sha256": "a1689e145868fd8609315b3910946573c41eaa22c3e0b4b48617873d5063f235"
+    },
+    {
+      "path": "security/selinux/include/security.h",
+      "source": "https://github.com/LineageOS/android_kernel_samsung_smdk4412/blob/b7ffe7f2aea2391737cdeac2a33217ee0ea4f2ba/security/selinux/include/security.h",
+      "old_sha256": "e84c0df4e2c78a7679da1392cc01cf181baa7e82aad161b173d86bb546c0ac36",
+      "new_sha256": "b3155c7ec5503fe3e54288da2b731be9d372856f1fd88ed50937709240aa5d30"
+    },
+    {
+      "path": "security/selinux/include/objsec.h",
+      "source": "https://github.com/LineageOS/android_kernel_samsung_smdk4412/blob/b7ffe7f2aea2391737cdeac2a33217ee0ea4f2ba/security/selinux/include/objsec.h",
+      "old_sha256": "5cfb40b05b31b98f8e21d5d900b7fa73b0d32c9b8e99d80cb2be2c890b734322",
+      "new_sha256": "68d2fdd08e1e160a6ff8d5c3fc6d9d5e0908b2a7c52cd35c46e95999b1150c30"
+    },
+    {
+      "path": "security/selinux/ss/policydb.h",
+      "source": "https://github.com/LineageOS/android_kernel_samsung_smdk4412/blob/b7ffe7f2aea2391737cdeac2a33217ee0ea4f2ba/security/selinux/ss/policydb.h",
+      "old_sha256": "412e763ec2273e94ba3014e808b139cf0de8409bb0cec818530aaabbad3b539c",
+      "new_sha256": "2b38352d16ddbb039b58efd17bb1266e92e6f9c15c37e57b9b43f4c460ee28bd"
+    },
+    {
+      "path": "security/selinux/ss/mls.c",
+      "source": "https://github.com/LineageOS/android_kernel_samsung_smdk4412/blob/b7ffe7f2aea2391737cdeac2a33217ee0ea4f2ba/security/selinux/ss/mls.c",
+      "old_sha256": "bdde0c70ddc07392a96dd2e32742142762b1b6c0a187b63ef08542e43e6d439e",
+      "new_sha256": "3c209c93694709e1f15b614f33b0a529690d7bf78d8c83a2783a9d82f1ba8f2b"
+    },
+    {
+      "path": "security/selinux/ss/context.h",
+      "source": "https://github.com/LineageOS/android_kernel_samsung_smdk4412/blob/b7ffe7f2aea2391737cdeac2a33217ee0ea4f2ba/security/selinux/ss/context.h",
+      "old_sha256": "36af35cb507cb7d5fffaa7da378d3de800ff28308d3f62d5f833b5a6ff506071",
+      "new_sha256": "17cfa0c83e7ece27f8068cef11190e0eccb2b81f3bdc5a00eddb9613c112e667"
+    },
+    {
+      "path": "security/selinux/ss/services.h",
+      "source": "https://github.com/LineageOS/android_kernel_samsung_smdk4412/blob/b7ffe7f2aea2391737cdeac2a33217ee0ea4f2ba/security/selinux/ss/services.h",
+      "old_sha256": "bd8be7959a677795e10c0a294432279969cd566d39a7a6c83c3f2ef1ba50fc58",
+      "new_sha256": "42a8c583cf5e77108e52786112a1708d5879cd9c9060e20a5e8046ab1a1ca537"
+    },
+    {
+      "path": "security/selinux/ss/conditional.c",
+      "source": "https://github.com/LineageOS/android_kernel_samsung_smdk4412/blob/b7ffe7f2aea2391737cdeac2a33217ee0ea4f2ba/security/selinux/ss/conditional.c",
+      "old_sha256": "c51b726c98cbc69e3b0a04fa31f9fb971b7be57802f56c8147ed7ddeeadd9d96",
+      "new_sha256": "e3ea40a54578a589bbbd71f831c2f6bd54759c26a3763fa4d041f1dba750e605"
+    },
+    {
+      "path": "security/selinux/ss/avtab.h",
+      "source": "https://github.com/LineageOS/android_kernel_samsung_smdk4412/blob/b7ffe7f2aea2391737cdeac2a33217ee0ea4f2ba/security/selinux/ss/avtab.h",
+      "old_sha256": "8fa7efec3a5c5ca9ef779ddb7dc3a68ca2f67fc766deb02997a1f07443910ffc",
+      "new_sha256": "cb3e1e323ff4069ee54b0dcf420f2c048b346b6fcfa708fe5321162652a0ba93"
+    },
+    {
+      "path": "security/selinux/ss/constraint.h",
+      "source": "https://github.com/LineageOS/android_kernel_samsung_smdk4412/blob/b7ffe7f2aea2391737cdeac2a33217ee0ea4f2ba/security/selinux/ss/constraint.h",
+      "old_sha256": "c9a7b467c0dc4013cd2d5316e34a366c7d94ddcdd87a1956528d61d291da3d32",
+      "new_sha256": "6a037d5afe62f0de9ade9618e040e484eaf1447954a89762d52e776578107629"
+    },
+    {
+      "path": "security/selinux/ss/policydb.c",
+      "source": "https://github.com/LineageOS/android_kernel_samsung_smdk4412/blob/b7ffe7f2aea2391737cdeac2a33217ee0ea4f2ba/security/selinux/ss/policydb.c",
+      "old_sha256": "02609db90e97c4496d5880cf1f1025c4e78cc4579f81e009bd1c4d2b9e01f3f7",
+      "new_sha256": "dc2b2a5bfcafe962a3cdbbbaabaad1f59d4038047dcbb087e138df4212201e39"
+    },
+    {
+      "path": "security/selinux/ss/services.c",
+      "source": "https://github.com/LineageOS/android_kernel_samsung_smdk4412/blob/b7ffe7f2aea2391737cdeac2a33217ee0ea4f2ba/security/selinux/ss/services.c",
+      "old_sha256": "a9ff9203292fdb34542994767c43a25a2a475bf607530aadc136f9e650e32b39",
+      "new_sha256": "3e180447aee6d2982255f2474708c35376c0ee20c0a7d40d0d8b2815f6fa2e27"
+    },
+    {
+      "path": "security/selinux/ss/avtab.c",
+      "source": "https://github.com/LineageOS/android_kernel_samsung_smdk4412/blob/b7ffe7f2aea2391737cdeac2a33217ee0ea4f2ba/security/selinux/ss/avtab.c",
+      "old_sha256": "39b4e4cd2478d761425acee936acd22d7d4dcdeedaf2d513931c28bfb3cc2356",
+      "new_sha256": "d9efd62a4eca2a1ffebf34a44524707d483f895801305de1c283c54a3e6b7717"
+    },
+    {
+      "path": "security/selinux/ss/conditional.h",
+      "source": "https://github.com/LineageOS/android_kernel_samsung_smdk4412/blob/b7ffe7f2aea2391737cdeac2a33217ee0ea4f2ba/security/selinux/ss/conditional.h",
+      "old_sha256": "6a576460e799a7e1e2246a427e9724ec42935eae5c4a961f26b8f010ad7a6931",
+      "new_sha256": "ac73903c1e6ca3f7b535f85a395677f0b65890ad6d7be93138e6b6385b6f2811"
+    },
+    {
+      "path": "include/linux/lsm_audit.h",
+      "source": "https://github.com/LineageOS/android_kernel_samsung_smdk4412/blob/b7ffe7f2aea2391737cdeac2a33217ee0ea4f2ba/include/linux/lsm_audit.h",
+      "old_sha256": "86dfa50f9f4a54796a005390443de029a24a2f512c6fe4785b759d578d20259e",
+      "new_sha256": "36bfadf458fa85af03e012d50a361deffc957b3a36356044a0b216ffee1aa497"
+    },
+    {
+      "path": "security/lsm_audit.c",
+      "source": "https://github.com/LineageOS/android_kernel_samsung_smdk4412/blob/b7ffe7f2aea2391737cdeac2a33217ee0ea4f2ba/security/lsm_audit.c",
+      "old_sha256": "15cc6d901c960f4ecd9e83a35af963e780afda63e329b10eee79f520f9bfd155",
+      "new_sha256": "5f81b8df3ca3259c5b775d4ff7ef1263fc6e7a1faf55c023e1a6c69b6ab078b8"
+    }
+  ]
+}

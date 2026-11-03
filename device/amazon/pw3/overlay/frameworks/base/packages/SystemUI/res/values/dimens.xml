@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- See config_gradientColors in config.xml. -->
+    <item name="scrim_behind_alpha" format="float" type="dimen">1.0</item>
+    <!-- AOSP draws the status bar icons at 90%: a dark grey instead of black. -->
+    <item type="dimen" name="status_bar_icon_drawing_alpha">100%</item>
+</resources>

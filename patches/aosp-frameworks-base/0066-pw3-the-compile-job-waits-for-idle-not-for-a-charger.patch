@@ -1,0 +1,54 @@
+From: PW3 Android port
+Subject: [PW3] The compile job waits for an idle device, not for a charger
+
+setRequiresCharging(true) stands in for "do not strand the owner". On a phone it
+costs nothing, because a phone is charged every night and "idle and charging"
+comes round daily. A Kindle runs for weeks on one charge, so the condition is
+almost never true, and this job never runs -- which matters more here than the
+name suggests, because it is the only thing that ever compiles an application
+the owner installed, or writes a reference profile for one. pw3.mk has said so
+since 2026-10-20; what it could not say was what that costs.
+
+It costs half the time it takes to open a book. Same device, same account, same
+shelf of a dozen books, started by tapping the icon, A A B B A A with three
+minutes of settling after each compile (2026-10-28, V91):
+
+    speed-profile   99.8 / 88.9 / 104.8 / 89.0 s     CPU 77.6 / 69.7 / 74.3 / 70.5
+    speed           55.4 / 47.3 s                    CPU 30.8 / 29.5
+
+Wall 95.6 s against 51.4 s, process CPU 73.0 against 30.2, and the groups do not
+overlap. Garbage collection barely moves, so the 43 seconds are bytecode running
+in the interpreter. The closing rounds come back to 89-105 s, so the machine did
+not drift; and the speed rounds followed 1279 s of dex2oat at full tilt, which
+biases against the result rather than for it.
+
+The condition this replaces it with is what the charger was standing in for.
+setRequiresDeviceIdle(true) stays: the work still waits until the owner has put
+the device down.
+
+Two things make this safe to run off a charger, and both are elsewhere:
+frameworks/native patch 0009 makes a compile keep the code it is replacing until
+the new code is ready, so a cancelled run costs nothing but the work; and
+installd already drops dex2oat to nice 10, which leaves a foreground application
+about nine tenths of this single core if the owner picks the device up anyway.
+
+Not run on the device yet when this patch was written.
+
+--- a/services/core/java/com/android/server/pm/BackgroundDexOptService.java
++++ b/services/core/java/com/android/server/pm/BackgroundDexOptService.java
+@@ -117,7 +117,14 @@
+         // those with fresh profiling data.
+         js.schedule(new JobInfo.Builder(JOB_IDLE_OPTIMIZE, sDexoptServiceName)
+                     .setRequiresDeviceIdle(true)
+-                    .setRequiresCharging(true)
++                    // PW3: "on a charger" is a stand-in for "do not strand the
++                    // owner", and on a phone it costs nothing, because a phone
++                    // is charged every night. A Kindle runs for weeks on one
++                    // charge, so the condition is almost never true and this
++                    // job -- the only thing that ever compiles an application
++                    // the owner installed, or writes a reference profile --
++                    // never runs. What it stands for, said directly:
++                    .setRequiresBatteryNotLow(true)
+                     .setPeriodic(IDLE_OPTIMIZATION_PERIOD)
+                     .build());
+ 

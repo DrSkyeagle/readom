@@ -1,0 +1,180 @@
+--- a/include/linux/inetdevice.h
++++ b/include/linux/inetdevice.h
+@@ -38,6 +38,8 @@
+ 	IPV4_DEVCONF_ACCEPT_LOCAL,
+ 	IPV4_DEVCONF_SRC_VMARK,
+ 	IPV4_DEVCONF_PROXY_ARP_PVLAN,
++	IPV4_DEVCONF_DROP_UNICAST_IN_L2_MULTICAST,
++	IPV4_DEVCONF_DROP_GRATUITOUS_ARP,
+ 	__IPV4_DEVCONF_MAX
+ };
+ 
+--- a/include/linux/ipv6.h
++++ b/include/linux/ipv6.h
+@@ -173,6 +173,8 @@
+ 	__s32		disable_ipv6;
+ 	__s32		accept_dad;
+ 	__s32		force_tllao;
++	__s32		drop_unicast_in_l2_multicast;
++	__s32		drop_unsolicited_na;
+ 	void		*sysctl;
+ };
+ 
+@@ -215,6 +217,8 @@
+ 	DEVCONF_ACCEPT_DAD,
+ 	DEVCONF_FORCE_TLLAO,
+ 	DEVCONF_ACCEPT_RA_RT_TABLE,
++	DEVCONF_DROP_UNICAST_IN_L2_MULTICAST,
++	DEVCONF_DROP_UNSOLICITED_NA,
+ 	DEVCONF_MAX
+ };
+ 
+--- a/net/ipv4/arp.c
++++ b/net/ipv4/arp.c
+@@ -848,6 +848,14 @@
+ 		goto out;
+ 
+ /*
++ *	For some 802.11 wireless deployments (and possibly other networks),
++ *	there will be an ARP proxy and gratuitous ARP frames are attacks
++ *	and thus should not be accepted.
++ */
++	if (sip == tip && IN_DEV_ORCONF(in_dev, DROP_GRATUITOUS_ARP))
++		goto out;
++
++/*
+  *     Special case: We must set Frame Relay source Q.922 address
+  */
+ 	if (dev_type == ARPHRD_DLCI)
+--- a/net/ipv4/devinet.c
++++ b/net/ipv4/devinet.c
+@@ -1614,6 +1614,8 @@
+ 		DEVINET_SYSCTL_RW_ENTRY(ARP_ACCEPT, "arp_accept"),
+ 		DEVINET_SYSCTL_RW_ENTRY(ARP_NOTIFY, "arp_notify"),
+ 		DEVINET_SYSCTL_RW_ENTRY(PROXY_ARP_PVLAN, "proxy_arp_pvlan"),
++		DEVINET_SYSCTL_RW_ENTRY(DROP_GRATUITOUS_ARP,
++					"drop_gratuitous_arp"),
+ 
+ 		DEVINET_SYSCTL_FLUSHING_ENTRY(NOXFRM, "disable_xfrm"),
+ 		DEVINET_SYSCTL_FLUSHING_ENTRY(NOPOLICY, "disable_policy"),
+@@ -1621,6 +1623,8 @@
+ 					      "force_igmp_version"),
+ 		DEVINET_SYSCTL_FLUSHING_ENTRY(PROMOTE_SECONDARIES,
+ 					      "promote_secondaries"),
++		DEVINET_SYSCTL_FLUSHING_ENTRY(DROP_UNICAST_IN_L2_MULTICAST,
++					      "drop_unicast_in_l2_multicast"),
+ 	},
+ };
+ 
+--- a/net/ipv4/ip_input.c
++++ b/net/ipv4/ip_input.c
+@@ -358,9 +358,32 @@
+ 	if (rt->rt_type == RTN_MULTICAST) {
+ 		IP_UPD_PO_STATS_BH(dev_net(rt->dst.dev), IPSTATS_MIB_INMCAST,
+ 				skb->len);
+-	} else if (rt->rt_type == RTN_BROADCAST)
++	} else if (rt->rt_type == RTN_BROADCAST) {
+ 		IP_UPD_PO_STATS_BH(dev_net(rt->dst.dev), IPSTATS_MIB_INBCAST,
+ 				skb->len);
++	} else if (skb->pkt_type == PACKET_BROADCAST ||
++		   skb->pkt_type == PACKET_MULTICAST) {
++		struct in_device *in_dev = __in_dev_get_rcu(skb->dev);
++
++		/* RFC 1122 3.3.6:
++		 *
++		 *   When a host sends a datagram to a link-layer broadcast
++		 *   address, the IP destination address MUST be a legal IP
++		 *   broadcast or IP multicast address.
++		 *
++		 *   A host SHOULD silently discard a datagram that is received
++		 *   via a link-layer broadcast (see Section 2.4) but does not
++		 *   specify an IP multicast or broadcast destination address.
++		 *
++		 * This doesn't explicitly say L2 *broadcast*, but broadcast is
++		 * in a way a form of multicast and the most common use case for
++		 * this is 802.11 protecting against cross-station spoofing (the
++		 * so-called "hole-196" attack) so do it for both.
++		 */
++		if (in_dev &&
++		    IN_DEV_ORCONF(in_dev, DROP_UNICAST_IN_L2_MULTICAST))
++			goto drop;
++	}
+ 
+ 	return dst_input(skb);
+ 
+--- a/net/ipv6/addrconf.c
++++ b/net/ipv6/addrconf.c
+@@ -3863,6 +3863,8 @@
+ #endif
+ #endif
+ 	array[DEVCONF_ACCEPT_RA_RT_TABLE] = cnf->accept_ra_rt_table;
++	array[DEVCONF_DROP_UNICAST_IN_L2_MULTICAST] = cnf->drop_unicast_in_l2_multicast;
++	array[DEVCONF_DROP_UNSOLICITED_NA] = cnf->drop_unsolicited_na;
+ 	array[DEVCONF_PROXY_NDP] = cnf->proxy_ndp;
+ 	array[DEVCONF_ACCEPT_SOURCE_ROUTE] = cnf->accept_source_route;
+ #ifdef CONFIG_IPV6_OPTIMISTIC_DAD
+@@ -4535,6 +4537,20 @@
+ 			.proc_handler   = proc_dointvec
+ 		},
+ 		{
++			.procname	= "drop_unicast_in_l2_multicast",
++			.data		= &ipv6_devconf.drop_unicast_in_l2_multicast,
++			.maxlen		= sizeof(int),
++			.mode		= 0644,
++			.proc_handler	= proc_dointvec,
++		},
++		{
++			.procname	= "drop_unsolicited_na",
++			.data		= &ipv6_devconf.drop_unsolicited_na,
++			.maxlen		= sizeof(int),
++			.mode		= 0644,
++			.proc_handler	= proc_dointvec,
++		},
++		{
+ 			/* sentinel */
+ 		}
+ 	},
+--- a/net/ipv6/ip6_input.c
++++ b/net/ipv6/ip6_input.c
+@@ -111,6 +111,16 @@
+ 	    ipv6_addr_loopback(&hdr->daddr))
+ 		goto err;
+ 
++	/* If enabled, drop unicast packets that were encapsulated in link-layer
++	 * multicast or broadcast to protected against the so-called "hole-196"
++	 * attack in 802.11 wireless.
++	 */
++	if (!ipv6_addr_is_multicast(&hdr->daddr) &&
++	    (skb->pkt_type == PACKET_BROADCAST ||
++	     skb->pkt_type == PACKET_MULTICAST) &&
++	    idev->cnf.drop_unicast_in_l2_multicast)
++		goto err;
++
+ 	skb->transport_header = skb->network_header + sizeof(*hdr);
+ 	IP6CB(skb)->nhoff = offsetof(struct ipv6hdr, nexthdr);
+ 
+--- a/net/ipv6/ndisc.c
++++ b/net/ipv6/ndisc.c
+@@ -931,6 +931,7 @@
+ 				    offsetof(struct nd_msg, opt));
+ 	struct ndisc_options ndopts;
+ 	struct net_device *dev = skb->dev;
++	struct inet6_dev *idev = __in6_dev_get(dev);
+ 	struct inet6_ifaddr *ifp;
+ 	struct neighbour *neigh;
+ 
+@@ -953,6 +954,14 @@
+ 		return;
+ 	}
+ 
++	/* For some 802.11 wireless deployments (and possibly other networks),
++	 * there will be a NA proxy and unsolicitd packets are attacks
++	 * and thus should not be accepted.
++	 */
++	if (!msg->icmph.icmp6_solicited && idev &&
++	    idev->cnf.drop_unsolicited_na)
++		return;
++
+ 	if (!ndisc_parse_options(msg->opt, ndoptlen, &ndopts)) {
+ 		ND_PRINTK2(KERN_WARNING
+ 			   "ICMPv6 NS: invalid ND option\n");

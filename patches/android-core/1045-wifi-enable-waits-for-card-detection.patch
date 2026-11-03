@@ -1,0 +1,20 @@
+--- a/arch/arm/mach-mx6/board-mx6sl_wario.c
++++ b/arch/arm/mach-mx6/board-mx6sl_wario.c
+@@ -1287,6 +1287,17 @@
+ 
+ 
+ 	sdhost = platform_get_drvdata(wifi_pdev);
++	/*
++	 * The host's own card detection (mmc_rescan) powers the slot while it
++	 * tries each clock, holding the host; it runs after every resume
++	 * (mmc_pm_notify, PM_POST_SUSPEND), and the slot is always present.
++	 * Android loads this driver as the screen comes on, right after a
++	 * resume: checking the power then found the detection's, and Wi-Fi did
++	 * not come back after a sleep (PW3 Android, Test V45/V46). Wait for the
++	 * detection to finish before checking.
++	 */
++	mmc_claim_host(sdhost->mmc);
++	mmc_release_host(sdhost->mmc);
+ 	/* Error, it can't be even before we applied power */
+ 	if (sdhost->pwr != 0) {
+ 		printk(KERN_ERR "%s: device power already on!\n", __func__);

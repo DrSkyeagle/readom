@@ -1,0 +1,66 @@
+name: 问题报告 / Bug report
+description: 装不上、用着出错、和说明对不上 / It will not install, it fails in use, or it does not do what the docs say
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        先搜一下已有的 Issue，再看看[已知问题](https://github.com/hbyxabc/readom/blob/main/docs/known-issues.md)，可能已经有人报过了。
+        Search the existing issues and the [known issues](https://github.com/hbyxabc/readom/blob/main/docs/known-issues.en.md) first; it may already be there.
+  - type: input
+    id: version
+    attributes:
+      label: 版本号 / Build number
+      description: 「设置 > 关于平板电脑 > 版本号」，原样抄下来；还没装上就写用的是哪个发行版，比如 v0.1.0。/ "Settings > About tablet > Build number" as shown; if it never installed, the release you used, e.g. v0.1.0.
+      placeholder: Readom v0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: stage
+    attributes:
+      label: 在哪一步 / Where it happened
+      options:
+        - 安装时 / While installing
+        - 进入 Android 时 / While starting Android
+        - 使用中 / While using it
+        - 回到 Kindle 时 / While going back to the Kindle
+        - 其他 / Somewhere else
+    validations:
+      required: true
+  - type: input
+    id: code
+    attributes:
+      label: 屏幕上的出错代码 / Error code on the screen
+      description: 安装画面上显示的那个，没有就空着。/ The one the install screen shows, if any.
+      placeholder: E104
+  - type: textarea
+    id: what
+    attributes:
+      label: 发生了什么 / What happened
+      description: 看到了什么、点了什么。截图可以直接拖进来。/ What you saw and what you tapped. Screenshots can be dragged in.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 怎么能再遇到 / How to make it happen again
+      placeholder: |
+        1.
+        2.
+        3.
+  - type: textarea
+    id: expected
+    attributes:
+      label: 本来应该怎样 / What you expected
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志 / Logs
+      description: 把 Kindle 盘上最近一次的 `android/logs/<时间>/` 文件夹压缩后拖进来。里面的内核日志按允许清单筛过，不含序列号、MAC 地址和 Wi‑Fi 名称。/ Zip the latest `android/logs/<time>/` folder from the Kindle drive and drag it in. Its kernel log is filtered against an allow-list, with no serial numbers, MAC addresses or network names.
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: 隐私 / Privacy
+      options:
+        - label: 截图和文字里没有二维码、Wi‑Fi 名称、序列号，也没有别人的个人信息。/ Nothing above shows a QR code, a Wi-Fi name, a serial number, or anyone's personal information.
+          required: true

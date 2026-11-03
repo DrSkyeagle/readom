@@ -1,0 +1,4 @@
+#!/bin/bash
+# Retain the original JAR implementation and manifest metadata.
+set -euo pipefail
+exec /src/prebuilts/jdk/jdk8/linux-x86/bin/jar -J-Xint "$@"

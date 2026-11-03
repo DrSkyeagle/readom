@@ -1,0 +1,17 @@
+--- a/drivers/video/mxc/mxc_epdc_fb_lab126.c
++++ b/drivers/video/mxc/mxc_epdc_fb_lab126.c
+@@ -3405,9 +3405,14 @@
+ 	//
+ 	set_waveform_modes(fb_data);
+ 
++#ifdef CONFIG_LAB126_ANDROID_EPDC
++	/* Keep all panel identity and calibration nodes root-only. */
++	proc_wf_parent = proc_mkdir_mode(WF_PROC_PARENT, S_IRWXU, NULL);
++#else
+ 	proc_wf_parent = create_proc_entry(WF_PROC_PARENT,
+ 	                                   (S_IFDIR | S_IRUGO | S_IXUGO),
+ 	                                   NULL);
++#endif
+ 	if (proc_wf_parent) {
+ 		/* Create panel proc entries */
+ 		proc_wf_panel_parent = create_proc_entry(WF_PROC_PANEL_PARENT,

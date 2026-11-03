@@ -1,0 +1,13 @@
+LOCAL_PATH := $(call my-dir)
+include $(CLEAR_VARS)
+LOCAL_MODULE := pw3-testfile-init
+LOCAL_CLANG := true
+LOCAL_MODULE_TAGS := optional
+LOCAL_SRC_FILES := PreInit.c
+LOCAL_CFLAGS := -std=gnu11 -Wall -Wextra -Werror -Wno-unused-function -D_FILE_OFFSET_BITS=64
+LOCAL_FORCE_STATIC_EXECUTABLE := true
+LOCAL_STATIC_LIBRARIES := libcrypto libc
+LOCAL_SHARED_LIBRARIES :=
+LOCAL_SYSTEM_SHARED_LIBRARIES :=
+LOCAL_MODULE_PATH := $(TARGET_ROOT_OUT)
+include $(BUILD_EXECUTABLE)

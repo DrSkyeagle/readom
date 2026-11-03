@@ -1,0 +1,43 @@
+From: PW3 Android port
+Subject: [PW3] the idle timeout no longer hands back the launch wake lock
+
+Patch 0046 made the launch wake lock's deadline four times as long, because a
+cold start of a large application takes about 17 s on this 996 MHz single core
+and the lock was being given up in the middle of every one. The warning stopped
+appearing, and the lock went on being released just the same: that patch, and
+its comment, had the wrong mechanism.
+
+activityIdleInternalLocked() releases it too. IDLE_TIMEOUT is 10 s and fires
+first; it marks the activity idle, allResumedActivitiesIdle() then holds on a
+device with one foreground activity, and the lock is handed back 30 s before
+the deadline 0046 extended. Test V55 measured a 17.2 s cold start with no
+"Launch timeout has expired" line at all, which is what a reader of the log
+would have taken for the fix working.
+
+An idle that came from that timeout rather than from the activity itself is not
+a finished launch, so it no longer releases the lock. LAUNCH_TIMEOUT_MSG still
+bounds how long it can be held. IDLE_TIMEOUT keeps its value and goes on
+deciding when activities the system has not heard from are stopped and
+destroyed, which is what 512 MB cares about; making that four times as long is
+a separate change, and one worth measuring first.
+
+--- a/services/core/java/com/android/server/am/ActivityStackSupervisor.java
++++ b/services/core/java/com/android/server/am/ActivityStackSupervisor.java
+@@ -1930,7 +1930,16 @@
+                 mService.scheduleAppGcsLocked();
+             }
+ 
+-            if (mLaunchingActivity.isHeld()) {
++            // PW3: not when the idle came from IDLE_TIMEOUT rather than from the
++            // activity itself. That deadline is 10 s and fires first, so it gave
++            // the launch wake lock back in the middle of every slow start and
++            // undid the longer LAUNCH_TIMEOUT above: a cold start of a large
++            // application takes about 17 s here (Test V51), and the message that
++            // used to say so stopped appearing while the lock was released just
++            // the same (Test V55). LAUNCH_TIMEOUT_MSG still bounds how long it
++            // can be held, and IDLE_TIMEOUT keeps deciding when activities are
++            // stopped, which is what 512 MB cares about.
++            if (mLaunchingActivity.isHeld() && !fromTimeout) {
+                 mHandler.removeMessages(LAUNCH_TIMEOUT_MSG);
+                 if (VALIDATE_WAKE_LOCK_CALLER &&
+                         Binder.getCallingUid() != Process.myUid()) {

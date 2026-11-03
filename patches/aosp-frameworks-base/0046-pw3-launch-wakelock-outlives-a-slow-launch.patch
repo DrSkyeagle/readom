@@ -1,0 +1,41 @@
+From: PW3 Android port
+Subject: [PW3] the launch wake lock outlives a launch on this CPU
+
+While an activity is being started, the activity manager holds a wake lock so
+that the device stays awake until the new activity is there (ActivityStack
+acquires it whenever it pauses something and is not going to sleep). AOSP gives
+up that wake lock after 10 s, a deadline sized for phone hardware, and patch
+0012 already multiplies the other deadlines of this kind by
+ro.hw_timeout_multiplier.
+
+This one was missed: a cold start of WeRead takes about 17 s on this 996 MHz
+single core, so every cold start passed the deadline and logged "Launch timeout
+has expired, giving up wake lock!" (twice in two starts, Test V51). With the
+screen on, the display's own wake lock keeps the device awake and nothing is
+lost; a launch with the screen off - from an alarm or a notification - can
+suspend in the middle and finish only at the next wake.
+
+IDLE_TIMEOUT and SLEEP_TIMEOUT in the same file are left as they are. They do
+not hold a wake lock: they decide when the system stops and destroys activities
+it has not heard from, and on 512 MB waiting four times as long to release them
+is a change worth measuring before it is made.
+
+--- a/services/core/java/com/android/server/am/ActivityStackSupervisor.java
++++ b/services/core/java/com/android/server/am/ActivityStackSupervisor.java
+@@ -203,7 +203,15 @@
+     static final int SLEEP_TIMEOUT = 5 * 1000;
+
+     // How long we can hold the launch wake lock before giving up.
+-    static final int LAUNCH_TIMEOUT = 10 * 1000;
++    // PW3: with the factor of ro.hw_timeout_multiplier (ActivityManagerService,
++    // patch 0012). A cold start of a large application takes about 17 s on this
++    // 996 MHz single core (Test V51), so the wake lock meant to keep the device
++    // awake until the new activity starts was given up in the middle of every
++    // one of them. IDLE_TIMEOUT and SLEEP_TIMEOUT above are not changed: they
++    // hold no wake lock, they decide when activities the system has not heard
++    // from are stopped and destroyed, which is worth measuring first.
++    static final int LAUNCH_TIMEOUT =
++            10 * 1000 * ActivityManagerService.HW_TIMEOUT_MULTIPLIER;
+
+     static final int IDLE_TIMEOUT_MSG = FIRST_SUPERVISOR_STACK_MSG;
+     static final int IDLE_NOW_MSG = FIRST_SUPERVISOR_STACK_MSG + 1;

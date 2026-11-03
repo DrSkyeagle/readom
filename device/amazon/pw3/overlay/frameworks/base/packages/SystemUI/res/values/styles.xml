@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- PW3: Recents is opaque white of its own instead of showing the wallpaper, as the home
+     screen (Launcher3 overlay, frameworks/base 0034). RecentsActivity picks this style or its
+     .Light child by the wallpaper's colours; the child only sets text colours. The style is
+     AOSP's with windowBackground and windowShowWallpaper changed; an overlay replaces a style
+     whole, so the other items are copied unchanged. -->
+<resources>
+    <style name="RecentsTheme.Wallpaper">
+        <item name="android:windowBackground">@android:color/white</item>
+        <item name="android:colorBackgroundCacheHint">@null</item>
+        <item name="android:windowShowWallpaper">false</item>
+        <item name="android:windowDisablePreview">true</item>
+        <item name="clearAllStyle">@style/ClearAllButtonDefaultMargins</item>
+        <item name="clearAllBackgroundColor">@color/recents_clear_all_button_bg_dark_color</item>
+        <item name="wallpaperTextColor">@*android:color/primary_text_material_dark</item>
+        <item name="wallpaperTextColorSecondary">@*android:color/secondary_text_material_dark</item>
+    </style>
+</resources>

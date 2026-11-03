@@ -1,0 +1,34 @@
+{
+  "description": "QEMU vexpress-a9 test profile: the loader-stage kernel loads the module and jumps to a second Linux; no device",
+  "module_profile": 2,
+  "machine": 2272,
+  "boot_ram_base": "0x60000000",
+  "identity_limit": "0xbf000000",
+  "identity_limit_why": "as in the device profile: the one-to-one region of the table the handoff runs under. VExpress RAM starts at 0x60000000, below this bound, so the same arrangement as the device applies",
+  "ram": [
+    [
+      "0x60000000",
+      "0x20000000"
+    ]
+  ],
+  "forbidden": [
+    [
+      "0x68000000",
+      "0x18000000"
+    ]
+  ],
+  "atag_kinds": [
+    "0x54410001",
+    "0x54410002",
+    "0x54410007",
+    "0x54410009",
+    "0x5441000b",
+    "0x5441000d",
+    "0x5441000f",
+    "0x54420005"
+  ],
+  "device_archive_max": 12582912,
+  "footprint_profile": "vexpress",
+  "module_kernel_source": "/home/builder/pw3-build/linux-loader-stage",
+  "module_kernel_output": "/home/builder/pw3-build/out-loader-stage"
+}

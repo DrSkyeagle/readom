@@ -1,0 +1,57 @@
+From: PW3 Android port
+Subject: [PW3] SettingsProvider: connectivity check servers as device defaults
+
+The network monitor asks Google's servers whether a network reaches the
+internet unless Settings.Global names others. From mainland China they do not
+answer, and every working Wi-Fi network showed "no internet" (Test V30); the
+test helper wrote other servers into the settings at each start. They are now
+defaults a device can configure like the others (def_captive_portal_*_url,
+empty by default: AOSP's servers), loaded into a new settings database and
+kept if the user changes them.
+
+--- a/packages/SettingsProvider/res/values/defaults.xml
++++ b/packages/SettingsProvider/res/values/defaults.xml
+@@ -83,6 +83,12 @@
+     <string name="def_wireless_charging_started_sound" translatable="false">/system/media/audio/ui/WirelessChargingStarted.ogg</string>
+ 
+     <bool name="def_lockscreen_disabled">false</bool>
++
++    <!-- Connectivity check servers (Settings.Global.CAPTIVE_PORTAL_*_URL);
++         empty: the network monitor's built-in ones. -->
++    <string name="def_captive_portal_https_url" translatable="false"></string>
++    <string name="def_captive_portal_http_url" translatable="false"></string>
++    <string name="def_captive_portal_fallback_url" translatable="false"></string>
+     <bool name="def_device_provisioned">false</bool>
+     <integer name="def_dock_audio_media_enabled">1</integer>
+ 
+--- a/packages/SettingsProvider/src/com/android/providers/settings/DatabaseHelper.java
++++ b/packages/SettingsProvider/src/com/android/providers/settings/DatabaseHelper.java
+@@ -2488,6 +2488,13 @@
+             loadFractionSetting(stmt, Settings.Global.ANIMATOR_DURATION_SCALE,
+                     R.fraction.def_animator_duration_scale, 1);
+ 
++            loadStringSettingIfSet(stmt, Settings.Global.CAPTIVE_PORTAL_HTTPS_URL,
++                    R.string.def_captive_portal_https_url);
++            loadStringSettingIfSet(stmt, Settings.Global.CAPTIVE_PORTAL_HTTP_URL,
++                    R.string.def_captive_portal_http_url);
++            loadStringSettingIfSet(stmt, Settings.Global.CAPTIVE_PORTAL_FALLBACK_URL,
++                    R.string.def_captive_portal_fallback_url);
++
+             // --- Previously in 'system'
+             loadBooleanSetting(stmt, Settings.Global.AIRPLANE_MODE_ON,
+                     R.bool.def_airplane_mode_on);
+@@ -2665,6 +2672,14 @@
+         loadSetting(stmt, key, mContext.getResources().getString(resid));
+     }
+ 
++    // A setting the device may configure: none stored when its default is empty.
++    private void loadStringSettingIfSet(SQLiteStatement stmt, String key, int resid) {
++        final String value = mContext.getResources().getString(resid);
++        if (!TextUtils.isEmpty(value)) {
++            loadSetting(stmt, key, value);
++        }
++    }
++
+     private void loadBooleanSetting(SQLiteStatement stmt, String key, int resid) {
+         loadSetting(stmt, key,
+                 mContext.getResources().getBoolean(resid) ? "1" : "0");

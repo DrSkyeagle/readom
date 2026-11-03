@@ -1,0 +1,10 @@
+# The generic AOSP rules already create Binder, ashmem, graphics and input nodes.
+# Use device names, not unstable event0/event1 assignments.
+/dev/graphics/fb0 0660 system graphics
+/dev/rtc* 0640 system system
+
+# AOSP8.1 MatchWithSubsystem resolves these class aliases against real uevents.
+/sys/class/backlight/max77696-bl brightness 0660 system system
+/sys/class/backlight/max77696-bl bl_power 0660 system system
+
+# No raw block-device permission grants and no touch-firmware loader node.

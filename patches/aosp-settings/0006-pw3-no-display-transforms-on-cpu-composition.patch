@@ -1,0 +1,139 @@
+From: PW3 Android port
+Subject: [PW3] Settings: no magnification or colour transforms the device cannot compose
+
+Magnification, colour inversion and colour correction are applied by
+SurfaceFlinger as a scale or a colour matrix on the composed display. PW3's
+composer works on the CPU and does neither; SurfaceFlinger then composes
+every frame with GLES, which is CPU-emulated here (SwiftShader). Measured on
+Test V40.1: magnification shows correctly but entering or leaving it costs
+SurfaceFlinger more than 4 s of CPU, and every frame while magnified is as
+slow; with colour inversion SurfaceFlinger stayed at full load. Colour
+correction has nothing to correct on a grey-level panel. The product says so
+(ro.pw3.disable_display_transforms=true) and Accessibility shows none of the
+three, nor does search; the system's font size and display size remain.
+
+Search also no longer offers the entries 0003 and AOSP leave off this page on
+a device without them (power button ends call, lock screen rotation, large
+pointer, click after the pointer stops, mono audio, text-to-speech output,
+the accessibility shortcut): found by search, they led to a page without
+them.
+
+--- a/src/com/android/settings/accessibility/AccessibilitySettings.java
++++ b/src/com/android/settings/accessibility/AccessibilitySettings.java
+@@ -27,6 +27,7 @@
+ import android.net.Uri;
+ import android.os.Bundle;
+ import android.os.Handler;
++import android.os.SystemProperties;
+ import android.os.UserHandle;
+ import android.provider.SearchIndexableResource;
+ import android.provider.Settings;
+@@ -113,6 +114,9 @@
+             "autoclick_preference_screen";
+     private static final String DISPLAY_DALTONIZER_PREFERENCE_SCREEN =
+             "daltonizer_preference_screen";
++    // Text-to-speech output, in the screen reader category.
++    private static final String TTS_SETTINGS_PREFERENCE =
++            "tts_settings_preference";
+ 
+     // Extras passed to sub-fragments.
+     static final String EXTRA_PREFERENCE_KEY = "preference_key";
+@@ -354,6 +358,11 @@
+         // Display inversion.
+         mToggleInversionPreference = (SwitchPreference) findPreference(TOGGLE_INVERSION_PREFERENCE);
+         mToggleInversionPreference.setOnPreferenceChangeListener(this);
++        final boolean transforms = canTransformDisplay();
++        if (!transforms) {
++            mCategoryToPrefCategoryMap.get(CATEGORY_EXPERIMENTAL)
++                    .removePreference(mToggleInversionPreference);
++        }
+ 
+         // Power button ends calls.
+         mTogglePowerButtonEndsCallPreference =
+@@ -417,6 +426,10 @@
+         mDisplayMagnificationPreferenceScreen = findPreference(
+                 DISPLAY_MAGNIFICATION_PREFERENCE_SCREEN);
+         configureMagnificationPreferenceIfNeeded(mDisplayMagnificationPreferenceScreen);
++        if (!transforms) {
++            mCategoryToPrefCategoryMap.get(CATEGORY_DISPLAY)
++                    .removePreference(mDisplayMagnificationPreferenceScreen);
++        }
+ 
+         // Font size.
+         mFontSizePreferenceScreen = findPreference(FONT_SIZE_PREFERENCE_SCREEN);
+@@ -430,6 +443,10 @@
+ 
+         // Display color adjustments.
+         mDisplayDaltonizerPreferenceScreen = findPreference(DISPLAY_DALTONIZER_PREFERENCE_SCREEN);
++        if (!transforms) {
++            mCategoryToPrefCategoryMap.get(CATEGORY_EXPERIMENTAL)
++                    .removePreference(mDisplayDaltonizerPreferenceScreen);
++        }
+ 
+         // Accessibility shortcut: both volume keys held.
+         mAccessibilityShortcutPreferenceScreen = findPreference(ACCESSIBILITY_SHORTCUT_PREFERENCE);
+@@ -439,6 +456,16 @@
+         }
+     }
+ 
++    /**
++     * Whether the display can be magnified or its colours transformed. The device says
++     * when it cannot (ro.pw3.disable_display_transforms): PW3's composer composes on the
++     * CPU, without scaling or a colour matrix, and SurfaceFlinger would then compose
++     * every frame with CPU-emulated GLES, seconds for each.
++     */
++    static boolean canTransformDisplay() {
++        return !SystemProperties.getBoolean("ro.pw3.disable_display_transforms", false);
++    }
++
+     private void updateAllPreferences() {
+         updateSystemPreferences();
+         updateServicePreferences();
+@@ -767,6 +794,34 @@
+             keys.add(FONT_SIZE_PREFERENCE_SCREEN);
+             keys.add(DisplaySettings.KEY_DISPLAY_SIZE);
+ 
++            // What the page leaves out on this device, search does not offer either
++            // (the conditions of initializeAllPreferences()).
++            if (!KeyCharacterMap.deviceHasKey(KeyEvent.KEYCODE_POWER)
++                    || !Utils.isVoiceCapable(context)) {
++                keys.add(TOGGLE_POWER_BUTTON_ENDS_CALL_PREFERENCE);
++            }
++            if (!RotationPolicy.isRotationSupported(context)) {
++                keys.add(TOGGLE_LOCK_SCREEN_ROTATION_PREFERENCE);
++            }
++            if (!InputDeviceAvailability.canHavePointer(context)) {
++                keys.add(TOGGLE_LARGE_POINTER_ICON);
++                keys.add(AUTOCLICK_PREFERENCE_SCREEN);
++            }
++            if (!context.getPackageManager()
++                    .hasSystemFeature(PackageManager.FEATURE_AUDIO_OUTPUT)) {
++                keys.add(TOGGLE_MASTER_MONO);
++                keys.add(TTS_SETTINGS_PREFERENCE);
++            }
++            if (!KeyCharacterMap.deviceHasKey(KeyEvent.KEYCODE_VOLUME_UP)
++                    || !KeyCharacterMap.deviceHasKey(KeyEvent.KEYCODE_VOLUME_DOWN)) {
++                keys.add(ACCESSIBILITY_SHORTCUT_PREFERENCE);
++            }
++            if (!canTransformDisplay()) {
++                keys.add(DISPLAY_MAGNIFICATION_PREFERENCE_SCREEN);
++                keys.add(TOGGLE_INVERSION_PREFERENCE);
++                keys.add(DISPLAY_DALTONIZER_PREFERENCE_SCREEN);
++            }
++
+             return keys;
+         }
+     };
+--- a/src/com/android/settings/accessibility/MagnificationPreferenceFragment.java
++++ b/src/com/android/settings/accessibility/MagnificationPreferenceFragment.java
+@@ -212,7 +212,9 @@
+                 @Override
+                 public List<SearchIndexableResource> getXmlResourcesToIndex(Context context,
+                         boolean enabled) {
+-                    if (isApplicable(context.getResources())) {
++                    // Not where the display cannot be magnified at all.
++                    if (isApplicable(context.getResources())
++                            && AccessibilitySettings.canTransformDisplay()) {
+                         final SearchIndexableResource sir = new SearchIndexableResource(context);
+                         sir.xmlResId = R.xml.accessibility_magnification_settings;
+                         return Arrays.asList(sir);

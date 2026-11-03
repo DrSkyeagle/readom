@@ -1,0 +1,92 @@
+From: PW3 Android port
+Subject: [PW3] Settings: outlined cards on white
+
+The search bar and the suggestions on the main screen are cards with a 2dp
+elevation on a light grey (#f2f2f2) band. On PW3 the shadow is not drawn
+(software rendering) and the grey is one panel level below white, so the cards
+had no visible edge. As every surface that stands out from the page
+(docs/design/eink-ui.md): the band is white, and the cards have no elevation
+and a black outline of 1dp (2 px) with corners of 4dp, drawn as their
+foreground. Settings' copy of the values is res/values/pw3_eink.xml.
+
+The suggestions card no longer uses compatibility padding: it only made room
+for a shadow, and would have put the outline outside the card.
+
+--- /dev/null
++++ b/res/values/pw3_eink.xml
+@@ -0,0 +1,9 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- PW3: the e-paper interface rules (docs/design/eink-ui.md) as Settings uses them. The
++     framework's dialogs, menus and toasts, SystemUI and Launcher3 write the same values. -->
++<resources>
++    <color name="pw3_outline">#ff000000</color>
++    <!-- 2 px on PW3 (density 1.875, rounded to whole pixels). -->
++    <dimen name="pw3_outline_width">1dp</dimen>
++    <dimen name="pw3_corner_radius">4dp</dimen>
++</resources>
+--- /dev/null
++++ b/res/drawable/pw3_card_outline.xml
+@@ -0,0 +1,8 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- PW3: a card's edge (docs/design/eink-ui.md), drawn over it as its foreground. The
++     card's shadow is not drawn (software rendering): white on white had no edge. -->
++<shape xmlns:android="http://schemas.android.com/apk/res/android"
++       android:shape="rectangle">
++    <stroke android:width="@dimen/pw3_outline_width" android:color="@color/pw3_outline" />
++    <corners android:radius="@dimen/pw3_corner_radius" />
++</shape>
+--- a/res/layout/settings_main_dashboard.xml
++++ b/res/layout/settings_main_dashboard.xml
+@@ -32,9 +32,10 @@
+             android:layout_width="match_parent"
+             android:layout_height="wrap_content"
+             android:layout_margin="@dimen/search_bar_margin"
+-            app:cardCornerRadius="2dp"
++            android:foreground="@drawable/pw3_card_outline"
++            app:cardCornerRadius="@dimen/pw3_corner_radius"
+             app:cardBackgroundColor="?android:attr/colorBackground"
+-            app:cardElevation="2dp">
++            app:cardElevation="0dp">
+             <Toolbar
+                 android:id="@+id/search_action_bar"
+                 android:layout_width="match_parent"
+--- a/res/layout/search_panel.xml
++++ b/res/layout/search_panel.xml
+@@ -31,9 +31,10 @@
+             android:layout_width="match_parent"
+             android:layout_height="wrap_content"
+             android:layout_margin="@dimen/search_bar_margin"
+-            app:cardCornerRadius="2dp"
++            android:foreground="@drawable/pw3_card_outline"
++            app:cardCornerRadius="@dimen/pw3_corner_radius"
+             app:cardBackgroundColor="?android:attr/colorBackground"
+-            app:cardElevation="2dp">
++            app:cardElevation="0dp">
+             <Toolbar
+                 android:id="@+id/search_toolbar"
+                 android:layout_width="match_parent"
+--- a/res/layout/suggestion_condition_container.xml
++++ b/res/layout/suggestion_condition_container.xml
+@@ -28,8 +28,9 @@
+     <android.support.v7.widget.CardView
+         android:layout_width="match_parent"
+         android:layout_height="wrap_content"
+-        app:cardUseCompatPadding="true"
+-        app:cardElevation="2dp">
++        android:foreground="@drawable/pw3_card_outline"
++        app:cardCornerRadius="@dimen/pw3_corner_radius"
++        app:cardElevation="0dp">
+ 
+         <android.support.v7.widget.RecyclerView
+             android:id="@+id/data"
+--- a/res/values/colors.xml
++++ b/res/values/colors.xml
+@@ -114,6 +114,7 @@
+     <color name="fallback_tintColor">#89000000</color>
+ 
+     <!-- Suggestion/condition colors -->
+-    <color name="suggestion_condition_background">#f2f2f2</color>
++    <!-- PW3: white (docs/design/eink-ui.md); the cards on it have an outline. -->
++    <color name="suggestion_condition_background">#ffffffff</color>
+     <color name="condition_card_background">#f8f8f8</color>
+ </resources>

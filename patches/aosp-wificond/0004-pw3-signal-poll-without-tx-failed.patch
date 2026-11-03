@@ -1,0 +1,29 @@
+From: PW3 Android port
+Subject: [PW3] wificond: signal strength without the failed-packet count
+
+Test V34: Wi-Fi is connected and in use, but the framework has no signal
+strength for it - "RSSI: -127, Link speed: -1Mbps", mLastSignalLevel -1, the
+Wi-Fi icons show an empty fan - and logs every three seconds
+
+  wificond: Failed to get NL80211_STA_INFO_TX_FAILED
+  WificondControl: Invalid signal poll result from wificond
+
+NetlinkUtils::GetStationInfo() gives up on the whole reply when the count of
+failed transmissions is missing. cfg80211 reports that count since Linux 3.2;
+the PW3 kernel is 3.0. Signal strength, bit rate and the count of sent packets
+are in the reply. A missing count is taken as none failed.
+
+--- a/net/netlink_utils.cpp
++++ b/net/netlink_utils.cpp
+@@ -370,8 +370,9 @@
+     return false;
+   }
+   if (!sta_info.GetAttributeValue(NL80211_STA_INFO_TX_FAILED, &tx_bad)) {
+-    LOG(ERROR) << "Failed to get NL80211_STA_INFO_TX_FAILED";
+-    return false;
++    // Reported by cfg80211 since Linux 3.2 only. Not a reason to withhold
++    // the signal strength and the bit rate that are in the same reply.
++    tx_bad = 0;
+   }
+   int8_t current_rssi;
+   if (!sta_info.GetAttributeValue(NL80211_STA_INFO_SIGNAL, &current_rssi)) {

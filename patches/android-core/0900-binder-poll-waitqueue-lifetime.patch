@@ -1,0 +1,59 @@
+Subject: [PATCH] binder: detach poll waiters and wait for RCU before thread free
+
+Backport of upstream Android/Linux fixes:
+  f5cb779ba16334b45ba8946d6bfa6d9834d1527f (POLLFREE)
+  5eeb2ca02a2f6084fc57ae5c244a38baab07033a (RCU grace period)
+Target: the existing single-mutex Binder driver and Linux 3.0 eventpoll,
+which already implements POLLFREE and RCU-protected waitqueue removal.
+Also return POLLERR if binder_get_thread() cannot allocate its thread.
+
+--- a/drivers/staging/android/binder.c
++++ b/drivers/staging/android/binder.c
+@@ -31,6 +31,7 @@
+ #include <linux/poll.h>
+ #include <linux/debugfs.h>
+ #include <linux/rbtree.h>
++#include <linux/rcupdate.h>
+ #include <linux/sched.h>
+ #include <linux/seq_file.h>
+ #include <linux/slab.h>
+@@ -355,7 +356,8 @@
+ 	BINDER_LOOPER_STATE_EXITED      = 0x04,
+ 	BINDER_LOOPER_STATE_INVALID     = 0x08,
+ 	BINDER_LOOPER_STATE_WAITING     = 0x10,
+-	BINDER_LOOPER_STATE_NEED_RETURN = 0x20
++	BINDER_LOOPER_STATE_NEED_RETURN = 0x20,
++	BINDER_LOOPER_STATE_POLL        = 0x40
+ };
+ 
+ struct binder_thread {
+@@ -3167,6 +3169,17 @@
+ 		} else
+ 			BUG();
+ 	}
++	/*
++	 * epoll can retain this waitqueue after BINDER_THREAD_EXIT. POLLFREE
++	 * unlinks its callbacks; the RCU grace period also covers a concurrent
++	 * ep_remove_wait_queue() that already loaded the old queue pointer.
++	 * That RCU reader never takes binder_main_lock, so waiting while this
++	 * driver-wide mutex is held is safe. No spinlock is held here.
++	 */
++	if (thread->looper & BINDER_LOOPER_STATE_POLL) {
++		wake_up_poll(&thread->wait, POLLHUP | POLLFREE);
++		synchronize_rcu();
++	}
+ 	if (send_reply)
+ 		binder_send_failed_reply(send_reply, BR_DEAD_REPLY);
+ 	binder_release_work(&thread->todo);
+@@ -3185,6 +3198,11 @@
+ 	binder_lock(__func__);
+ 
+ 	thread = binder_get_thread(proc);
++	if (!thread) {
++		binder_unlock(__func__);
++		return POLLERR;
++	}
++	thread->looper |= BINDER_LOOPER_STATE_POLL;
+ 
+ 	wait_for_proc_work = thread->transaction_stack == NULL &&
+ 		list_empty(&thread->todo) && thread->return_error == BR_OK;

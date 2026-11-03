@@ -1,0 +1,55 @@
+From: PW3 Android port
+Subject: [PW3] SystemUI: quick settings on the first pull
+
+Pulled down from the status bar, the shade shows the collapsed header: one row
+of tiles, no brightness slider. The slider needs a second pull or a tap on the
+expand arrow ("the brightness control is hidden too deep", user, Test V36);
+the Kindle's own panel shows its frontlight slider at once.
+
+config_quickSettingsOnFirstPull (default false, as before) set to true: a pull
+that starts on the status bar of a collapsed shade opens quick settings fully,
+as a two-finger pull does in AOSP.
+
+--- a/packages/SystemUI/res/values/config.xml
++++ b/packages/SystemUI/res/values/config.xml
+@@ -338,6 +338,10 @@
+          change of the bars is a slow update. -->
+     <bool name="config_opaqueSystemBars">false</bool>
+ 
++    <!-- Whether a one-finger pull from the status bar opens quick settings
++         fully, brightness slider included, as a two-finger pull does. -->
++    <bool name="config_quickSettingsOnFirstPull">false</bool>
++
+     <!-- Nav bar button default ordering/layout -->
+     <string name="config_navBarLayout" translatable="false">left[.5W],back[1WC];home;recent[1WC],right[.5W]</string>
+ 
+--- a/packages/SystemUI/src/com/android/systemui/statusbar/phone/NotificationPanelView.java
++++ b/packages/SystemUI/src/com/android/systemui/statusbar/phone/NotificationPanelView.java
+@@ -182,6 +182,8 @@
+     // Used for two finger gesture as well as accessibility shortcut to QS.
+     private boolean mQsExpandImmediate;
+     private boolean mTwoFingerQsExpandPossible;
++    // config_quickSettingsOnFirstPull: one finger opens quick settings fully.
++    private boolean mQsOnFirstPull;
+ 
+     /**
+      * If we are in a panel collapsing motion, we reset scrollY of our scroll view but still
+@@ -255,6 +257,7 @@
+     @Override
+     protected void onFinishInflate() {
+         super.onFinishInflate();
++        mQsOnFirstPull = getResources().getBoolean(R.bool.config_quickSettingsOnFirstPull);
+         mKeyguardStatusBar = findViewById(R.id.keyguard_header);
+         mKeyguardStatusView = findViewById(R.id.keyguard_status_view);
+ 
+@@ -926,7 +929,9 @@
+                 && (event.isButtonPressed(MotionEvent.BUTTON_SECONDARY)
+                         || event.isButtonPressed(MotionEvent.BUTTON_TERTIARY));
+ 
+-        return twoFingerDrag || stylusButtonClickDrag || mouseButtonClickDrag;
++        final boolean firstPull = mQsOnFirstPull && action == MotionEvent.ACTION_DOWN;
++
++        return twoFingerDrag || stylusButtonClickDrag || mouseButtonClickDrag || firstPull;
+     }
+ 
+     private void handleQsDown(MotionEvent event) {

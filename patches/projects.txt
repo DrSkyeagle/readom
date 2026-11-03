@@ -1,0 +1,28 @@
+# AOSP project (path in the source tree) and the directory of its patch series.
+# One list for every tool: tools/prepare-aosp-device.sh applies the series in
+# this order, tools/export-aosp-images.py checks each project's ledger against it.
+build/make                    aosp-build-make
+build/soong                   aosp-build-soong
+build/blueprint               aosp-build-blueprint
+system/core                   aosp-system-core
+system/extras                 aosp-system-extras
+system/sepolicy               aosp-sepolicy
+art                           aosp-art
+bionic                        aosp-bionic
+external/swiftshader          aosp-swiftshader
+system/connectivity/wificond  aosp-wificond
+external/wpa_supplicant_8     aosp-wpa-supplicant
+frameworks/base               aosp-frameworks-base
+frameworks/opt/net/wifi       aosp-frameworks-opt-net-wifi
+packages/apps/Launcher3       aosp-launcher3
+frameworks/native             aosp-frameworks-native
+packages/apps/Settings        aosp-settings
+frameworks/opt/net/ims        aosp-ims
+frameworks/wilhelm            aosp-wilhelm
+packages/apps/PackageInstaller aosp-packageinstaller
+packages/apps/DocumentsUI       aosp-documentsui
+packages/apps/HTMLViewer       aosp-htmlviewer
+system/ca-certificates        aosp-ca-certificates
+system/timezone               aosp-timezone
+external/icu                  aosp-icu
+hardware/interfaces           aosp-hardware-interfaces

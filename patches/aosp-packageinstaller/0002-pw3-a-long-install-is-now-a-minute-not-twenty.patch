@@ -1,0 +1,55 @@
+From: PW3 Android port
+Subject: [PW3] the install that stands still is now a minute, not twenty
+
+Patch 0001 put a line under the progress bar for the minutes the package
+manager spends compiling an application before it reports the install done, and
+told the reader a large application can take twenty minutes or more. That was
+true of pm.dexopt.install="speed", which pw3.mk set.
+
+It no longer is. The install filter is AOSP's "quicken" again (pw3.mk has the
+six paired rounds that decided it): the application is compiled from its own
+usage profile afterwards, by the idle job, and what the install itself now
+costs for the largest application anybody has put on this device is 72 to 93 s
+over five runs -- WeRead 2.1.2, 13 dex files, 70.4 MB of bytecode -- plus
+copying a 127 MB package into /data.
+
+So the line stays, because a minute and a half is still well past the ten
+seconds at which a wait has to say when it ends, and the Java comment that
+explains the ten seconds keeps its reasoning. Only the figure changes, and with
+it the sentence about not turning the device off: at twenty minutes that was a
+real thing to warn about, at a minute and a half the reader is still watching
+the screen.
+
+What the line says is "a few minutes" rather than the figure measured, because
+the figure is one application's. The install also copies the package before the
+package manager gets it, and nobody has timed the whole path on a device yet;
+and the only large application measured here is WeRead. A screen that names a
+number it cannot keep for the next application is worse than one that gives the
+order of magnitude.
+
+--- a/res/values/strings.xml
++++ b/res/values/strings.xml
+@@ -27,4 +27,4 @@
+     <string name="installing_app">Installing <xliff:g id="package_label">%1$s</xliff:g>\u2026</string>
+     <!-- PW3: shown instead of "Installing" when the package manager takes long, i.e. while it compiles the app [CHAR LIMIT=NONE] -->
+-    <string name="installing_slow">Optimizing the app for this device\u2026\nA large app can take 20 minutes or more. The screen may turn off meanwhile; do not turn the device off or restart it.</string>
++    <string name="installing_slow">Preparing the app for this device\u2026\nA large app can take a few minutes.</string>
+     <string name="install_done">App installed.</string>
+--- a/res/values-zh-rCN/strings.xml
++++ b/res/values-zh-rCN/strings.xml
+@@ -27,3 +27,3 @@
+     <string name="installing_app" msgid="4097935682329028894">"正在安装<xliff:g id="PACKAGE_LABEL">%1$s</xliff:g>…"</string>
+-    <string name="installing_slow">"正在为本机优化应用…\n较大的应用可能需要 20 分钟或更久。期间屏幕可能熄灭，请不要关机或重启。"</string>
++    <string name="installing_slow">"正在为本机准备应用…\n较大的应用可能要几分钟。"</string>
+     <string name="install_done" msgid="3682715442154357097">"应用安装完成。"</string>
+--- a/src/com/android/packageinstaller/InstallInstalling.java
++++ b/src/com/android/packageinstaller/InstallInstalling.java
+@@ -80,7 +80,7 @@
+      * PW3: once the package manager has had the package this long, the text below the
+      * progress bar says why it can take long. Ten seconds is where a wait stops holding
+      * the user's attention and needs to say when it will end (Nielsen, Usability
+      * Engineering, 1993). The package manager compiles the app before it reports, with
+-     * the bar standing still: 20 minutes for WeRead (70.5 MB of dex) on this hardware.
++     * the bar standing still: 72 to 93 s for WeRead (70.4 MB of dex) on this hardware.
+      */
+     private static final long SLOW_INSTALL_HINT_DELAY_MS = 10 * 1000;

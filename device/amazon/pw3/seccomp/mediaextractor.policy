@@ -1,0 +1,4 @@
+# ARM32 Linux 3.0 has no gettimeofday vDSO; Bionic uses the syscall.
+# ICU and crash diagnostics may query wall time after entering minijail.
+# This adds only a read of public time; the base media filter stays enabled.
+gettimeofday: 1

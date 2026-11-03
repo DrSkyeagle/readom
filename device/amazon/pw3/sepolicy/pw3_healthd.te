@@ -1,0 +1,3 @@
+# healthd_common.cpp uses CLOCK_BOOTTIME_ALARM for battery polling. The pinned
+# kernel backport enforces CAP_WAKE_ALARM through SELinux's capability2 class.
+allow healthd self:capability2 wake_alarm;

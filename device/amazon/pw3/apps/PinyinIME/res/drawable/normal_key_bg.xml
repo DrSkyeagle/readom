@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A key: white with a 2 px black frame. The outer 2 px stay empty, so that
+     the frames of neighbouring keys are 4 px apart. Solid rectangles with px
+     insets have no anti-aliased edge, which would be grey on the PW3 panel. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:left="2px" android:top="2px" android:right="2px"
+        android:bottom="2px" android:drawable="@color/black" />
+    <item android:left="4px" android:top="4px" android:right="4px"
+        android:bottom="4px" android:drawable="@color/white" />
+</layer-list>

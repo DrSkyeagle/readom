@@ -1,0 +1,135 @@
+From: JP Abgrall <jpa@google.com>
+Subject: [PATCH] tcp: add a sysctl to config the tcp_default_init_rwnd
+
+The default initial rwnd was hardcoded to 10.
+
+Now we allow it to be controlled via
+  /proc/sys/net/ipv4/tcp_default_init_rwnd
+which limits the values from 3 to 100
+
+This is somewhat needed because ipv6 routes are
+autoconfigured by the kernel.
+
+See "An Argument for Increasing TCP's Initial Congestion Window"
+in https://developers.google.com/speed/articles/tcp_initcwnd_paper.pdf
+
+Change-Id: I7eac8a0a5133371aea9ecb9aec0b608bd7f2cc57
+Signed-off-by: JP Abgrall <jpa@google.com>
+
+PW3: taken from the Android 3.0 kernel of the Kindle Fire HD (LineageOS
+android_kernel_amazon_bowser-common a5c33382cd33); the include/net/tcp.h
+context differs (no sysctl_tcp_challenge_ack_limit here). Android's init.rc
+sets net.tcp.default_init_rwnd to 60 and ConnectivityService has init write
+it on every network change; without the sysctl the write failed with an error
+each time (PW3 Android, Test V47 and V48) and the initial receive window stayed
+at 10 segments.
+
+--- a/include/net/tcp.h
++++ b/include/net/tcp.h
+@@ -246,6 +246,7 @@
+ extern int sysctl_tcp_cookie_size;
+ extern int sysctl_tcp_thin_linear_timeouts;
+ extern int sysctl_tcp_thin_dupack;
++extern int sysctl_tcp_default_init_rwnd;
+ 
+ extern atomic_long_t tcp_memory_allocated;
+ extern struct percpu_counter tcp_sockets_allocated;
+--- a/net/ipv4/sysctl_net_ipv4.c
++++ b/net/ipv4/sysctl_net_ipv4.c
+@@ -119,6 +119,21 @@
+ 	return ret;
+ }
+ 
++/* Validate changes from /proc interface. */
++static int proc_tcp_default_init_rwnd(ctl_table *ctl, int write,
++				      void __user *buffer,
++				      size_t *lenp, loff_t *ppos)
++{
++	int old_value = *(int *)ctl->data;
++	int ret = proc_dointvec(ctl, write, buffer, lenp, ppos);
++	int new_value = *(int *)ctl->data;
++
++	if (write && ret == 0 && (new_value < 3 || new_value > 100))
++		*(int *)ctl->data = old_value;
++
++	return ret;
++}
++
+ static int proc_tcp_congestion_control(ctl_table *ctl, int write,
+ 				       void __user *buffer, size_t *lenp, loff_t *ppos)
+ {
+@@ -645,7 +660,7 @@
+ 		.mode           = 0644,
+ 		.proc_handler   = proc_dointvec
+ 	},
+-        {
++	{
+ 		.procname       = "tcp_thin_dupack",
+ 		.data           = &sysctl_tcp_thin_dupack,
+ 		.maxlen         = sizeof(int),
+@@ -653,6 +668,13 @@
+ 		.proc_handler   = proc_dointvec
+ 	},
+ 	{
++		.procname       = "tcp_default_init_rwnd",
++		.data           = &sysctl_tcp_default_init_rwnd,
++		.maxlen         = sizeof(int),
++		.mode           = 0644,
++		.proc_handler   = proc_tcp_default_init_rwnd
++	},
++	{
+ 		.procname	= "udp_mem",
+ 		.data		= &sysctl_udp_mem,
+ 		.maxlen		= sizeof(sysctl_udp_mem),
+--- a/net/ipv4/tcp_input.c
++++ b/net/ipv4/tcp_input.c
+@@ -102,6 +102,7 @@
+ 
+ int sysctl_tcp_moderate_rcvbuf __read_mostly = 1;
+ int sysctl_tcp_abc __read_mostly;
++int sysctl_tcp_default_init_rwnd __read_mostly = TCP_DEFAULT_INIT_RCVWND;
+ 
+ #define FLAG_DATA		0x01 /* Incoming frame contained data.		*/
+ #define FLAG_WIN_UPDATE		0x02 /* Incoming ACK was a window update.	*/
+@@ -348,14 +349,16 @@
+ 	struct tcp_sock *tp = tcp_sk(sk);
+ 	int rcvmem = tp->advmss + MAX_TCP_HEADER + 16 + sizeof(struct sk_buff);
+ 
+-	/* Try to select rcvbuf so that 4 mss-sized segments
+-	 * will fit to window and corresponding skbs will fit to our rcvbuf.
+-	 * (was 3; 4 is minimum to allow fast retransmit to work.)
++	/* Try to select rcvbuf so that sysctl_tcp_default_init_rwnd mss-sized
++	 * segments will fit to window and corresponding skbs will fit to our
++	 * rcvbuf.
++	 * (was 3; then 4 as then minimum to allow fast retransmit to work.)
+ 	 */
+ 	while (tcp_win_from_space(rcvmem) < tp->advmss)
+ 		rcvmem += 128;
+-	if (sk->sk_rcvbuf < 4 * rcvmem)
+-		sk->sk_rcvbuf = min(4 * rcvmem, sysctl_tcp_rmem[2]);
++	if (sk->sk_rcvbuf < sysctl_tcp_default_init_rwnd * rcvmem)
++		sk->sk_rcvbuf = min(sysctl_tcp_default_init_rwnd * rcvmem,
++				    sysctl_tcp_rmem[2]);
+ }
+ 
+ /* 4. Try to fixup all. It is made immediately after connection enters
+--- a/net/ipv4/tcp_output.c
++++ b/net/ipv4/tcp_output.c
+@@ -229,14 +229,13 @@
+ 	}
+ 
+ 	/* Set initial window to a value enough for senders starting with
+-	 * initial congestion window of TCP_DEFAULT_INIT_RCVWND. Place
++	 * initial congestion window of sysctl_tcp_default_init_rwnd. Place
+ 	 * a limit on the initial window when mss is larger than 1460.
+ 	 */
+ 	if (mss > (1 << *rcv_wscale)) {
+-		int init_cwnd = TCP_DEFAULT_INIT_RCVWND;
++		int init_cwnd = sysctl_tcp_default_init_rwnd;
+ 		if (mss > 1460)
+-			init_cwnd =
+-			max_t(u32, (1460 * TCP_DEFAULT_INIT_RCVWND) / mss, 2);
++			init_cwnd = max_t(u32, (1460 * init_cwnd) / mss, 2);
+ 		/* when initializing use the value from init_rcv_wnd
+ 		 * rather than the default from above
+ 		 */

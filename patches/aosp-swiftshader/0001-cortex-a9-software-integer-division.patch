@@ -1,0 +1,104 @@
+From: PW3 Android port
+Subject: [PATCH] SwiftShader: use native integer division helpers on Cortex-A9
+
+Cortex-A9 lacks the ARM SDIV/UDIV instructions unconditionally selected
+by this Subzero revision. Use the existing NEON-only lowering and bind
+its four integer runtime helpers to known native functions. Direct
+constant-address calls avoid unsupported external ELF relocations and
+preserve ARM/Thumb interworking through Subzero BLX lowering.
+The target-specific define leaves other product CPU variants unchanged.
+
+--- a/src/Android.mk
++++ b/src/Android.mk
+@@ -138,6 +138,11 @@
+ # Common Subzero defines
+ COMMON_CFLAGS += -DALLOW_DUMP=0 -DALLOW_TIMERS=0 -DALLOW_LLVM_CL=0 -DALLOW_LLVM_IR=0 -DALLOW_LLVM_IR_AS_INPUT=0 -DALLOW_MINIMAL_BUILD=0 -DALLOW_WASM=0 -DICE_THREAD_LOCAL_HACK=1
+ 
++# PW3's Cortex-A9 implements NEON, but no ARM SDIV/UDIV instructions.
++ifeq ($(TARGET_ARCH):$(TARGET_CPU_VARIANT),arm:cortex-a9)
++COMMON_CFLAGS += -DPW3_CORTEX_A9_NO_HW_DIV=1
++endif
++
+ # Subzero target
+ LOCAL_CFLAGS_x86 += -DSZTARGET=X8632
+ LOCAL_CFLAGS_x86_64 += -DSZTARGET=X8664
+--- a/src/Reactor/SubzeroReactor.cpp
++++ b/src/Reactor/SubzeroReactor.cpp
+@@ -116,6 +116,33 @@
+ 			#endif
+ 		}
+ 	};
++
++	#if defined(__arm__) && defined(PW3_CORTEX_A9_NO_HW_DIV)
++	// Native helpers are compiled for the selected Cortex-A9 target. Bind their
++	// addresses directly; this ELF loader does not resolve external libgcc names.
++	static int32_t pw3SignedDivide(int32_t a, int32_t b)
++	{
++		if(b == 0) __builtin_trap();
++		if(a == INT32_MIN && b == -1) return INT32_MIN;
++		return a / b;
++	}
++	static uint32_t pw3UnsignedDivide(uint32_t a, uint32_t b)
++	{
++		if(b == 0) __builtin_trap();
++		return a / b;
++	}
++	static int32_t pw3SignedRemainder(int32_t a, int32_t b)
++	{
++		if(b == 0) __builtin_trap();
++		if(a == INT32_MIN && b == -1) return 0;
++		return a % b;
++	}
++	static uint32_t pw3UnsignedRemainder(uint32_t a, uint32_t b)
++	{
++		if(b == 0) __builtin_trap();
++		return a % b;
++	}
++	#endif
+ 
+ 	const bool CPUID::ARM = CPUID::detectARM();
+ 	const bool CPUID::SSE4_1 = CPUID::detectSSE4_1();
+@@ -525,7 +552,11 @@
+ 
+ 		#if defined(__arm__)
+ 			Flags.setTargetArch(Ice::Target_ARM32);
++			#if defined(PW3_CORTEX_A9_NO_HW_DIV)
++				Flags.setTargetInstructionSet(Ice::ARM32InstructionSet_Neon);
++			#else
+ 			Flags.setTargetInstructionSet(Ice::ARM32InstructionSet_HWDivArm);
++			#endif
+ 		#else   // x86
+ 			Flags.setTargetArch(sizeof(void*) == 8 ? Ice::Target_X8664 : Ice::Target_X8632);
+ 			Flags.setTargetInstructionSet(CPUID::SSE4_1 ? Ice::X86InstructionSet_SSE4_1 : Ice::X86InstructionSet_SSE2);
+@@ -552,6 +583,16 @@
+ 			::context = new Ice::GlobalContext(&cout, &cout, &cerr, elfMemory);
+ 			::routine = elfMemory;
+ 		}
++		#if defined(__arm__) && defined(PW3_CORTEX_A9_NO_HW_DIV)
++		::context->setRuntimeHelperFunc(Ice::RuntimeHelper::H_sdiv_i32,
++			::context->getConstantInt32(static_cast<int32_t>(reinterpret_cast<uintptr_t>(&pw3SignedDivide))));
++		::context->setRuntimeHelperFunc(Ice::RuntimeHelper::H_udiv_i32,
++			::context->getConstantInt32(static_cast<int32_t>(reinterpret_cast<uintptr_t>(&pw3UnsignedDivide))));
++		::context->setRuntimeHelperFunc(Ice::RuntimeHelper::H_srem_i32,
++			::context->getConstantInt32(static_cast<int32_t>(reinterpret_cast<uintptr_t>(&pw3SignedRemainder))));
++		::context->setRuntimeHelperFunc(Ice::RuntimeHelper::H_urem_i32,
++			::context->getConstantInt32(static_cast<int32_t>(reinterpret_cast<uintptr_t>(&pw3UnsignedRemainder))));
++		#endif
+ 	}
+ 
+ 	Nucleus::~Nucleus()
+--- a/third_party/subzero/src/IceGlobalContext.h
++++ b/third_party/subzero/src/IceGlobalContext.h
+@@ -265,6 +265,12 @@
+     Constant *Result = RuntimeHelperFunc[static_cast<size_t>(FuncID)];
+     assert(Result != nullptr && "No such runtime helper function");
+     return Result;
++  }
++  // A JIT may bind a helper to a known native address instead of an external
++  // relocation. ARM lowering emits an indirect BLX for integer constants.
++  void setRuntimeHelperFunc(RuntimeHelper FuncID, Constant *Address) {
++    assert(FuncID < RuntimeHelper::H_Num && Address != nullptr);
++    RuntimeHelperFunc[static_cast<size_t>(FuncID)] = Address;
+   }
+   GlobalString getGlobalString(const std::string &Name);
+ 

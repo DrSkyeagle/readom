@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The candidates frame: white, with a 2 px black line on top which sets the
+     input method off from an application that is white as well. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android"
+    android:paddingTop="2px">
+    <item android:drawable="@color/black" />
+    <item android:top="2px" android:drawable="@color/white" />
+</layer-list>

@@ -1,0 +1,65 @@
+From: PW3 Android port
+Subject: [PW3] wificond: hand wlan0 over only once it has its hardware address
+
+ath6kl registers wlan0 before the firmware has booted and copies the
+address reported by the firmware into the interface only afterwards
+(ath6kl_core_init: ath6kl_init_hw_start(), then memcpy(ndev->dev_addr)).
+The radio hook returned as soon as the interface existed, the framework
+started wpa_supplicant 0.25 s later, and nl80211 read an all-zero address.
+Test V30: "PTK derivation - A1=00:00:00:00:00:00", the access point
+ignored message 2 of the 4-way handshake four times and deauthenticated
+(reason 15), reported to the user as a wrong password. After Wi-Fi was
+switched off and on with the module still loaded the same stored network
+connected at once.
+
+--- a/server.cpp
++++ b/server.cpp
+@@ -25,6 +25,10 @@
+ #include <binder/PermissionCache.h>
+ 
+ #ifdef PW3_WIFI_MODULE_CONTROL
++#include <unistd.h>
++
++#include <algorithm>
++
+ #include "wificond/pw3_radio.h"
+ #endif
+ 
+@@ -270,6 +274,37 @@
+     return false;
+   }
+ 
++#ifdef PW3_WIFI_MODULE_CONTROL
++  // ath6kl registers wlan0 before its firmware has booted, and copies the
++  // hardware address into the interface only afterwards. A supplicant started
++  // in between keeps 00:00:00:00:00:00 as its own address for the 4-way
++  // handshake, so every WPA network rejects message 2 and the framework
++  // reports a wrong password (PW3 Test V30). Hand the interface over only
++  // once it has its address; about 10 seconds at most.
++  const auto Pw3AddressPending = [this]() {
++    for (const auto& iface : interfaces_) {
++      if (iface.name != "wlan0") continue;
++      return std::all_of(iface.mac_address.begin(), iface.mac_address.end(),
++                         [](uint8_t octet) { return octet == 0; });
++    }
++    return false;  // no wlan0: reported below
++  };
++  for (unsigned retry = 0; Pw3AddressPending(); ++retry) {
++    if (retry == 200) {
++      LOG(ERROR) << "PW3 wlan0 has no hardware address";
++      return false;
++    }
++    usleep(50000);
++    interfaces_.clear();
++    if (!netlink_utils_->GetInterfaces(wiphy_index_, &interfaces_)) {
++      LOG(ERROR) << "Failed to get interfaces info from kernel";
++      return false;
++    }
++    if (!Pw3AddressPending())
++      LOG(INFO) << "PW3 wlan0 hardware address available after " << (retry + 1) * 50 << " ms";
++  }
++#endif
++
+   for (const auto& iface : interfaces_) {
+     // Some kernel/driver uses station type for p2p interface.
+     // In that case we can only rely on hard-coded name to exclude

@@ -1,0 +1,76 @@
+From: PW3 Android port
+Subject: [PW3] a product can replace the font configuration, not only add to it
+
+This build renders Chinese and English. AOSP's fonts.xml declares 116 font
+families, 101 of them fallback families for scripts that have no locale, no
+keyboard and no content here, and Typeface.init() runs in a static class
+initializer with android.graphics.Typeface in preloaded-classes: the zygote
+walks every family in that file on every boot, mmapping the font, calling
+addFontFromBuffer and then FontFamily.freeze(), which reads the font's cmap and
+builds its coverage bitmap. Those 101 families are also 136 font files, 8.43 MB.
+
+Deleting them means installing a different fonts.xml, and there is no way for a
+product to do that. The two mechanisms that exist do not apply:
+LOCAL_OVERRIDES_PACKAGES is read only under ifeq ($(LOCAL_MODULE_CLASS),APPS)
+in build/make/core/prebuilt_internal.mk, and LOCAL_OVERRIDES_MODULES only for
+EXECUTABLES, with a pretty-error for every other class in base_rules.mk. A
+second ETC module installing /system/etc/fonts.xml does not collide either,
+which is worse than failing: kati merges the two copy rules for that one output
+into a single build statement carrying both intermediates as prerequisites and
+keeps the first recipe, so the file that lands is AOSP's and the build says
+nothing. That is how this port's first attempt shipped AOSP's 116-family
+configuration beside 37 of its 173 fonts -- a configuration naming 136 files
+that were not there.
+
+So the hook goes where the file is chosen, beside ADDITIONAL_FONTS_FILE, which
+already lets a product add families to AOSP's file. One module keeps the path.
+
+The two do not compose, and this refuses them together rather than letting one
+win quietly: add_additional_fonts.py opens 'frameworks/base/data/fonts/fonts.xml'
+by that name, taking only an output path and the additions as arguments, so a
+replacement set alongside it would be a prerequisite whose content is never
+read. Making them compose means giving that script the base file to read, which
+is a second change for a combination no product in this tree asks for.
+
+Nothing changes for a product that sets neither, which is every product in the
+tree but this one.
+
+--- a/data/fonts/Android.mk
++++ b/data/fonts/Android.mk
+@@ -83,6 +83,8 @@ font_src_files :=
+ 
+ ################################
+ # Copies the font configuration file into system/etc for the product as fonts.xml.
++# In the case where $(REPLACEMENT_FONTS_FILE) is defined, that file is installed
++# in place of the $(AOSP_FONTS_FILE). The two cannot be combined; see below.
+ # In the case where $(ADDITIONAL_FONTS_FILE) is defined, the content of $(ADDITIONAL_FONTS_FILE)
+ # is added to the $(AOSP_FONTS_FILE).
+ include $(CLEAR_VARS)
+@@ -92,6 +94,27 @@ LOCAL_MODULE_CLASS := ETC
+ 
+ AOSP_FONTS_FILE := frameworks/base/data/fonts/fonts.xml
+ 
++# A product that renders a subset of the world's scripts installs its own
++# configuration here rather than through a module of its own: one module has to
++# keep /system/etc/fonts.xml. A second module installing that path does not
++# replace this one and does not collide with it either -- the two copy rules
++# become one rule carrying both prerequisites, with the first recipe, which is
++# this one. Nor can such a module declare the replacement:
++# LOCAL_OVERRIDES_PACKAGES is read only under ifeq ($(LOCAL_MODULE_CLASS),APPS)
++# in prebuilt_internal.mk, and LOCAL_OVERRIDES_MODULES only for EXECUTABLES.
++#
++# Not combinable with ADDITIONAL_FONTS_FILE: add_additional_fonts.py opens
++# 'frameworks/base/data/fonts/fonts.xml' by that name and takes only the output
++# path and the additions as arguments, so the replacement would be a dependency
++# whose content is never read. Refusing is the only honest answer here; making
++# them compose means giving that script the base file to read.
++ifdef REPLACEMENT_FONTS_FILE
++ifdef ADDITIONAL_FONTS_FILE
++$(error REPLACEMENT_FONTS_FILE and ADDITIONAL_FONTS_FILE cannot both be set)
++endif
++AOSP_FONTS_FILE := $(REPLACEMENT_FONTS_FILE)
++endif
++
+ ifdef ADDITIONAL_FONTS_FILE
+ ADDITIONAL_FONTS_SCRIPT := frameworks/base/tools/fonts/add_additional_fonts.py
+ ADD_ADDITIONAL_FONTS := $(local-generated-sources-dir)/fonts.xml

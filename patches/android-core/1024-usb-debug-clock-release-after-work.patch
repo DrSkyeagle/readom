@@ -1,0 +1,26 @@
+--- a/drivers/usb/gadget/arcotg_udc.c
++++ b/drivers/usb/gadget/arcotg_udc.c
+@@ -3412,10 +3412,6 @@
+ 	dr_discharge_line(pdata, true);
+ 
+ 	dr_clk_gate(false);
+-	if (pw3_clock_held) {
+-		dr_clk_gate(false);
+-		pw3_clock_held = false;
+-	}
+ 	/* DR has been stopped in usb_gadget_unregister_driver() */
+ 	remove_proc_file();
+ 
+@@ -3436,6 +3432,12 @@
+ 	free_irq(udc_controller->irq, udc_controller);
+ 
+ 	cancel_work_sync(&udc_controller->gadget_disconnect_schedule);
++
++	/* Keep the owned reference until IRQ and disconnect work have drained. */
++	if (pw3_clock_held) {
++		dr_clk_gate(false);
++		pw3_clock_held = false;
++	}
+ 
+ 	iounmap((u8 __iomem *)dr_regs);
+ 

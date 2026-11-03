@@ -1,0 +1,4 @@
+sys.pw3. u:object_r:pw3_boot_prop:s0
+
+vendor.pw3.wifi.modules u:object_r:pw3_wifi_modules_prop:s0
+persist.pw3.usb. u:object_r:pw3_boot_prop:s0

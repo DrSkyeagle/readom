@@ -1,0 +1,26 @@
+# ART runs from the boot image in /system as it is, at the address it was built
+# for (-Xnorelocate), instead of from a copy in /data/dalvik-cache moved to a
+# random address.
+#
+# The copy is derived from the system image but lives in the data image, and
+# Android 8.1 does not cope with it going stale:
+#   * a new system image whose first boot-image file is unchanged but a later
+#     one is not (any framework change) is refused piecemeal - "Checksum
+#     mismatch ... boot-framework.art ... Cannot patch a secondary image" - and
+#     the whole system runs without a boot image for that start: everything
+#     interpreted, "System UI isn't responding", dex2oat unable to start, and
+#     the compiled code of installed applications deleted by the failed
+#     recompilation (Test V34, first start on a data image kept from V32);
+#   * any start with less than 50 MB free on /data throws the copy away and
+#     makes a new one at another address, after which code compiled on the
+#     device no longer matches and is only read, never run (Test V32,
+#     2026-10-13: WeRead 129 s of CPU to start instead of 22-35 s).
+# Without a copy there is nothing to go stale, nothing to patch at start, and
+# 12 MB less in /data. Given up: the boot image's address is no longer random.
+#
+# dalvik.vm.extra-opts reaches every runtime started through AndroidRuntime
+# (zygote and its children, am, pm, ...). installd's dex2oat is told separately
+# so that what it compiles belongs to the same, unmoved image.
+# --no-watch-dog: see pw3.mk.
+dalvik.vm.extra-opts=-Xnorelocate
+dalvik.vm.dex2oat-flags=--no-watch-dog --runtime-arg -Xnorelocate

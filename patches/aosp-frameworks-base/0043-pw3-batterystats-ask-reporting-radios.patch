@@ -1,0 +1,84 @@
+From: PW3 Android port
+Subject: [PW3] batterystats: ask only the radios that report their energy
+
+Every external stats update asked the Wi-Fi chip and the modem how long they
+had been transmitting, and logged an error for each answer of "nothing"
+(67 lines in one session of PW3 Android Test V48: 42 for Wi-Fi, 25 for
+telephony). Neither can answer here: this Wi-Fi driver keeps no link layer
+statistics, which the Wi-Fi service itself checks before it returns null, and
+the device has no modem at all.
+
+Both are now asked only where the answer can exist: Wi-Fi when the driver
+reports WIFI_FEATURE_LINK_LAYER_STATS, which is a property of the driver and
+so is read once, and the modem when the device has FEATURE_TELEPHONY.
+
+--- a/services/core/java/com/android/server/am/BatteryExternalStatsWorker.java
++++ b/services/core/java/com/android/server/am/BatteryExternalStatsWorker.java
+@@ -19,8 +19,10 @@
+ import android.bluetooth.BluetoothActivityEnergyInfo;
+ import android.bluetooth.BluetoothAdapter;
+ import android.content.Context;
++import android.content.pm.PackageManager;
+ import android.net.wifi.IWifiManager;
+ import android.net.wifi.WifiActivityEnergyInfo;
++import android.net.wifi.WifiManager;
+ import android.os.BatteryStats;
+ import android.os.Parcelable;
+ import android.os.RemoteException;
+@@ -90,6 +92,10 @@
+ 
+     @GuardedBy("mWorkerLock")
+     private IWifiManager mWifiManager = null;
++    @GuardedBy("mWorkerLock")
++    private boolean mWifiEnergyReporting;
++    @GuardedBy("mWorkerLock")
++    private boolean mWifiEnergyReportingKnown;
+ 
+     @GuardedBy("mWorkerLock")
+     private TelephonyManager mTelephony = null;
+@@ -216,7 +222,7 @@
+                         Context.WIFI_SERVICE));
+             }
+ 
+-            if (mWifiManager != null) {
++            if (mWifiManager != null && wifiEnergyReportingSupported()) {
+                 try {
+                     wifiReceiver = new SynchronousResultReceiver("wifi");
+                     mWifiManager.requestActivityInfo(wifiReceiver);
+@@ -241,7 +247,8 @@
+                 mTelephony = TelephonyManager.from(mContext);
+             }
+ 
+-            if (mTelephony != null) {
++            if (mTelephony != null && mContext.getPackageManager().hasSystemFeature(
++                    PackageManager.FEATURE_TELEPHONY)) {
+                 modemReceiver = new SynchronousResultReceiver("telephony");
+                 mTelephony.requestModemActivityInfo(modemReceiver);
+             }
+@@ -298,6 +305,26 @@
+     }
+ 
+     /**
++     * Whether the Wi-Fi chip reports the time it spent transmitting and receiving.
++     * The service answers a request for it with null when the driver does not keep
++     * link layer statistics, and the answer is a property of the driver, so it is
++     * asked for once. Without this, every update logged an error.
++     */
++    private boolean wifiEnergyReportingSupported() {
++        if (!mWifiEnergyReportingKnown) {
++            try {
++                mWifiEnergyReporting = (mWifiManager.getSupportedFeatures()
++                        & WifiManager.WIFI_FEATURE_LINK_LAYER_STATS) != 0;
++                mWifiEnergyReportingKnown = true;
++            } catch (RemoteException e) {
++                // Ask again next time.
++                return false;
++            }
++        }
++        return mWifiEnergyReporting;
++    }
++
++    /**
+      * Helper method to extract the Parcelable controller info from a
+      * SynchronousResultReceiver.
+      */

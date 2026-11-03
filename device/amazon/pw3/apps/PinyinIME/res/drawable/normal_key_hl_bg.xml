@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A pressed key: the frame of normal_key_bg grows from 2 px to 8 px. Only
+     these pixels change, from white to black, which the PW3 panel does in its
+     fastest update; the label in the middle is not touched. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:left="2px" android:top="2px" android:right="2px"
+        android:bottom="2px" android:drawable="@color/black" />
+    <item android:left="10px" android:top="10px" android:right="10px"
+        android:bottom="10px" android:drawable="@color/white" />
+</layer-list>

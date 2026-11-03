@@ -1,0 +1,39 @@
+From: PW3 Android port
+Subject: [PW3] SystemUI power menu: labels in black at 14 sp, on one line
+
+The power menu's labels were grey 117 at 12 sp (textAppearanceSmall's
+secondary colour), and "重启回 Kindle 系统" broke inside a word, "系" at the end
+of one line and "统" alone on the next (Test V45): the panel is 120 dp wide,
+96 dp inside its padding, and the label needs about 101 dp at 12 sp.
+docs/design/eink-ui.md: text black on white (rule 1); 14 sp at least for
+anything but times and page numbers (rule 8), as the home screen's labels.
+
+The labels are now the primary text colour at 14 sp, and the panel is 180 dp
+wide: the longest label needs 118 dp at 14 sp, 153 dp at the largest font
+scale (1.3), plus 24 dp of padding. The panel stays at the right edge; only
+its width and the labels change.
+
+--- a/packages/SystemUI/res/layout/global_actions_item.xml
++++ b/packages/SystemUI/res/layout/global_actions_item.xml
+@@ -42,8 +42,9 @@
+         android:layout_gravity="top|center_horizontal"
+         android:paddingTop="10dp"
+         android:gravity="center"
+-        android:textSize="12sp"
++        android:textSize="14sp"
+         android:textAppearance="?android:attr/textAppearanceSmall"
++        android:textColor="?android:attr/textColorPrimary"
+         />
+ 
+     <TextView
+--- a/packages/SystemUI/res/values/dimens.xml
++++ b/packages/SystemUI/res/values/dimens.xml
+@@ -831,7 +831,7 @@
+ 
+     <dimen name="hwui_edge_margin">16dp</dimen>
+ 
+-    <dimen name="global_actions_panel_width">120dp</dimen>
++    <dimen name="global_actions_panel_width">180dp</dimen>
+ 
+     <dimen name="global_actions_top_padding">120dp</dimen>
+ 

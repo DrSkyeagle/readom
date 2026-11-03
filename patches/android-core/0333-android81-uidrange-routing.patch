@@ -1,0 +1,662 @@
+--- a/include/linux/fib_rules.h
++++ b/include/linux/fib_rules.h
+@@ -29,6 +29,11 @@
+ 	__u32		flags;
+ };
+ 
++struct fib_rule_uid_range {
++	__u32 start;
++	__u32 end;
++};
++
+ enum {
+ 	FRA_UNSPEC,
+ 	FRA_DST,	/* destination address */
+@@ -49,6 +54,9 @@
+ 	FRA_TABLE,	/* Extended table id */
+ 	FRA_FWMASK,	/* mask for netfilter mark */
+ 	FRA_OIFNAME,
++	FRA_PAD,
++	FRA_L3MDEV,	/* reserved: l3mdev is not implemented here */
++	FRA_UID_RANGE,	/* UID range */
+ 	__FRA_MAX
+ };
+ 
+--- a/include/linux/rtnetlink.h
++++ b/include/linux/rtnetlink.h
+@@ -283,6 +283,15 @@
+ 	RTA_MP_ALGO, /* no longer used */
+ 	RTA_TABLE,
+ 	RTA_MARK,
++	RTA_MFC_STATS, /* reserved for newer UAPI numbering */
++	RTA_VIA,
++	RTA_NEWDST,
++	RTA_PREF,
++	RTA_ENCAP_TYPE,
++	RTA_ENCAP,
++	RTA_EXPIRES,
++	RTA_PAD,
++	RTA_UID,
+ 	__RTA_MAX
+ };
+ 
+--- a/include/net/fib_rules.h
++++ b/include/net/fib_rules.h
+@@ -23,6 +23,8 @@
+ 	struct fib_rule __rcu	*ctarget;
+ 	char			iifname[IFNAMSIZ];
+ 	char			oifname[IFNAMSIZ];
++	uid_t			uid_start;
++	uid_t			uid_end;
+ 	struct rcu_head		rcu;
+ 	struct net *		fr_net;
+ };
+@@ -79,7 +81,8 @@
+ 	[FRA_FWMARK]	= { .type = NLA_U32 }, \
+ 	[FRA_FWMASK]	= { .type = NLA_U32 }, \
+ 	[FRA_TABLE]     = { .type = NLA_U32 }, \
+-	[FRA_GOTO]	= { .type = NLA_U32 }
++	[FRA_GOTO]	= { .type = NLA_U32 }, \
++	[FRA_UID_RANGE]	= { .len = sizeof(struct fib_rule_uid_range) }
+ 
+ static inline void fib_rule_get(struct fib_rule *rule)
+ {
+--- a/include/net/flow.h
++++ b/include/net/flow.h
+@@ -23,6 +23,7 @@
+ #define FLOWI_FLAG_PRECOW_METRICS	0x02
+ #define FLOWI_FLAG_CAN_SLEEP		0x04
+ 	__u32	flowic_secid;
++	uid_t	flowic_uid;
+ };
+ 
+ union flowi_uli {
+@@ -59,6 +60,7 @@
+ #define flowi4_proto		__fl_common.flowic_proto
+ #define flowi4_flags		__fl_common.flowic_flags
+ #define flowi4_secid		__fl_common.flowic_secid
++#define flowi4_uid		__fl_common.flowic_uid
+ 	__be32			daddr;
+ 	__be32			saddr;
+ 	union flowi_uli		uli;
+@@ -75,7 +77,8 @@
+ 				      __u32 mark, __u8 tos, __u8 scope,
+ 				      __u8 proto, __u8 flags,
+ 				      __be32 daddr, __be32 saddr,
+-				      __be16 dport, __be32 sport)
++				      __be16 dport, __be32 sport,
++				      uid_t uid)
+ {
+ 	fl4->flowi4_oif = oif;
+ 	fl4->flowi4_iif = 0;
+@@ -85,6 +88,7 @@
+ 	fl4->flowi4_proto = proto;
+ 	fl4->flowi4_flags = flags;
+ 	fl4->flowi4_secid = 0;
++	fl4->flowi4_uid = uid;
+ 	fl4->daddr = daddr;
+ 	fl4->saddr = saddr;
+ 	fl4->fl4_dport = dport;
+@@ -112,6 +116,7 @@
+ #define flowi6_proto		__fl_common.flowic_proto
+ #define flowi6_flags		__fl_common.flowic_flags
+ #define flowi6_secid		__fl_common.flowic_secid
++#define flowi6_uid		__fl_common.flowic_uid
+ 	struct in6_addr		daddr;
+ 	struct in6_addr		saddr;
+ 	__be32			flowlabel;
+@@ -155,6 +160,7 @@
+ #define flowi_proto	u.__fl_common.flowic_proto
+ #define flowi_flags	u.__fl_common.flowic_flags
+ #define flowi_secid	u.__fl_common.flowic_secid
++#define flowi_uid	u.__fl_common.flowic_uid
+ } __attribute__((__aligned__(BITS_PER_LONG/8)));
+ 
+ static inline struct flowi *flowi4_to_flowi(struct flowi4 *fl4)
+--- a/include/net/ip.h
++++ b/include/net/ip.h
+@@ -165,6 +165,7 @@
+ 	int	    csumoffset; /* u16 offset of csum in iov[0].iov_base */
+ 				/* -1 if not needed */ 
+ 	int	    bound_dev_if;
++	uid_t	    uid;
+ }; 
+ 
+ #define IP_REPLY_ARG_NOSRCCHECK 1
+--- a/include/net/route.h
++++ b/include/net/route.h
+@@ -60,6 +60,7 @@
+ 	int			rt_iif;
+ 	int			rt_oif;
+ 	__u32			rt_mark;
++	uid_t			rt_uid;
+ 
+ 	/* Info on neighbour */
+ 	__be32			rt_gateway;
+@@ -146,7 +147,7 @@
+ 	flowi4_init_output(fl4, oif, sk ? sk->sk_mark : 0, tos,
+ 			   RT_SCOPE_UNIVERSE, proto,
+ 			   sk ? inet_sk_flowi_flags(sk) : 0,
+-			   daddr, saddr, dport, sport);
++			   daddr, saddr, dport, sport, sk ? sock_i_uid(sk) : 0);
+ 	if (sk)
+ 		security_sk_classify_flow(sk, flowi4_to_flowi(fl4));
+ 	return ip_route_output_flow(net, fl4, sk);
+@@ -250,7 +251,8 @@
+ 		flow_flags |= FLOWI_FLAG_CAN_SLEEP;
+ 
+ 	flowi4_init_output(fl4, oif, sk->sk_mark, tos, RT_SCOPE_UNIVERSE,
+-			   protocol, flow_flags, dst, src, dport, sport);
++			   protocol, flow_flags, dst, src, dport, sport,
++			   sock_i_uid(sk));
+ }
+ 
+ static inline struct rtable *ip_route_connect(struct flowi4 *fl4,
+--- a/net/core/fib_rules.c
++++ b/net/core/fib_rules.c
+@@ -16,6 +16,12 @@
+ #include <net/sock.h>
+ #include <net/fib_rules.h>
+ 
++#define INVALID_UID ((uid_t) -1)
++#define uid_valid(uid) ((uid) != -1)
++#define uid_lte(a, b) ((a) <= (b))
++#define uid_eq(a, b) ((a) == (b))
++#define uid_gte(a, b) ((a) >= (b))
++
+ int fib_default_rule_add(struct fib_rules_ops *ops,
+ 			 u32 pref, u32 table, u32 flags)
+ {
+@@ -30,6 +36,8 @@
+ 	r->pref = pref;
+ 	r->table = table;
+ 	r->flags = flags;
++	r->uid_start = INVALID_UID;
++	r->uid_end = INVALID_UID;
+ 	r->fr_net = hold_net(ops->fro_net);
+ 
+ 	/* The lock is not required here, the list in unreacheable
+@@ -176,6 +184,20 @@
+ }
+ EXPORT_SYMBOL_GPL(fib_rules_unregister);
+ 
++static int nla_put_uid_range(struct sk_buff *skb, const struct fib_rule *rule)
++{
++	struct fib_rule_uid_range range = { rule->uid_start, rule->uid_end };
++
++	return nla_put(skb, FRA_UID_RANGE, sizeof(range), &range);
++}
++
++static int fib_uid_range_match(struct flowi *fl, struct fib_rule *rule)
++{
++	return (!uid_valid(rule->uid_start) && !uid_valid(rule->uid_end)) ||
++	       (uid_gte(fl->flowi_uid, rule->uid_start) &&
++		uid_lte(fl->flowi_uid, rule->uid_end));
++}
++
+ static int fib_rule_match(struct fib_rule *rule, struct fib_rules_ops *ops,
+ 			  struct flowi *fl, int flags)
+ {
+@@ -188,6 +210,9 @@
+ 		goto out;
+ 
+ 	if ((rule->mark ^ fl->flowi_mark) & rule->mark_mask)
++		goto out;
++
++	if (!fib_uid_range_match(fl, rule))
+ 		goto out;
+ 
+ 	ret = ops->match(rule, fl, flags);
+@@ -246,6 +271,17 @@
+ {
+ 	int err = -EINVAL;
+ 
++	if (tb[FRA_UID_RANGE]) {
++		const struct fib_rule_uid_range *range;
++
++		if (nla_len(tb[FRA_UID_RANGE]) != sizeof(*range))
++			goto errout;
++		range = nla_data(tb[FRA_UID_RANGE]);
++		if (!uid_valid(range->start) || !uid_valid(range->end) ||
++		    !uid_lte(range->start, range->end))
++			goto errout;
++	}
++
+ 	if (frh->src_len)
+ 		if (tb[FRA_SRC] == NULL ||
+ 		    frh->src_len > (ops->addr_size * 8) ||
+@@ -359,6 +395,22 @@
+ 			unresolved = 1;
+ 	} else if (rule->action == FR_ACT_GOTO)
+ 		goto errout_free;
++
++	/* Android 8.1 uses one upstream ABI attribute, not UID_START/END. */
++	rule->uid_start = rule->uid_end = INVALID_UID;
++	if (tb[FRA_UID_RANGE]) {
++		const struct fib_rule_uid_range *range;
++
++		if (nla_len(tb[FRA_UID_RANGE]) != sizeof(*range))
++			goto errout_free;
++		range = nla_data(tb[FRA_UID_RANGE]);
++		rule->uid_start = range->start;
++		rule->uid_end = range->end;
++		if (!uid_valid(rule->uid_start) ||
++		    !uid_valid(rule->uid_end) ||
++		    !uid_lte(rule->uid_start, rule->uid_end))
++			goto errout_free;
++	}
+ 
+ 	err = ops->configure(rule, skb, frh, tb);
+ 	if (err < 0)
+@@ -442,7 +494,8 @@
+ 		if (frh->action && (frh->action != rule->action))
+ 			continue;
+ 
+-		if (frh->table && (frh_get_table(frh, tb) != rule->table))
++		if (frh_get_table(frh, tb) &&
++		    (frh_get_table(frh, tb) != rule->table))
+ 			continue;
+ 
+ 		if (tb[FRA_PRIORITY] &&
+@@ -464,6 +517,17 @@
+ 		if (tb[FRA_FWMASK] &&
+ 		    (rule->mark_mask != nla_get_u32(tb[FRA_FWMASK])))
+ 			continue;
++
++		if (tb[FRA_UID_RANGE]) {
++			const struct fib_rule_uid_range *range;
++
++			if (nla_len(tb[FRA_UID_RANGE]) != sizeof(*range))
++				continue;
++			range = nla_data(tb[FRA_UID_RANGE]);
++			if (!uid_eq(rule->uid_start, range->start) ||
++			    !uid_eq(rule->uid_end, range->end))
++				continue;
++		}
+ 
+ 		if (!ops->compare(rule, frh, tb))
+ 			continue;
+@@ -516,7 +580,8 @@
+ 			 + nla_total_size(4) /* FRA_PRIORITY */
+ 			 + nla_total_size(4) /* FRA_TABLE */
+ 			 + nla_total_size(4) /* FRA_FWMARK */
+-			 + nla_total_size(4); /* FRA_FWMASK */
++			 + nla_total_size(4) /* FRA_FWMASK */
++			 + nla_total_size(sizeof(struct fib_rule_uid_range));
+ 
+ 	if (ops->nlmsg_payload)
+ 		payload += ops->nlmsg_payload(rule);
+@@ -574,6 +639,9 @@
+ 	if (rule->target)
+ 		NLA_PUT_U32(skb, FRA_GOTO, rule->target);
+ 
++	if (uid_valid(rule->uid_start) && nla_put_uid_range(skb, rule))
++		goto nla_put_failure;
++
+ 	if (ops->fill(rule, skb, frh) < 0)
+ 		goto nla_put_failure;
+ 
+--- a/net/ipv4/fib_frontend.c
++++ b/net/ipv4/fib_frontend.c
+@@ -203,6 +203,7 @@
+ 
+ 	fl4.flowi4_oif = 0;
+ 	fl4.flowi4_iif = oif;
++	fl4.flowi4_uid = 0;
+ 	fl4.daddr = src;
+ 	fl4.saddr = dst;
+ 	fl4.flowi4_tos = tos;
+@@ -482,6 +483,7 @@
+ 	[RTA_METRICS]		= { .type = NLA_NESTED },
+ 	[RTA_MULTIPATH]		= { .len = sizeof(struct rtnexthop) },
+ 	[RTA_FLOW]		= { .type = NLA_U32 },
++	[RTA_UID]		= { .type = NLA_U32 },
+ };
+ 
+ static int rtm_to_fib_config(struct net *net, struct sk_buff *skb,
+--- a/net/ipv4/inet_connection_sock.c
++++ b/net/ipv4/inet_connection_sock.c
+@@ -362,7 +362,8 @@
+ 			   RT_CONN_FLAGS(sk), RT_SCOPE_UNIVERSE,
+ 			   sk->sk_protocol, inet_sk_flowi_flags(sk),
+ 			   (opt && opt->opt.srr) ? opt->opt.faddr : ireq->rmt_addr,
+-			   ireq->loc_addr, ireq->rmt_port, inet_sk(sk)->inet_sport);
++			   ireq->loc_addr, ireq->rmt_port, inet_sk(sk)->inet_sport,
++			   sock_i_uid(sk));
+ 	security_req_classify_flow(req, flowi4_to_flowi(fl4));
+ 	rt = ip_route_output_flow(net, fl4, sk);
+ 	if (IS_ERR(rt))
+@@ -395,7 +396,8 @@
+ 			   RT_CONN_FLAGS(sk), RT_SCOPE_UNIVERSE,
+ 			   sk->sk_protocol, inet_sk_flowi_flags(sk),
+ 			   (opt && opt->opt.srr) ? opt->opt.faddr : ireq->rmt_addr,
+-			   ireq->loc_addr, ireq->rmt_port, inet_sk(sk)->inet_sport);
++			   ireq->loc_addr, ireq->rmt_port, inet_sk(sk)->inet_sport,
++			   sock_i_uid(sk));
+ 	security_req_classify_flow(req, flowi4_to_flowi(fl4));
+ 	rt = ip_route_output_flow(net, fl4, sk);
+ 	if (IS_ERR(rt))
+--- a/net/ipv4/ip_output.c
++++ b/net/ipv4/ip_output.c
+@@ -1499,7 +1499,8 @@
+ 			   RT_SCOPE_UNIVERSE, sk->sk_protocol,
+ 			   ip_reply_arg_flowi_flags(arg),
+ 			   daddr, rt->rt_spec_dst,
+-			   tcp_hdr(skb)->source, tcp_hdr(skb)->dest);
++			   tcp_hdr(skb)->source, tcp_hdr(skb)->dest,
++			   arg->uid);
+ 	security_skb_classify_flow(skb, flowi4_to_flowi(&fl4));
+ 	rt = ip_route_output_key(sock_net(sk), &fl4);
+ 	if (IS_ERR(rt))
+--- a/net/ipv4/ping.c
++++ b/net/ipv4/ping.c
+@@ -559,7 +559,8 @@
+ 
+ 	flowi4_init_output(&fl4, ipc.oif, sk->sk_mark, tos,
+ 			   RT_SCOPE_UNIVERSE, sk->sk_protocol,
+-			   inet_sk_flowi_flags(sk), faddr, saddr, 0, 0);
++			   inet_sk_flowi_flags(sk), faddr, saddr, 0, 0,
++			   sock_i_uid(sk));
+ 
+ 	security_sk_classify_flow(sk, flowi4_to_flowi(&fl4));
+ 	rt = ip_route_output_flow(net, &fl4, sk);
+--- a/net/ipv4/raw.c
++++ b/net/ipv4/raw.c
+@@ -563,7 +563,8 @@
+ 	flowi4_init_output(&fl4, ipc.oif, sk->sk_mark, tos,
+ 			   RT_SCOPE_UNIVERSE,
+ 			   inet->hdrincl ? IPPROTO_RAW : sk->sk_protocol,
+-			   FLOWI_FLAG_CAN_SLEEP, daddr, saddr, 0, 0);
++			   FLOWI_FLAG_CAN_SLEEP, daddr, saddr, 0, 0,
++			   sock_i_uid(sk));
+ 
+ 	if (!inet->hdrincl) {
+ 		err = raw_probe_proto_opt(&fl4, msg);
+--- a/net/ipv4/route.c
++++ b/net/ipv4/route.c
+@@ -736,6 +736,7 @@
+ 		(rt1->rt_mark ^ rt2->rt_mark) |
+ 		(rt1->rt_key_tos ^ rt2->rt_key_tos) |
+ 		(rt1->rt_route_iif ^ rt2->rt_route_iif) |
++		(rt1->rt_uid ^ rt2->rt_uid) |
+ 		(rt1->rt_oif ^ rt2->rt_oif)) == 0;
+ }
+ 
+@@ -1843,6 +1844,7 @@
+ 		fl4.flowi4_oif = rt->dst.dev->ifindex;
+ 		fl4.flowi4_iif = skb->dev->ifindex;
+ 		fl4.flowi4_mark = skb->mark;
++		fl4.flowi4_uid = skb->sk ? sock_i_uid(skb->sk) : 0;
+ 
+ 		rcu_read_lock();
+ 		if (fib_lookup(dev_net(rt->dst.dev), &fl4, &res) == 0)
+@@ -2020,6 +2022,7 @@
+ 	rth->rt_iif	= dev->ifindex;
+ 	rth->rt_oif	= 0;
+ 	rth->rt_mark    = skb->mark;
++	rth->rt_uid	= 0;
+ 	rth->rt_gateway	= daddr;
+ 	rth->rt_spec_dst= spec_dst;
+ 	rth->rt_peer_genid = 0;
+@@ -2155,6 +2158,7 @@
+ 	rth->rt_iif 	= in_dev->dev->ifindex;
+ 	rth->rt_oif 	= 0;
+ 	rth->rt_mark    = skb->mark;
++	rth->rt_uid	= 0;
+ 	rth->rt_gateway	= daddr;
+ 	rth->rt_spec_dst= spec_dst;
+ 	rth->rt_peer_genid = 0;
+@@ -2257,6 +2261,7 @@
+ 	fl4.flowi4_oif = 0;
+ 	fl4.flowi4_iif = dev->ifindex;
+ 	fl4.flowi4_mark = skb->mark;
++	fl4.flowi4_uid = 0;
+ 	fl4.flowi4_tos = tos;
+ 	fl4.flowi4_scope = RT_SCOPE_UNIVERSE;
+ 	fl4.daddr = daddr;
+@@ -2338,6 +2343,7 @@
+ 	rth->rt_iif	= dev->ifindex;
+ 	rth->rt_oif	= 0;
+ 	rth->rt_mark    = skb->mark;
++	rth->rt_uid	= 0;
+ 	rth->rt_gateway	= daddr;
+ 	rth->rt_spec_dst= spec_dst;
+ 	rth->rt_peer_genid = 0;
+@@ -2541,6 +2547,7 @@
+ 	rth->rt_iif	= orig_oif ? : dev_out->ifindex;
+ 	rth->rt_oif	= orig_oif;
+ 	rth->rt_mark    = fl4->flowi4_mark;
++	rth->rt_uid	= fl4->flowi4_uid;
+ 	rth->rt_gateway = fl4->daddr;
+ 	rth->rt_spec_dst= fl4->saddr;
+ 	rth->rt_peer_genid = 0;
+@@ -2792,6 +2799,7 @@
+ 		    rt_is_output_route(rth) &&
+ 		    rth->rt_oif == flp4->flowi4_oif &&
+ 		    rth->rt_mark == flp4->flowi4_mark &&
++		    rth->rt_uid == flp4->flowi4_uid &&
+ 		    !((rth->rt_key_tos ^ flp4->flowi4_tos) &
+ 			    (IPTOS_RT_MASK | RTO_ONLINK)) &&
+ 		    net_eq(dev_net(rth->dst.dev), net) &&
+@@ -2869,6 +2877,7 @@
+ 		rt->rt_iif = ort->rt_iif;
+ 		rt->rt_oif = ort->rt_oif;
+ 		rt->rt_mark = ort->rt_mark;
++		rt->rt_uid = ort->rt_uid;
+ 
+ 		rt->rt_genid = rt_genid(net);
+ 		rt->rt_flags = ort->rt_flags;
+@@ -2963,6 +2972,9 @@
+ 
+ 	if (rt->rt_mark)
+ 		NLA_PUT_BE32(skb, RTA_MARK, rt->rt_mark);
++
++	if (rt->rt_uid != (uid_t) -1)
++		NLA_PUT_U32(skb, RTA_UID, rt->rt_uid);
+ 
+ 	error = rt->dst.error;
+ 	if (peer) {
+@@ -3079,6 +3091,7 @@
+ 			.flowi4_tos = rtm->rtm_tos,
+ 			.flowi4_oif = tb[RTA_OIF] ? nla_get_u32(tb[RTA_OIF]) : 0,
+ 			.flowi4_mark = mark,
++			.flowi4_uid = tb[RTA_UID] ? nla_get_u32(tb[RTA_UID]) : current_uid(),
+ 		};
+ 		rt = ip_route_output_key(net, &fl4);
+ 
+--- a/net/ipv4/syncookies.c
++++ b/net/ipv4/syncookies.c
+@@ -349,7 +349,8 @@
+ 			   RT_SCOPE_UNIVERSE, IPPROTO_TCP,
+ 			   inet_sk_flowi_flags(sk),
+ 			   (opt && opt->srr) ? opt->faddr : ireq->rmt_addr,
+-			   ireq->loc_addr, th->source, th->dest);
++			   ireq->loc_addr, th->source, th->dest,
++			   sock_i_uid(sk));
+ 	security_req_classify_flow(req, flowi4_to_flowi(&fl4));
+ 	rt = ip_route_output_key(sock_net(sk), &fl4);
+ 	if (IS_ERR(rt)) {
+--- a/net/ipv4/tcp_ipv4.c
++++ b/net/ipv4/tcp_ipv4.c
+@@ -656,6 +656,7 @@
+ 	 */
+ 	arg.bound_dev_if = sk ? sk->sk_bound_dev_if : inet_iif(skb);
+ 
++	arg.uid = sk && sk->sk_state != TCP_TIME_WAIT ? sock_i_uid(sk) : 0;
+ 	net = dev_net(skb_dst(skb)->dev);
+ 	ip_send_reply(net->ipv4.tcp_sock, skb, ip_hdr(skb)->saddr,
+ 		      &arg, arg.iov[0].iov_len);
+@@ -668,7 +669,8 @@
+    outside socket context is ugly, certainly. What can I do?
+  */
+ 
+-static void tcp_v4_send_ack(struct sk_buff *skb, u32 seq, u32 ack,
++static void tcp_v4_send_ack(struct sock *sk, struct sk_buff *skb,
++			    u32 seq, u32 ack,
+ 			    u32 win, u32 ts, int oif,
+ 			    struct tcp_md5sig_key *key,
+ 			    int reply_flags)
+@@ -731,6 +733,7 @@
+ 	arg.csumoffset = offsetof(struct tcphdr, check) / 2;
+ 	if (oif)
+ 		arg.bound_dev_if = oif;
++	arg.uid = sk && sk->sk_state != TCP_TIME_WAIT ? sock_i_uid(sk) : 0;
+ 
+ 	ip_send_reply(net->ipv4.tcp_sock, skb, ip_hdr(skb)->saddr,
+ 		      &arg, arg.iov[0].iov_len);
+@@ -743,7 +746,7 @@
+ 	struct inet_timewait_sock *tw = inet_twsk(sk);
+ 	struct tcp_timewait_sock *tcptw = tcp_twsk(sk);
+ 
+-	tcp_v4_send_ack(skb, tcptw->tw_snd_nxt, tcptw->tw_rcv_nxt,
++	tcp_v4_send_ack(sk, skb, tcptw->tw_snd_nxt, tcptw->tw_rcv_nxt,
+ 			tcptw->tw_rcv_wnd >> tw->tw_rcv_wscale,
+ 			tcptw->tw_ts_recent,
+ 			tw->tw_bound_dev_if,
+@@ -757,7 +760,7 @@
+ static void tcp_v4_reqsk_send_ack(struct sock *sk, struct sk_buff *skb,
+ 				  struct request_sock *req)
+ {
+-	tcp_v4_send_ack(skb, tcp_rsk(req)->snt_isn + 1,
++	tcp_v4_send_ack(sk, skb, tcp_rsk(req)->snt_isn + 1,
+ 			tcp_rsk(req)->rcv_isn + 1, req->rcv_wnd,
+ 			req->ts_recent,
+ 			0,
+--- a/net/ipv4/udp.c
++++ b/net/ipv4/udp.c
+@@ -927,7 +927,8 @@
+ 		flowi4_init_output(fl4, ipc.oif, sk->sk_mark, tos,
+ 				   RT_SCOPE_UNIVERSE, sk->sk_protocol,
+ 				   inet_sk_flowi_flags(sk)|FLOWI_FLAG_CAN_SLEEP,
+-				   faddr, saddr, dport, inet->inet_sport);
++				   faddr, saddr, dport, inet->inet_sport,
++				   sock_i_uid(sk));
+ 
+ 		security_sk_classify_flow(sk, flowi4_to_flowi(fl4));
+ 		rt = ip_route_output_flow(net, fl4, sk);
+--- a/net/ipv4/xfrm4_policy.c
++++ b/net/ipv4/xfrm4_policy.c
+@@ -86,6 +86,7 @@
+ 	xdst->u.rt.rt_iif = fl4->flowi4_iif;
+ 	xdst->u.rt.rt_oif = fl4->flowi4_oif;
+ 	xdst->u.rt.rt_mark = fl4->flowi4_mark;
++	xdst->u.rt.rt_uid = fl4->flowi4_uid;
+ 
+ 	xdst->u.dst.dev = dev;
+ 	dev_hold(dev);
+--- a/net/ipv6/af_inet6.c
++++ b/net/ipv6/af_inet6.c
+@@ -667,6 +667,7 @@
+ 		fl6.flowi6_mark = sk->sk_mark;
+ 		fl6.fl6_dport = inet->inet_dport;
+ 		fl6.fl6_sport = inet->inet_sport;
++		fl6.flowi6_uid = sock_i_uid(sk);
+ 		security_sk_classify_flow(sk, flowi6_to_flowi(&fl6));
+ 
+ 		final_p = fl6_update_dst(&fl6, np->opt, &final);
+--- a/net/ipv6/datagram.c
++++ b/net/ipv6/datagram.c
+@@ -153,6 +153,7 @@
+ 	fl6.flowi6_mark = sk->sk_mark;
+ 	fl6.fl6_dport = inet->inet_dport;
+ 	fl6.fl6_sport = inet->inet_sport;
++	fl6.flowi6_uid = sock_i_uid(sk);
+ 
+ 	if (!fl6.flowi6_oif && (addr_type&IPV6_ADDR_MULTICAST))
+ 		fl6.flowi6_oif = np->mcast_oif;
+--- a/net/ipv6/inet6_connection_sock.c
++++ b/net/ipv6/inet6_connection_sock.c
+@@ -72,6 +72,7 @@
+ 	fl6.flowi6_mark = sk->sk_mark;
+ 	fl6.fl6_dport = inet_rsk(req)->rmt_port;
+ 	fl6.fl6_sport = inet_rsk(req)->loc_port;
++	fl6.flowi6_uid = sock_i_uid(sk);
+ 	security_req_classify_flow(req, flowi6_to_flowi(&fl6));
+ 
+ 	dst = ip6_dst_lookup_flow(sk, &fl6, final_p, false);
+@@ -222,6 +223,7 @@
+ 	fl6.flowi6_mark = sk->sk_mark;
+ 	fl6.fl6_sport = inet->inet_sport;
+ 	fl6.fl6_dport = inet->inet_dport;
++	fl6.flowi6_uid = sock_i_uid(sk);
+ 	security_sk_classify_flow(sk, flowi6_to_flowi(&fl6));
+ 
+ 	final_p = fl6_update_dst(&fl6, np->opt, &final);
+--- a/net/ipv6/raw.c
++++ b/net/ipv6/raw.c
+@@ -758,6 +758,7 @@
+ 	memset(&fl6, 0, sizeof(fl6));
+ 
+ 	fl6.flowi6_mark = sk->sk_mark;
++	fl6.flowi6_uid = sock_i_uid(sk);
+ 
+ 	if (sin6) {
+ 		if (addr_len < SIN6_LEN_RFC2133)
+--- a/net/ipv6/route.c
++++ b/net/ipv6/route.c
+@@ -2193,6 +2193,7 @@
+ 	[RTA_IIF]		= { .type = NLA_U32 },
+ 	[RTA_PRIORITY]          = { .type = NLA_U32 },
+ 	[RTA_METRICS]           = { .type = NLA_NESTED },
++	[RTA_UID]		= { .type = NLA_U32 },
+ };
+ 
+ static int rtm_to_fib6_config(struct sk_buff *skb, struct nlmsghdr *nlh,
+@@ -2495,6 +2496,11 @@
+ 
+ 	if (tb[RTA_OIF])
+ 		fl6.flowi6_oif = nla_get_u32(tb[RTA_OIF]);
++
++	if (tb[RTA_UID])
++		fl6.flowi6_uid = nla_get_u32(tb[RTA_UID]);
++	else
++		fl6.flowi6_uid = (iif ? (uid_t) -1 : current_uid());
+ 
+ 	if (iif) {
+ 		struct net_device *dev;
+--- a/net/ipv6/syncookies.c
++++ b/net/ipv6/syncookies.c
+@@ -243,6 +243,7 @@
+ 		fl6.flowi6_mark = sk->sk_mark;
+ 		fl6.fl6_dport = inet_rsk(req)->rmt_port;
+ 		fl6.fl6_sport = inet_sk(sk)->inet_sport;
++		fl6.flowi6_uid = sock_i_uid(sk);
+ 		security_req_classify_flow(req, flowi6_to_flowi(&fl6));
+ 
+ 		dst = ip6_dst_lookup_flow(sk, &fl6, final_p, false);
+--- a/net/ipv6/tcp_ipv6.c
++++ b/net/ipv6/tcp_ipv6.c
+@@ -251,6 +251,7 @@
+ 	fl6.flowi6_mark = sk->sk_mark;
+ 	fl6.fl6_dport = usin->sin6_port;
+ 	fl6.fl6_sport = inet->inet_sport;
++	fl6.flowi6_uid = sock_i_uid(sk);
+ 
+ 	final_p = fl6_update_dst(&fl6, np->opt, &final);
+ 
+@@ -404,6 +405,7 @@
+ 			fl6.flowi6_mark = sk->sk_mark;
+ 			fl6.fl6_dport = inet->inet_dport;
+ 			fl6.fl6_sport = inet->inet_sport;
++			fl6.flowi6_uid = sock_i_uid(sk);
+ 			security_skb_classify_flow(skb, flowi6_to_flowi(&fl6));
+ 
+ 			dst = ip6_dst_lookup_flow(sk, &fl6, NULL, false);
+@@ -496,6 +498,7 @@
+ 	fl6.flowi6_mark = sk->sk_mark;
+ 	fl6.fl6_dport = inet_rsk(req)->rmt_port;
+ 	fl6.fl6_sport = inet_rsk(req)->loc_port;
++	fl6.flowi6_uid = sock_i_uid(sk);
+ 	security_req_classify_flow(req, flowi6_to_flowi(&fl6));
+ 
+ 	opt = np->opt;
+--- a/net/ipv6/udp.c
++++ b/net/ipv6/udp.c
+@@ -1086,6 +1086,7 @@
+ 		fl6.flowi6_oif = np->sticky_pktinfo.ipi6_ifindex;
+ 
+ 	fl6.flowi6_mark = sk->sk_mark;
++	fl6.flowi6_uid = sock_i_uid(sk);
+ 
+ 	if (msg->msg_controllen) {
+ 		opt = &opt_space;

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">微信读书安装</string>
+    <string name="channel_name">微信读书安装</string>
+    <string name="downloading">正在下载微信读书</string>
+    <string name="downloading_progress"><xliff:g id="size" xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">%2$s</xliff:g>，已下载 <xliff:g id="percent" xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">%1$d</xliff:g>%%</string>
+    <string name="installing">正在安装微信读书</string>
+    <string name="installing_detail">正在为这台设备准备它的代码，一两分钟。</string>
+    <string name="installed">微信读书已安装</string>
+    <string name="retry_later">微信读书下载未成功，稍后会自动重试。</string>
+    <string name="not_genuine">下载到的文件不是腾讯的微信读书，已删除，稍后会重试。</string>
+    <string name="not_genuine_final">三次下载到的都不是腾讯的微信读书，不再自动安装，请手动安装。</string>
+    <string name="install_failed">微信读书安装未成功，稍后会自动重试。</string>
+    <string name="megabytes"><xliff:g id="size" xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">%1$d</xliff:g> MB</string>
+    <!-- 首屏入口（StatusActivity） -->
+    <string name="entry_name">微信读书</string>
+    <string name="entry_title">安装微信读书</string>
+    <string name="entry_ready">微信读书还没有安装。</string>
+    <string name="entry_ready_detail">约 127 MB。这台 Kindle 连上 Wi-Fi 后会自动下载；安装前会核对它确实是腾讯的。</string>
+    <string name="entry_download_now">现在下载</string>
+    <string name="entry_no_network">下载微信读书需要 Wi-Fi。</string>
+    <string name="entry_no_network_detail">连上 Wi-Fi 就会自动开始下载，约 127 MB。</string>
+    <string name="entry_open_wifi">打开 Wi-Fi 设置</string>
+    <string name="entry_downloading_percent">正在下载微信读书：<xliff:g id="percent" xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">%1$d</xliff:g>%%</string>
+    <string name="entry_downloading_detail">可以离开这个画面，下载会继续。</string>
+    <string name="entry_downloading_stalled_detail">已经有一会儿没有动了。它自己还会再试；想马上试就点下面。</string>
+    <string name="entry_installing">正在安装微信读书。</string>
+    <string name="entry_installed">微信读书已安装。</string>
+    <string name="entry_open">打开微信读书</string>
+    <string name="entry_refused">不再自动安装微信读书。</string>
+    <string name="entry_refused_detail">连续三次下载到的都不是腾讯的微信读书，已删除。请把安装包拷进 Kindle 盘后手动安装。</string>
+</resources>

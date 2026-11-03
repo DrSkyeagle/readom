@@ -1,0 +1,16 @@
+# Reads the system image in the background on the starts that did not read it
+# (preinit/SystemRecheck.h). It exits at once when the start did read it, so
+# there is nothing to condition the start of the service on.
+on property:sys.boot_completed=1
+    start pw3-system-verify
+
+service pw3-system-verify /system/bin/pw3-system-verify
+    user root
+    group root
+    disabled
+    oneshot
+    # Last for the CPU and last for the disk: this reads 512 MiB on a single
+    # 996 MHz core, and the reader comes first. It waits out the first ninety
+    # seconds itself before the first read.
+    priority 19
+    ioprio idle 7

@@ -1,0 +1,127 @@
+# BatteryStats reads the kernel's wakeup sources from /d/wakeup_sources (this
+# kernel has no /proc/wakelocks): without debugfs it had none, logged a wtf every
+# 30 minutes, and battery usage could not show kernel wake locks (Test V40.1).
+# The kernel prints them in the columns Android reads since android-core 1041
+# (before, column 6 was max_time, not total_time). Mounted as Google's devices
+# of Android 8.1 do (device/google/marlin, wahoo); the kernel has no ftrace, so
+# the tracing directories AOSP's rc files ask for stay absent.
+on early-init
+    mount debugfs debugfs /sys/kernel/debug
+    chmod 0755 /sys/kernel/debug
+
+# eMMC: cfq without idling. cfq waits up to slice_idle (10 ms) for the next
+# request of the queue it serves, which pays on a disk that seeks and is idle
+# time on flash. WeRead cold, page cache dropped, three starts each (Test
+# V40.1): 19.7 s with idling, 17.6 s without, 19.0 s with noop. This kernel
+# has noop and cfq only.
+on early-init
+    write /sys/block/mmcblk0/queue/iosched/slice_idle 0
+
+# Read-ahead on the system (dm-1) and data (dm-2) volumes once booted: 32 KB,
+# not the kernel's 128 KB. Applications are read by page faults on mapped
+# files (code, dex, fonts, WebView); each fault reads the read-ahead size
+# around the page, most of it unused on a random pattern, and in 512 MB that
+# waste pushes other pages out. WeRead cold, page cache dropped (Test V40.1):
+# 32 KB reads 255-271 MB instead of 358-378 MB and evicts 101-138 MB instead
+# of 224-245 MB, and started 0.4-1.0 s sooner in each of three paired series.
+# Sequential reads lose 15% (27 instead of 32 MB/s on /data); large ones are
+# rare here. Boot keeps the kernel's value (not measured with 32 KB).
+on property:sys.boot_completed=1
+    write /sys/block/dm-1/queue/read_ahead_kb 32
+    write /sys/block/dm-2/queue/read_ahead_kb 32
+
+# CPU frequency: ondemand once booted, with time waiting for flash counted as
+# busy (io_is_busy). The boot runs on performance (996 MHz throughout). Only at
+# the lower point, 396 MHz, may the bus drop to its 24 MHz low-power mode
+# (bus_freq.c), so performance also held the bus at full speed while a page sat
+# on the screen. Screen on, WeRead's bookshelf idle, cable out, two interleaved
+# pairs of 5 minutes (Test V47, P7): 384 and 319 mW against 483 and 419 mW,
+# 22% less, about 4 h more reading per charge.
+# Response: every touch puts the CPU at full speed for 600 ms, then 1 s with
+# up_threshold 30, before the event reaches user space (the Lab126 touch and
+# key drivers call cpufreq_override()); V40.1's 25-30 ms on the first touch
+# after idling came from injected input, which bypasses the driver. Activity
+# starts in another process run at full speed through the Power HAL's launch
+# boost (power.c); without it WeRead started cold about 1 s (5%) later on
+# V40.1. V48's 26 s cold starts on ondemand were not the governor: N35's
+# SwiftShader frame (10-23 s of SurfaceFlinger time) was in every launch.
+on property:sys.boot_completed=1
+    write /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor ondemand
+    write /sys/devices/system/cpu/cpufreq/ondemand/io_is_busy 1
+
+# /system must already be verified and mounted read-only by the boot entry.
+on init
+    setprop sys.pw3.storage_ready 0
+    setprop sys.pw3.hardware_ready 0
+    setprop sys.pw3.init_error none
+    setprop sys.pw3.framework_started 0
+
+on fs
+    restorecon /pw3-preinit.conf
+    restorecon /pw3-testdata.conf
+    restorecon /pw3-testmap.bin
+    # Made by the start before any policy is loaded, so it comes up unlabeled;
+    # the recursive restorecon of /data skips a tree whose file_contexts
+    # digest it has already seen, so name this one. The start makes the
+    # directory on every file-backed boot, so this is never a missing path.
+    restorecon_recursive /data/pw3
+    mount tmpfs tmpfs /cache nosuid nodev mode=0770,uid=1000,gid=2001,size=16m
+    restorecon /data
+    restorecon /cache
+    # Compressed swap in RAM, so that idle application data can leave RAM
+    # without the application being killed. /system (mkswap) is mounted
+    # before init starts. Swap is RAM here: prefer it to dropping code pages,
+    # and read back single pages, there is no seek to amortise.
+    swapon_all /fstab.pw3-swap
+    write /proc/sys/vm/swappiness 100
+    write /proc/sys/vm/page-cluster 0
+
+# PID 1 mounted a fully hashed fresh image under the existing FAT user
+# partition; init does not create or format that image. There is one
+# storage arrangement now, so this trigger carries no condition. The two
+# cmdline keys that used to select it, ram_boot and storage, went with the
+# modes they chose between on 2026-10-29.
+on pw3-verify-storage
+    exec_start pw3-init-check
+
+on pw3-verify-hardware
+    exec_start pw3-interface-check
+
+on post-fs-data
+    mkdir /data/misc/adb 02750 system shell
+    mkdir /data/adb 0700 root root
+    restorecon_recursive /data/misc/adb
+    setprop vold.post_fs_data_done 1
+
+on boot
+    chown system system /sys/power/state
+    chmod 0660 /sys/power/state
+    chown system system /sys/power/wakeup_count
+    chmod 0660 /sys/power/wakeup_count
+    # The standard main rc owns wake_lock/wake_unlock permissions.
+    # No direct write of "mem": Android libsuspend owns the suspend protocol.
+    # The Power HAL (user system) raises the lowest CPU frequency during app launches (power.c).
+    chown system system /sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq
+    chmod 0660 /sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq
+
+service pw3-init-check /system/bin/pw3-init-check storage
+    user root
+    group root
+    disabled
+    oneshot
+
+service pw3-ffs-check /system/bin/pw3-init-check usb
+    user root
+    # The real FunctionFS parent is shell:shell 0770. Keep the native
+    # read-only gate and SELinux policy; allow directory traversal via DAC.
+    group root shell
+    disabled
+    oneshot
+
+service pw3-interface-check /system/bin/pw3-init-check interfaces
+    user root
+    # fb0 is 0660 system:graphics; SELinux still limits this checker to queries.
+    group root graphics
+    disabled
+    oneshot
+

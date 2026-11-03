@@ -1,0 +1,30 @@
+From: PW3 Android port
+Subject: [PW3] adbd: no boot opt-in; USB only and authentication stay
+
+0002 let adbd run only when the boot entry asked for it (ro.boot.pw3.adb=1):
+with the stock g_ffs gadget there was no UsbDeviceManager, so nothing could
+ask the user to authorise a computer, and a release must not have adb open.
+
+With the kernel's Android gadget (android-core 1040) Android's own switch
+decides, as on any Android device: adb runs when developer options turn it on
+(sys.usb.config), and UsbDebuggingManager asks before a computer may use it.
+What 0002 keeps: USB only (no TCP listener), authentication required, and the
+check that FunctionFS ep0 opens under adbd's final identity.
+
+--- a/adb/daemon/main.cpp
++++ b/adb/daemon/main.cpp
+@@ -181,9 +181,11 @@
+     drop_privileges(server_port);
+ 
+ #ifdef PW3_USB_ONLY_ADBD
+-    // The opt-in boot flag and effective authentication must survive service restarts.
+-    if (android::base::GetProperty("ro.boot.pw3.adb", "") != "1" || !auth_required) {
+-        LOG(ERROR) << "PW3 USB ADB requires explicit boot opt-in and authentication";
++    // Effective authentication must survive service restarts. Whether adb runs at all is
++    // Android's own switch (developer options, sys.usb.config): with the kernel's Android
++    // gadget, UsbDeviceManager asks the user to authorise each computer.
++    if (!auth_required) {
++        LOG(ERROR) << "PW3 USB ADB requires authentication";
+         return 1;
+     }
+     // Check under adbd's final UID and SELinux context, not init's root context.

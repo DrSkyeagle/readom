@@ -1,0 +1,105 @@
+A cached icon does not outlive the image that drew it
+
+0020 made the cache's version depend on the flags that decide how an icon is
+drawn, so that changing a flag throws the rows away. The icons themselves are
+not a flag. They are files in the system image, and V80 changes all five of
+them without changing anything 0020 counts.
+
+What the reader saw: "进入首页首先还是上一轮的几个 ICON 一闪而过，然后变成了现在的
+ICON" (2026-10-23). The old icons are not a leftover drawing; they are the
+cached rows, and they are on the screen because of the order LoaderTask works
+in -- loadWorkspace(), then bindWorkspace(), which is the first thing painted,
+and only afterwards loadAllApps() and updateDbIcons(), which is where a row
+whose package has changed is read again. So the first frame is always the
+cache, and the correction always arrives after it.
+
+IconCache cannot see that the icon files changed. updateDBIcons() asks the
+package manager for each application's versionCode and lastUpdateTime, and the
+system's own applications keep both across an update that replaces the image:
+nothing in a row says which image drew it. The thing that does know is the
+image's own identity, and the moment to act on it is before the first read
+rather than after the first paint -- which is the IconDB constructor, since
+IconCache is built before LoaderTask runs.
+
+The clear is caught. clear() is the one method of SQLiteCacheHelper that does
+not catch for itself, getWritableDatabase() throws on a full disk or a
+database that did not survive the last shutdown, and leaving Android on this
+device is a twenty-second hold of the power button -- so an uncontrolled
+shutdown is the usual way out and a damaged cache is not a remote possibility.
+An exception on this path reaches LauncherAppState and takes the home screen
+down at every start, which is the failure this port has already had once
+(0018, 0019). What catching it costs is one stale icon until the loader
+corrects it, which is the behaviour before this patch.
+
+The cost of the clear itself is one re-read of every icon and label on the
+first start after an update -- the same cost 0020 pays, for the same reason,
+and the start after an update is already the slow one.
+
+diff --git a/src/com/android/launcher3/IconCache.java b/src/com/android/launcher3/IconCache.java
+--- a/src/com/android/launcher3/IconCache.java
++++ b/src/com/android/launcher3/IconCache.java
+@@ -20,6 +20,7 @@
+ import android.content.ContentValues;
+ import android.content.Context;
+ import android.content.Intent;
++import android.content.SharedPreferences;
+ import android.content.pm.ActivityInfo;
+ import android.content.pm.ApplicationInfo;
+ import android.content.pm.LauncherActivityInfo;
+@@ -785,10 +786,56 @@
+         private final static String COLUMN_LABEL = "label";
+         private final static String COLUMN_SYSTEM_STATE = "system_state";
+ 
++        /* PW3: which system image drew the rows below. The icons of this
++         * device's own applications are files in that image; replacing it
++         * replaces them, and a row carries nothing that says so -- the package
++         * manager reports the same versionCode and lastUpdateTime for a system
++         * application across an update, which is what updateDBIcons() compares.
++         *
++         * Not folded into RELEASE_VERSION above, where the flags live, because
++         * there is no room: the database's version is
++         * (RELEASE_VERSION << 16) + iconPixelSize and SQLiteOpenHelper refuses
++         * a version below 1, so RELEASE_VERSION has fifteen bits and five are
++         * spoken for. A build id hashed into the rest would collide, and a
++         * collision here is this bug again. */
++        private final static String KEY_IMAGE = "pw3_icon_cache_image";
++
+         public IconDB(Context context, int iconPixelSize) {
+             super(context, LauncherFiles.APP_ICONS_DB,
+                     (RELEASE_VERSION << 16) + iconPixelSize,
+                     TABLE_NAME);
++            /* PW3: here and not in updateDBIcons(), because of the order
++             * LoaderTask works in -- loadWorkspace(), then bindWorkspace(),
++             * which is the first thing painted, and only then loadAllApps()
++             * and updateDbIcons(). A row corrected there is corrected after
++             * the reader has seen the old icon. IconCache is built before any
++             * of that, so an empty table here is an empty table for the first
++             * paint.
++             *
++             * Caught, because this is a constructor on the path to the
++             * launcher's own: clear() is the one method of SQLiteCacheHelper
++             * that does not catch for itself (delete() and insertOrReplace()
++             * do), and getWritableDatabase() throws on a full disk or a
++             * database that did not survive the last shutdown. Leaving
++             * Android on this device is a twenty-second hold of the power
++             * button, so an uncontrolled shutdown is the usual way out and a
++             * damaged cache is not a remote possibility. An exception here
++             * would reach LauncherAppState and take the home screen down at
++             * every start, which is the failure this port has already had
++             * once (V78, Launcher3 0018/0019). What is lost by catching it is
++             * one stale icon until the loader corrects it: the behaviour
++             * before this patch. */
++            try {
++                SharedPreferences prefs = Utilities.getPrefs(context);
++                if (!Build.VERSION.INCREMENTAL.equals(prefs.getString(KEY_IMAGE, null))) {
++                    clear();
++                    /* Written only after the clear succeeded, so a failure is
++                     * retried at the next start rather than recorded as done. */
++                    prefs.edit().putString(KEY_IMAGE, Build.VERSION.INCREMENTAL).apply();
++                }
++            } catch (Exception e) {
++                Log.e(TAG, "PW3: could not clear the icon cache for a new system image", e);
++            }
+         }
+ 
+         @Override

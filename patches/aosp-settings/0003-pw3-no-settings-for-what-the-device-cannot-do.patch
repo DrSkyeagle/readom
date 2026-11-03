@@ -1,0 +1,498 @@
+From: PW3 Android port
+Subject: [PW3] Settings: no settings for what the device cannot do
+
+Settings showed on PW3 (walked page by page, Test V37) entries that can have no
+effect there. Each is now shown by a condition the device answers, as AOSP
+already does for some (KEYCODE_POWER for "power button ends call", rotation
+support for "lock screen rotation"):
+  * Wi-Fi Direct: FEATURE_WIFI_DIRECT (PW3's driver runs station mode only);
+  * network rating provider: a valid network scorer is installed;
+  * WPS push button and PIN: not shown. WPS is insecure and deprecated by the
+    Wi-Fi Alliance; Android 9 removed it;
+  * premium SMS access: the device can send SMS (TelephonyManager.isSmsCapable);
+  * default notification, alarm and ring tones, mono audio, screen readers and
+    text-to-speech output: FEATURE_AUDIO_OUTPUT (PW3 has no speaker);
+  * large mouse pointer, click after the pointer stops, pointer speed, physical
+    keyboard: such a device is connected, or can be (USB host or Bluetooth);
+  * accessibility shortcut (both volume keys held): the device has volume keys;
+  * trust agents: an app provides one;
+  * encrypt tablet: StorageManager.isEncryptable() (PW3: ro.crypto.state is
+    "unsupported"; vold cannot encrypt its data);
+  * backup: FEATURE_BACKUP (without it the backup service does not run);
+  * assist and voice input: an app can be the assistant (the picker would
+    offer only "None"); it appears when one is installed;
+  * serial number: not when it is unknown.
+The network page's data usage summary counted mobile data only, "0 B used" on
+a device that has none: there it counts Wi-Fi. Captions stay: without audio
+they are how a video in the browser can be followed.
+
+--- a/src/com/android/settings/wifi/p2p/WifiP2pPreferenceController.java
++++ b/src/com/android/settings/wifi/p2p/WifiP2pPreferenceController.java
+@@ -19,6 +19,7 @@
+ import android.content.Context;
+ import android.content.Intent;
+ import android.content.IntentFilter;
++import android.content.pm.PackageManager;
+ import android.net.wifi.WifiManager;
+ import android.support.annotation.VisibleForTesting;
+ import android.support.v7.preference.Preference;
+@@ -77,8 +78,7 @@
+ 
+     @Override
+     public boolean isAvailable() {
+-        // Always show preference.
+-        return true;
++        return mContext.getPackageManager().hasSystemFeature(PackageManager.FEATURE_WIFI_DIRECT);
+     }
+     @Override
+     public String getPreferenceKey() {
+--- a/src/com/android/settings/wifi/WpsPreferenceController.java
++++ b/src/com/android/settings/wifi/WpsPreferenceController.java
+@@ -73,8 +73,8 @@
+ 
+     @Override
+     public boolean isAvailable() {
+-        // Always show preference.
+-        return true;
++        // WPS is insecure and deprecated by the Wi-Fi Alliance (Android 9 removed it).
++        return false;
+     }
+ 
+     @Override
+--- a/src/com/android/settings/network/NetworkScorerPickerPreferenceController.java
++++ b/src/com/android/settings/network/NetworkScorerPickerPreferenceController.java
+@@ -69,6 +69,7 @@
+ 
+     @Override
+     public boolean isAvailable() {
+-        return true;
++        // Nothing to pick without a scorer (they need a privileged permission).
++        return !mNetworkScoreManager.getAllValidScorers().isEmpty();
+     }
+ }
+--- a/src/com/android/settings/applications/SpecialAccessSettings.java
++++ b/src/com/android/settings/applications/SpecialAccessSettings.java
+@@ -19,6 +19,7 @@
+ import android.os.Bundle;
+ import android.provider.SearchIndexableResource;
+ import android.support.v7.preference.Preference;
++import android.telephony.TelephonyManager;
+ import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
+ import com.android.settings.R;
+ import com.android.settings.dashboard.DashboardFragment;
+@@ -35,6 +36,7 @@
+     private static final String[] DISABLED_FEATURES_LOW_RAM =
+             new String[]{"notification_access", "zen_access", "enabled_vr_listeners",
+                     "picture_in_picture"};
++    private static final String KEY_PREMIUM_SMS = "premium_sms";
+ 
+     @Override
+     protected String getLogTag() {
+@@ -58,6 +60,14 @@
+                 }
+             }
+         }
++        if (!isSmsCapable(getContext()) && findPreference(KEY_PREMIUM_SMS) != null) {
++            removePreference(KEY_PREMIUM_SMS);
++        }
++    }
++
++    private static boolean isSmsCapable(Context context) {
++        final TelephonyManager tm = context.getSystemService(TelephonyManager.class);
++        return tm != null && tm.isSmsCapable();
+     }
+ 
+     @Override
+@@ -82,5 +92,19 @@
+                     result.add(sir);
+                     return result;
+                 }
++
++                @Override
++                public List<String> getNonIndexableKeys(Context context) {
++                    final List<String> keys = super.getNonIndexableKeys(context);
++                    if (ActivityManager.isLowRamDeviceStatic()) {
++                        for (String disabledFeature : DISABLED_FEATURES_LOW_RAM) {
++                            keys.add(disabledFeature);
++                        }
++                    }
++                    if (!isSmsCapable(context)) {
++                        keys.add(KEY_PREMIUM_SMS);
++                    }
++                    return keys;
++                }
+             };
+ }
+--- a/src/com/android/settings/notification/RingtonePreferenceControllerBase.java
++++ b/src/com/android/settings/notification/RingtonePreferenceControllerBase.java
+@@ -17,6 +17,7 @@
+ package com.android.settings.notification;
+ 
+ import android.content.Context;
++import android.content.pm.PackageManager;
+ import android.media.Ringtone;
+ import android.media.RingtoneManager;
+ import android.net.Uri;
+@@ -39,7 +40,7 @@
+ 
+     @Override
+     public boolean isAvailable() {
+-        return true;
++        return mContext.getPackageManager().hasSystemFeature(PackageManager.FEATURE_AUDIO_OUTPUT);
+     }
+ 
+     @Override
+--- a/src/com/android/settings/accessibility/AccessibilitySettings.java
++++ b/src/com/android/settings/accessibility/AccessibilitySettings.java
+@@ -20,6 +20,7 @@
+ import android.app.admin.DevicePolicyManager;
+ import android.content.ComponentName;
+ import android.content.Context;
++import android.content.pm.PackageManager;
+ import android.content.pm.ServiceInfo;
+ import android.content.res.Resources;
+ import android.graphics.drawable.Drawable;
+@@ -48,6 +49,7 @@
+ import com.android.settings.DisplaySettings;
+ import com.android.settings.R;
+ import com.android.settings.SettingsPreferenceFragment;
++import com.android.settings.inputmethod.InputDeviceAvailability;
+ import com.android.settings.Utils;
+ import com.android.settings.search.BaseSearchIndexProvider;
+ import com.android.settings.search.Indexable;
+@@ -373,10 +375,24 @@
+         // Large pointer icon.
+         mToggleLargePointerIconPreference =
+                 (SwitchPreference) findPreference(TOGGLE_LARGE_POINTER_ICON);
++        final boolean pointer = InputDeviceAvailability.canHavePointer(getActivity());
++        if (!pointer) {
++            mCategoryToPrefCategoryMap.get(CATEGORY_DISPLAY)
++                    .removePreference(mToggleLargePointerIconPreference);
++        }
+ 
+         // Master Mono
+         mToggleMasterMonoPreference =
+                 (SwitchPreference) findPreference(TOGGLE_MASTER_MONO);
++        final boolean audio = getActivity().getPackageManager()
++                .hasSystemFeature(PackageManager.FEATURE_AUDIO_OUTPUT);
++        if (!audio) {
++            mCategoryToPrefCategoryMap.get(CATEGORY_AUDIO_AND_CAPTIONS)
++                    .removePreference(mToggleMasterMonoPreference);
++            // Screen readers and text-to-speech output speak.
++            getPreferenceScreen().removePreference(
++                    mCategoryToPrefCategoryMap.get(CATEGORY_SCREEN_READER));
++        }
+ 
+         // Long press timeout.
+         mSelectLongPressTimeoutPreference =
+@@ -407,12 +423,20 @@
+ 
+         // Autoclick after pointer stops.
+         mAutoclickPreferenceScreen = findPreference(AUTOCLICK_PREFERENCE_SCREEN);
++        if (!pointer) {
++            mCategoryToPrefCategoryMap.get(CATEGORY_INTERACTION_CONTROL)
++                    .removePreference(mAutoclickPreferenceScreen);
++        }
+ 
+         // Display color adjustments.
+         mDisplayDaltonizerPreferenceScreen = findPreference(DISPLAY_DALTONIZER_PREFERENCE_SCREEN);
+ 
+-        // Accessibility shortcut
++        // Accessibility shortcut: both volume keys held.
+         mAccessibilityShortcutPreferenceScreen = findPreference(ACCESSIBILITY_SHORTCUT_PREFERENCE);
++        if (!KeyCharacterMap.deviceHasKey(KeyEvent.KEYCODE_VOLUME_UP)
++                || !KeyCharacterMap.deviceHasKey(KeyEvent.KEYCODE_VOLUME_DOWN)) {
++            getPreferenceScreen().removePreference(mAccessibilityShortcutPreferenceScreen);
++        }
+     }
+ 
+     private void updateAllPreferences() {
+--- a/src/com/android/settings/inputmethod/PhysicalKeyboardPreferenceController.java
++++ b/src/com/android/settings/inputmethod/PhysicalKeyboardPreferenceController.java
+@@ -50,7 +50,7 @@
+ 
+     @Override
+     public boolean isAvailable() {
+-        return true;
++        return InputDeviceAvailability.canHaveKeyboard(mContext);
+     }
+ 
+     @Override
+--- a/src/com/android/settings/language/LanguageAndInputSettings.java
++++ b/src/com/android/settings/language/LanguageAndInputSettings.java
+@@ -37,6 +37,7 @@
+ import com.android.settings.dashboard.SummaryLoader;
+ import com.android.settings.inputmethod.GameControllerPreferenceController;
+ import com.android.settings.inputmethod.PhysicalKeyboardPreferenceController;
++import com.android.settings.inputmethod.PointerSpeedPreferenceController;
+ import com.android.settings.inputmethod.SpellCheckerPreferenceController;
+ import com.android.settings.inputmethod.VirtualKeyboardPreferenceController;
+ import com.android.settings.search.BaseSearchIndexProvider;
+@@ -105,6 +106,7 @@
+         // Input
+         controllers.add(new VirtualKeyboardPreferenceController(context));
+         controllers.add(new PhysicalKeyboardPreferenceController(context, lifecycle));
++        controllers.add(new PointerSpeedPreferenceController(context));
+         final GameControllerPreferenceController gameControllerPreferenceController
+                 = new GameControllerPreferenceController(context);
+         if (lifecycle != null) {
+--- a/src/com/android/settings/SecuritySettings.java
++++ b/src/com/android/settings/SecuritySettings.java
+@@ -433,6 +433,10 @@
+     @VisibleForTesting
+     void initTrustAgentPreference(PreferenceScreen root, int numberOfTrustAgent) {
+         Preference manageAgents = root.findPreference(KEY_MANAGE_TRUST_AGENTS);
++        if (manageAgents != null && !hasTrustAgents(getActivity(), mTrustAgentManager)) {
++            removePreference(KEY_MANAGE_TRUST_AGENTS);
++            return;
++        }
+         if (manageAgents != null) {
+             if (!mLockPatternUtils.isSecure(MY_USER_ID)) {
+                 manageAgents.setEnabled(false);
+@@ -546,6 +550,19 @@
+         return false;
+     }
+ 
++    // Whether an installed app provides a trust agent: "Trust agents" lists nothing otherwise.
++    private static boolean hasTrustAgents(Context context, TrustAgentManager trustAgentManager) {
++        final PackageManager pm = context.getPackageManager();
++        for (ResolveInfo resolveInfo : pm.queryIntentServices(TRUST_AGENT_INTENT,
++                PackageManager.GET_META_DATA)) {
++            if (resolveInfo.serviceInfo != null
++                    && trustAgentManager.shouldProvideTrust(resolveInfo, pm)) {
++                return true;
++            }
++        }
++        return false;
++    }
++
+     private static ArrayList<TrustAgentComponentInfo> getActiveTrustAgents(Context context,
+         TrustAgentManager trustAgentManager, LockPatternUtils utils,
+         DevicePolicyManager dpm) {
+@@ -966,6 +983,9 @@
+             if (!lockPatternUtils.isSecure(MY_USER_ID)) {
+                 keys.add(KEY_TRUST_AGENT);
+                 keys.add(KEY_MANAGE_TRUST_AGENTS);
++            } else if (!hasTrustAgents(context, FeatureFactory.getFactory(context)
++                    .getSecurityFeatureProvider().getTrustAgentManager())) {
++                keys.add(KEY_MANAGE_TRUST_AGENTS);
+             }
+ 
+             if (!(new EnterprisePrivacyPreferenceController(context, null /* lifecycle */))
+--- a/src/com/android/settings/EncryptionAndCredential.java
++++ b/src/com/android/settings/EncryptionAndCredential.java
+@@ -23,6 +23,7 @@
+ import android.os.Bundle;
+ import android.os.UserHandle;
+ import android.os.UserManager;
++import android.os.storage.StorageManager;
+ import android.provider.SearchIndexableResource;
+ import android.security.KeyStore;
+ import android.support.v7.preference.PreferenceGroup;
+@@ -98,7 +99,7 @@
+             if (LockPatternUtils.isDeviceEncryptionEnabled()) {
+                 // The device is currently encrypted.
+                 addPreferencesFromResource(R.xml.security_settings_encrypted);
+-            } else {
++            } else if (StorageManager.isEncryptable()) {
+                 // This device supports encryption but isn't encrypted.
+                 addPreferencesFromResource(R.xml.security_settings_unencrypted);
+             }
+@@ -226,9 +227,13 @@
+                             context, R.xml.security_settings_unencrypted));
+                     break;
+                 default:
+-                    // This device supports encryption but isn't encrypted.
++                    // This device supports encryption but isn't encrypted, or cannot be.
+                     keys.addAll(getNonIndexableKeysFromXml(
+                             context, R.xml.security_settings_encrypted));
++                    if (!StorageManager.isEncryptable()) {
++                        keys.addAll(getNonIndexableKeysFromXml(
++                                context, R.xml.security_settings_unencrypted));
++                    }
+                     break;
+             }
+ 
+--- a/src/com/android/settings/backup/BackupSettingsActivityPreferenceController.java
++++ b/src/com/android/settings/backup/BackupSettingsActivityPreferenceController.java
+@@ -18,6 +18,7 @@
+ 
+ import android.app.backup.BackupManager;
+ import android.content.Context;
++import android.content.pm.PackageManager;
+ import android.os.UserManager;
+ import android.support.v7.preference.Preference;
+ 
+@@ -41,7 +42,8 @@
+ 
+     @Override
+     public boolean isAvailable() {
+-        return mUm.isAdminUser();
++        return mUm.isAdminUser()
++                && mContext.getPackageManager().hasSystemFeature(PackageManager.FEATURE_BACKUP);
+     }
+ 
+     @Override
+--- a/src/com/android/settings/applications/assist/DefaultAssistPicker.java
++++ b/src/com/android/settings/applications/assist/DefaultAssistPicker.java
+@@ -126,6 +126,18 @@
+         return mAssistUtils.getAssistComponentForUser(mUserId);
+     }
+ 
++    /** Whether any app can be the assistant: the picker would offer only "None" otherwise. */
++    static boolean hasAssistants(PackageManager pm) {
++        for (ResolveInfo resolveInfo : pm.queryIntentServices(
++                ASSIST_SERVICE_PROBE, PackageManager.GET_META_DATA)) {
++            if (new VoiceInteractionServiceInfo(pm, resolveInfo.serviceInfo).getSupportsAssist()) {
++                return true;
++            }
++        }
++        return !pm.queryIntentActivities(
++                ASSIST_ACTIVITY_PROBE, PackageManager.MATCH_DEFAULT_ONLY).isEmpty();
++    }
++
+     private void addAssistServices() {
+         final PackageManager pm = mPm.getPackageManager();
+         final List<ResolveInfo> services = pm.queryIntentServices(
+--- a/src/com/android/settings/applications/assist/DefaultAssistPreferenceController.java
++++ b/src/com/android/settings/applications/assist/DefaultAssistPreferenceController.java
+@@ -73,7 +73,7 @@
+ 
+     @Override
+     public boolean isAvailable() {
+-        return true;
++        return DefaultAssistPicker.hasAssistants(mContext.getPackageManager());
+     }
+ 
+     @Override
+--- a/src/com/android/settings/deviceinfo/SerialNumberPreferenceController.java
++++ b/src/com/android/settings/deviceinfo/SerialNumberPreferenceController.java
+@@ -45,7 +45,7 @@
+ 
+     @Override
+     public boolean isAvailable() {
+-        return !TextUtils.isEmpty(mSerialNumber);
++        return !TextUtils.isEmpty(mSerialNumber) && !Build.UNKNOWN.equals(mSerialNumber);
+     }
+ 
+     @Override
+--- a/src/com/android/settings/datausage/DataUsageSummary.java
++++ b/src/com/android/settings/datausage/DataUsageSummary.java
+@@ -358,7 +358,11 @@
+         @Override
+         public void setListening(boolean listening) {
+             if (listening) {
+-                DataUsageController.DataUsageInfo info = mDataController.getDataUsageInfo();
++                // Mobile data where there is some, else Wi-Fi.
++                DataUsageController.DataUsageInfo info = DataUsageUtils.hasMobileData(mActivity)
++                        ? mDataController.getDataUsageInfo()
++                        : mDataController.getDataUsageInfo(
++                                NetworkTemplate.buildTemplateWifiWildcard());
+                 String used;
+                 if (info == null) {
+                     used = Formatter.formatFileSize(mActivity, 0);
+--- /dev/null
++++ b/src/com/android/settings/inputmethod/InputDeviceAvailability.java
+@@ -0,0 +1,56 @@
++/*
++ * Copyright (C) 2026 The PW3 Android port
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.settings.inputmethod;
++
++import android.content.Context;
++import android.content.pm.PackageManager;
++import android.view.InputDevice;
++
++/**
++ * Whether a pointing device or a hardware keyboard can be used here: one is connected, or
++ * the device has a way to connect one (USB host, Bluetooth). Their settings do nothing
++ * otherwise.
++ */
++public final class InputDeviceAvailability {
++    private InputDeviceAvailability() {}
++
++    public static boolean canHavePointer(Context context) {
++        return canConnect(context) || hasDevice(InputDevice.SOURCE_MOUSE, false)
++                || hasDevice(InputDevice.SOURCE_TOUCHPAD, false);
++    }
++
++    public static boolean canHaveKeyboard(Context context) {
++        return canConnect(context) || hasDevice(InputDevice.SOURCE_KEYBOARD, true);
++    }
++
++    private static boolean canConnect(Context context) {
++        final PackageManager pm = context.getPackageManager();
++        return pm.hasSystemFeature(PackageManager.FEATURE_USB_HOST)
++                || pm.hasSystemFeature(PackageManager.FEATURE_BLUETOOTH);
++    }
++
++    private static boolean hasDevice(int source, boolean fullKeyboard) {
++        for (int id : InputDevice.getDeviceIds()) {
++            final InputDevice device = InputDevice.getDevice(id);
++            if (device != null && !device.isVirtual() && device.supportsSource(source)
++                    && (!fullKeyboard || device.isFullKeyboard())) {
++                return true;
++            }
++        }
++        return false;
++    }
++}
+--- /dev/null
++++ b/src/com/android/settings/inputmethod/PointerSpeedPreferenceController.java
+@@ -0,0 +1,43 @@
++/*
++ * Copyright (C) 2026 The PW3 Android port
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.settings.inputmethod;
++
++import android.content.Context;
++
++import com.android.settings.core.PreferenceControllerMixin;
++import com.android.settingslib.core.AbstractPreferenceController;
++
++/** Pointer speed, where a pointing device can be used (InputDeviceAvailability). */
++public class PointerSpeedPreferenceController extends AbstractPreferenceController
++        implements PreferenceControllerMixin {
++
++    private static final String KEY_POINTER_SPEED = "pointer_speed";
++
++    public PointerSpeedPreferenceController(Context context) {
++        super(context);
++    }
++
++    @Override
++    public boolean isAvailable() {
++        return InputDeviceAvailability.canHavePointer(mContext);
++    }
++
++    @Override
++    public String getPreferenceKey() {
++        return KEY_POINTER_SPEED;
++    }
++}

@@ -1,0 +1,23 @@
+[
+  {
+    "source": "<project>/android-port/tools/kernel-smoke/network/netlink-wire.c",
+    "copy": "tests/netlink-wire.c",
+    "sha256": "ad7206194f458812f08b548ea8b7e3be8efe22a58b527599a4f407f8bdf91587"
+  },
+  {
+    "source": "<project>/android-port/tools/kernel-smoke/network/netlink-wire.h",
+    "copy": "tests/netlink-wire.h",
+    "sha256": "ce950103fad75f89c6022202e9bb80fef0cd57006e9150164d099d546dd5e22b"
+  },
+  {
+    "source": "<project>/android-port/tools/kernel-smoke/network/isolation-guard.h",
+    "copy": "tests/isolation-guard.h",
+    "sha256": "1b163f9b30f410a0f0750c9a6429e740f046fce6ac23bf4742b1d52247c7f8a9"
+  },
+  {
+    "source": "<project>/android-port/tools/kernel-smoke/network/network-smoke.c",
+    "copy": "tests/network-helpers.inc",
+    "source_sha256": "f23991a29adc0fcb71d6bc85c0f8387d45e2c6052615fe94c98ca01983b7a022",
+    "scope": "open_netlink, exchange, collect_link, read_link_snapshot, unchanged bodies"
+  }
+]

@@ -1,0 +1,21 @@
+From: PW3 Android port
+Subject: [PW3] perfprofd.rc: the path init starts is where the binary is
+
+perfprofd's Android.bp builds a cc_binary, which installs to /system/bin, and
+its init script starts /system/xbin/perfprofd. Nothing is at that path, so
+init fails to start the service at every boot of a debug build and logs it.
+
+The service is in debug builds only, so a release image never had the line;
+a test image is where this project reads its logs, and a failure that is not
+one costs the reader the same time either way.
+
+--- a/perfprofd/perfprofd.rc
++++ b/perfprofd/perfprofd.rc
+@@ -1,6 +1,6 @@
+-service perfprofd /system/xbin/perfprofd
++service perfprofd /system/bin/perfprofd
+     class late_start
+     user root
+     group root wakelock
+     oneshot
+     writepid /dev/cpuset/system-background/tasks
