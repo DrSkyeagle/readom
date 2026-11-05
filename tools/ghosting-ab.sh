@@ -53,6 +53,11 @@ sleep 6
 
 # "${@:-30 20 12}" 会在没有参数时展开成一个词，循环只跑一轮；用数组。
 if [ "$#" -gt 0 ]; then THRESHOLDS=("$@"); else THRESHOLDS=(30 20 12); fi
+# What to put back at the end: the value the device had before this script,
+# not a number written here. The build default moved from 30 to 20 (Panel.h)
+# while this line still wrote 30 back, which left the device one A/B run away
+# from the shipped behaviour (2026-11-04).
+was=$(adb_ shell getprop debug.pw3.epdc.full_every 2>/dev/null | tr -d '\r')
 for every in "${THRESHOLDS[@]}"; do
 	root "setprop debug.pw3.epdc.full_every $every"
 	# 先翻两页让新阈值被读到（16 帧一次），再从这里开始计数
@@ -71,8 +76,8 @@ for every in "${THRESHOLDS[@]}"; do
 	[ -n "$note" ] && echo "  >> $every: $note" >> ghosting-ab-notes.txt
 done
 
-root "setprop debug.pw3.epdc.full_every 30"
+root "setprop debug.pw3.epdc.full_every ${was:-\"\"}"
 adb_ shell rm -f /sdcard/pw3-ghost.html >/dev/null 2>&1
 echo
-echo "阈值已恢复成 30（下一版要固化哪个值，告诉我就行）。"
+echo "阈值已恢复成测试前的值（${was:-空，即构建默认}）。"
 [ -f ghosting-ab-notes.txt ] && { echo "记下的："; cat ghosting-ab-notes.txt; }

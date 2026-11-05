@@ -71,7 +71,7 @@ It started because I wanted to read WeRead, legitimately, on my Kindle, without 
 ### Features
 
 - **WeRead in one tap**: once Wi-Fi is on, the system downloads the e-ink edition from Tencent's own address, checks Tencent's signature, and installs it, with no computer involved.
-- **A newer way to browse the web**: EinkBro, an open-source browser made for e-ink, comes installed, and the web engine went from the Chromium 61 that Android 8.1 ships (2017) to Chromium 128 (2024), the newest official one Android 8.1 can run.
+- **A newer way to browse the web**: EinkBro, an open-source browser made for e-ink, comes installed, and the web engine went from the Chromium 61 that Android 8.1 ships (2017) to Chromium 128 (2024). AOSP later published official builds that still support Android 8, up to Chromium 138 (2025); whether to move to one is not decided yet.
 - **Better first guesses in pinyin**: rime-ice took the dictionary from 65,000 entries to more than 140,000, and on the same set of 110 test inputs the first candidate went from right 84 times to right 97 times; the layout is redrawn for e-ink.
 - **Made for the Kindle's own hardware**: front light, power key, battery, Wi-Fi and USB file transfer all work; close a magnetic cover and it sleeps, open it and it wakes.
 - **Back to the Kindle any time**: hold the power key and choose "Restart to Kindle"; if the system keeps failing, it goes back to the Kindle on its own, without wiping your data.

@@ -1,7 +1,7 @@
 # 适配别的 Kindle 机型
 
 这份文档回答一个问题：**把这套 Android 移到另一台 Kindle 上，要做哪些事、哪些已经是现成的。**
-内容来自对本仓库的清点（补丁数在 2026-10-29 按补丁目录实数）和对各机型原厂源码包的实测（2026-10-20 至 10-23），不是设想。**还没有在第二台机器上运行过任何一行**：这份文档是把工作量和边界算清楚，不是说已经支持。
+内容来自对本仓库的清点（补丁数 2026-11-04 按补丁目录重数）和对各机型原厂源码包的实测（2026-10-20 至 10-23），不是设想。**还没有在第二台机器上运行过任何一行**：这份文档是把工作量和边界算清楚，不是说已经支持。
 
 ## 一、前提：哪些机型可能行
 
@@ -9,7 +9,7 @@
 |---|---|---|
 | 能越狱、能在书库里运行 `.sh` | 整套安装、每次进入 Android 都靠它 | 5.16.2.1.1 可越狱 |
 | 亚马逊公布了该固件的 GPL 源码 | 我们要在原厂内核源码上打补丁，编出能跑 Android 的内核 | `Kindle_src_5.16.2.1.1` |
-| 原厂内核是 Linux 3.0.35 | 84 个内核补丁、交接模块、preinit 全是按它写的 | 3.0.35-lab126 |
+| 原厂内核是 Linux 3.0.35 | 85 个内核补丁、交接模块、preinit 全是按它写的 | 3.0.35-lab126 |
 | 显示控制器是 i.MX EPDC | 合成器、gralloc、波形接口都是按 `mxc_epdc` 写的 | i.MX6SL 的 EPDC |
 | 内存 ≥ 512 MB、存储能腾出约 2.1 GB | 本机 512 MB 已经要靠 zram 才能同时开浏览器和读书 | 512 MB / 4 GB |
 
@@ -61,7 +61,7 @@ PW1 的 2.6.31 不在考虑范围：那一代的内核太老，Android 8.1 要�
 
 ## 二、已经是"换个机型就能用"的部分
 
-内核补丁共 84 个：`patches/android-core/` 下 83 个，加上 `patches/` 根目录 1 个让 3.0.35 的构建脚本能在新版 Perl 下运行的修正（`patches/test-kernel/` 下另有 2 个只用于 QEMU 测试内核，不计入）。其中 **55 个不碰硬件代码**（binder、ashmem、SELinux、seccomp、qtaguid、路由、ASLR、capabilities、TCP 等），**29 个碰硬件代码**，约三分之二与硬件无关。
+内核补丁共 85 个：`patches/android-core/` 下 84 个，加上 `patches/` 根目录 1 个让 3.0.35 的构建脚本能在新版 Perl 下运行的修正（`patches/test-kernel/` 下另有 2 个只用于 QEMU 测试内核，不计入）。其中 **56 个不碰硬件代码**（binder、ashmem、SELinux、seccomp、qtaguid、路由、ASLR、capabilities、TCP、计时等），**29 个碰硬件代码**，约三分之二与硬件无关。
 
 判定看每个补丁改到的文件：只要有一个文件属于某颗具体芯片的驱动，或属于 SoC／板级代码（`arch/arm/mach-mx6/`），就算碰硬件。芯片驱动指 EPDC 与 PXP（`drivers/video/mxc`、`drivers/dma/pxp`）、USB 控制器（`drivers/usb/gadget/arcotg_udc.c`）、max77696 电源管理芯片的各个子驱动（`drivers/power`、`drivers/mfd`、`drivers/hwmon`、背光、电源键）、Cypress 触摸、霍尔传感器（`drivers/char/wario_hall.c`）和 ath6kl（`compat-wireless/drivers/net/wireless`）。不算的是 `drivers/` 下的通用框架（`drivers/staging/android` 里的 binder 与 ashmem、`drivers/base/power` 的唤醒源、`evdev`、USB gadget 的功能层 `android.c`／`f_mtp.c`、`uid_cputime`）、ARM 架构公共代码（`arch/arm/kernel`、`arch/arm/mm`）和 `compat-wireless` 里的 cfg80211。按这个标准，碰硬件的 29 个补丁改的全是硬件相关文件，没有一边改驱动一边改通用代码的混合补丁（`1000` 把控制 boardid 的开关声明在 `drivers/staging/android/Kconfig` 里，按它控制的代码算）。
 
@@ -112,7 +112,7 @@ AOSP 一侧的补丁共 156 个，分在 25 个项目里（`frameworks/base` 65 
 
 ## 五、结论
 
-- 这套系统**结构上支持多机型**：配置与硬件代码分得开，84 个内核补丁里 55 个与硬件无关，启动交接已经是按机型配置的。
+- 这套系统**结构上支持多机型**：配置与硬件代码分得开，85 个内核补丁里 56 个与硬件无关，启动交接已经是按机型配置的。
 - 但**每个新机型仍然是一次真实的移植工作**，不是改个参数：要有该机型的越狱、源码、一台机器，和重新测量。越狱和源码对几乎所有机型都已经具备（见第一节），所以真正的门槛是**原厂内核版本**和一台能上手的机器。
 - v0.1.0 只在 Kindle Paperwhite 3（第 7 代）+ 固件 5.16.2.1.1 上验证过。文档和安装器都按这个事实写，不声称支持别的机型。
 - **源码层面实测到哪一步，见第六、七节**：Oasis 1 与 PW3 拿到的是同一份内核源码，Voyage 的源码不同但当时的 79 个补丁全部可用，

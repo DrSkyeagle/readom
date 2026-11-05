@@ -9,8 +9,12 @@ version 128.0.6613.88, minSdk 26, 32-bit ARM only. Downloaded 2026-10-13 with th
 
 Why: the Android 8.1 tree carries Chromium 61 (2017) in the same repository; pages written for
 current browsers do not lay out with it (github.com on Test V32). 128.0.6613.88 is the newest
-version AOSP published there. Chromium 138 is the last that supports Android 8 at all (139 needs
-Android 10); a 138 build exists only outside AOSP.
+version on that repository's `main` branch. Chromium 138 is the last that supports Android 8 at all
+(139 needs Android 10). Corrected 2026-11-04: this used to say a 138 build exists only outside AOSP,
+which is wrong -- the same repository's `android16-qpr2-release` branch has official prebuilts of
+133, 134, 136 and 138 after 128, the newest being 138.0.7204.67 (commit `8bf71e6228`, 2025-07-17,
+`sdkVersion=26` for all four ABIs; 140.0.7339.4 is the first at `sdkVersion=29`). Whether to move
+to it is open again; this file describes what the image ships, which is still 128.
 
 Measured on the device (Test V32, the APK mounted over the old one, minimal WebView shell,
 `work/android-port/build-share/webview-128-eval/`):

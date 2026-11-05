@@ -69,8 +69,9 @@ struct Device {
     // window that appeared or went away from one that only drew again.
     pw3::Rect lastFrames[MaxLayers] = {};
     uint64_t cpuFrames = 0, fallbackFrames = 0, failures = 0, skippedOffFrames = 0;
-    // Frames with no layer to take: the surface composer posts its own target and
-    // the CPU composer has nothing to do. Counted apart from the refusals, which
+    // Frames with no layer at all, only the surface composer's own target. Not
+    // posted (see the worker): the target is cleared black, and the panel is
+    // better left showing what it has. Counted apart from the refusals, which
     // are what cost seconds a frame.
     uint64_t emptyFrames = 0;
     uint64_t partialFrames = 0, idleFrames = 0, dimFrames = 0, composeUsTotal = 0, postUsTotal = 0, composedPixels = 0;
@@ -412,6 +413,30 @@ int primary(Device* d,hwc_display_contents_1_t* list) {
             d->canvasCurrent=true;
             ++d->cpuFrames;if(partial)++d->partialFrames;if(!count)++d->idleFrames;if(dims)++d->dimFrames;
         }
+    } else if(list->numHwLayers<2) {
+        // Nothing but the target: the surface composer's own cleared buffer, and
+        // cleared is black (frameworks/native patch 0002 clears with 0,0,0,0).
+        // Posting it painted the panel black, twice in every start: from the
+        // boot picture the handoff had drawn until the first window -- 85 s of
+        // a start that had to recompile an application (2026-11-04, builds g
+        // and h, five such frames) -- and again for the 0.3 s between the
+        // fallback home going away and the launcher's first frame (build i:
+        // FallbackHome destroyed 10:55:16.10, Launcher displayed 16.43), a full
+        // black update right before the home screen. An e-ink panel keeps what
+        // it shows, and a frame with nothing in it has nothing to replace that
+        // with; whatever comes next does. The surface composer sends such a
+        // frame once when its last layer goes and then stops composing
+        // (SurfaceFlinger_hwc1.cpp, "all layers removed"), so the panel keeps
+        // the last window until a new one draws: at boot and when the launcher
+        // restarts that is under a second, and a system with no window at all
+        // does not otherwise occur (the home is always there). The fence is
+        // still taken, as every frame's is, and the frame is counted
+        // (empty_frames) so that the dump can say how many were dropped.
+        if(target.compositionType!=HWC_FRAMEBUFFER_TARGET||!target.handle)return -EINVAL;
+        if((rc=acquire(target.acquireFenceFd)))return rc;
+        d->canvasCurrent=false;
+        d->lastComposeUs=(now()-began)/1000;d->lastPostUs=0;
+        ++d->emptyFrames;
     } else {
         if(target.compositionType!=HWC_FRAMEBUFFER_TARGET||!target.handle)return -EINVAL;
         if((rc=acquire(target.acquireFenceFd)))return rc;
@@ -419,7 +444,7 @@ int primary(Device* d,hwc_display_contents_1_t* list) {
         d->lastComposeUs=(now()-began)/1000;
         const int64_t postBegan=now();rc=d->framebuffer->post(d->framebuffer,target.handle);
         d->lastPostUs=(now()-postBegan)/1000;
-        if(!rc) { if(list->numHwLayers<2)++d->emptyFrames; else ++d->fallbackFrames; }
+        if(!rc)++d->fallbackFrames;
     }
     d->composeUsTotal+=uint64_t(d->lastComposeUs);d->postUsTotal+=uint64_t(d->lastPostUs);
     d->maxComposeUs=std::max(d->maxComposeUs,d->lastComposeUs);d->maxPostUs=std::max(d->maxPostUs,d->lastPostUs);

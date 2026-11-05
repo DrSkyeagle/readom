@@ -210,7 +210,15 @@ class HomeScreenEntries(unittest.TestCase):
         # Against the CREATE TABLE itself rather than the constants: `_id` is
         # BaseColumns', not the launcher's, and the schema is what a write hits.
         schema = settings.split('addTableToDb')[1]
-        for column in re.findall(r'private static final String [A-Z_]+ = "([a-zA-Z_]+)";', handover):
+        # The handover declares the columns first, up to CONTAINER_DESKTOP; what
+        # follows are its own preference keys (some spelled like columns, one
+        # not), which no table has to know. Both cuts are checked for, so that
+        # a moved marker cannot leave this loop with nothing to check.
+        self.assertIn('CONTAINER_DESKTOP', handover)
+        columns = re.findall(r'private static final String [A-Z_]+ = "([a-zA-Z_]+)";',
+                             handover.split('CONTAINER_DESKTOP')[0])
+        self.assertGreaterEqual(len(columns), 15, 'the column block has moved: ' + repr(columns))
+        for column in columns:
             self.assertIn('"%s ' % column, schema,
                           'the favorites table has no column called ' + column)
 

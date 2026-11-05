@@ -1,7 +1,7 @@
 # Porting to other Kindle models
 
 This document answers one question: **what has to be done to move this Android to another Kindle, and what is already there.**
-It comes from an inventory of this repository (the patch counts are an actual count of the patch directories on 2026-10-29) and from measurements on each model's stock source release (2026-10-20 to 10-23), not from imagining. **Not one line of it has run on a second machine**: this document exists to get the amount of work and the boundaries right, not to claim support.
+It comes from an inventory of this repository (the patch counts are a recount of the patch directories on 2026-11-04) and from measurements on each model's stock source release (2026-10-20 to 10-23), not from imagining. **Not one line of it has run on a second machine**: this document exists to get the amount of work and the boundaries right, not to claim support.
 
 ## 1. The prerequisites: which models could work
 
@@ -9,7 +9,7 @@ It comes from an inventory of this repository (the patch counts are an actual co
 |---|---|---|
 | It can be jailbroken and run a `.sh` from the library | The whole install, and every entry into Android, depends on it | 5.16.2.1.1 can be jailbroken |
 | Amazon published the GPL source for that firmware | We patch the stock kernel source to build a kernel that can run Android | `Kindle_src_5.16.2.1.1` |
-| The stock kernel is Linux 3.0.35 | The 84 kernel patches, the handover module and preinit are all written against it | 3.0.35-lab126 |
+| The stock kernel is Linux 3.0.35 | The 85 kernel patches, the handover module and preinit are all written against it | 3.0.35-lab126 |
 | The display controller is an i.MX EPDC | The composer, gralloc and the waveform interface are written against `mxc_epdc` | The i.MX6SL's EPDC |
 | At least 512 MB of memory, and about 2.1 GB that can be freed on the store | 512 MB on this machine already needs zram to have the browser and the reader open at once | 512 MB / 4 GB |
 
@@ -61,7 +61,7 @@ The PW1's 2.6.31 is out of scope: that generation's kernel is too old, and suppl
 
 ## 2. The parts that already work on a different model
 
-There are 84 kernel patches: 83 in `patches/android-core/`, plus 1 in `patches/` itself, a fix that lets 3.0.35's build scripts run under a current Perl (the 2 in `patches/test-kernel/` are for the QEMU test kernels only and are not counted). **55 of them do not touch hardware code** (binder, ashmem, SELinux, seccomp, qtaguid, routing, ASLR, capabilities, TCP and so on) and **29 do** -- about two thirds are hardware-independent.
+There are 85 kernel patches: 84 in `patches/android-core/`, plus 1 in `patches/` itself, a fix that lets 3.0.35's build scripts run under a current Perl (the 2 in `patches/test-kernel/` are for the QEMU test kernels only and are not counted). **56 of them do not touch hardware code** (binder, ashmem, SELinux, seccomp, qtaguid, routing, ASLR, capabilities, TCP, timekeeping and so on) and **29 do** -- about two thirds are hardware-independent.
 
 The deciding test is the files each patch changes: if any one of them belongs to a specific chip's driver or to the SoC and board code (`arch/arm/mach-mx6/`), the patch touches hardware. The chip drivers are the EPDC and PXP (`drivers/video/mxc`, `drivers/dma/pxp`), the USB controller (`drivers/usb/gadget/arcotg_udc.c`), the sub-drivers of the max77696 power management chip (`drivers/power`, `drivers/mfd`, `drivers/hwmon`, the backlight, the power key), the Cypress touch controller, the Hall sensor (`drivers/char/wario_hall.c`) and ath6kl (`compat-wireless/drivers/net/wireless`). What does not count: the generic frameworks under `drivers/` (binder and ashmem in `drivers/staging/android`, the wakeup sources in `drivers/base/power`, `evdev`, the USB gadget function layer `android.c`/`f_mtp.c`, `uid_cputime`), the ARM architecture's common code (`arch/arm/kernel`, `arch/arm/mm`) and cfg80211 in `compat-wireless`. By that test the 29 hardware patches change nothing but hardware files; no patch mixes a driver change with a generic one (`1000` declares the option controlling boardid in `drivers/staging/android/Kconfig`, and counts by the code that option controls).
 
@@ -112,7 +112,7 @@ the composer, gralloc, the general parts of the power and lights HALs, the keybo
 
 ## 5. The conclusion
 
-- This system **supports several models structurally**: configuration is separable from hardware code, 55 of the 84 kernel patches have nothing to do with hardware, and the boot handover is already configured per model.
+- This system **supports several models structurally**: configuration is separable from hardware code, 56 of the 85 kernel patches have nothing to do with hardware, and the boot handover is already configured per model.
 - But **every new model is still a real porting job**, not a parameter change: it takes that model's jailbreak, its source, one of the machines, and measuring again. The jailbreak and the source are available for nearly every model (section 1), so the real threshold is **the stock kernel version** and having a machine in hand.
 - v0.1.0 has been verified on the Kindle Paperwhite 3 (7th generation) with firmware 5.16.2.1.1 and nothing else. The documents and the installer are written to that fact and claim no other model.
 - **How far the source level has been measured is in sections 6 and 7**: the Oasis 1 and the PW3 get the same kernel source, the Voyage's source differs but all 79 patches of the time apply,

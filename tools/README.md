@@ -25,7 +25,7 @@ python3 tools/run-tests.py            # 跑能跑的
 | 构建内核 | `build-kernel.sh`（Readom 的那棵）、`build-loader-stage-kernel.sh`（QEMU 夹具的第一级）、`build-kernel-smoke.sh`、`make-test-kernel-config.py` |
 | 取第三方预构建件 | `fetch-prebuilts.py`（按 `source-lock.json` 的哈希） |
 | 发行 | `make-release-keys.sh`、`collect-copyleft-sources.py` |
-| 设备上自检 | `verify-device.sh`（在设备上跑，十二节；要 root 的那几项在 `user` 镜像上会如实列成「要 root」而不是通过，脚本开头打印能不能提权、末尾给计数——数字别抄在这里，每加一项就变） |
+| 设备上自检 | `verify-device.sh`（在设备上跑，十二节；要 root 的那几项在 `user` 镜像上会如实列成「要 root」而不是通过，脚本开头打印能不能提权、末尾给计数——数字别抄在这里，每加一项就变。每一项的结论有四种：`ok`、`FAIL`、`--`（问不出来）、`~~`（这个镜像上按设计查不了，每一项都写了替代问法：发行构建上要 root 才能问的都在这里，另有几项看这次启动的状态而定，比如这次开机自己通读过镜像、没有后台校验要做。2026-11-04 在发行的 h 版上是 9 项——要 root 的 8 项（`default.prop` 1 项、dm-0 到 dm-3 的只读位 4 项、`/pw3-user` 上的 `android/state` 1 项、报告区 1 项、PID 1 的 0/1/2 1 项）加上后台校验那 1 项；原来这里写的「六项」是旧数）。退出码跟着来：0 是该在这个镜像上问的都问到了而且都对（`~~` 不挡），1 是有检查失败，**2 是没发现错的但有几项没能查**，所以 2 不构成验收通过。`--` 和 `~~` 分开是必须的——混在一起会让任何发行镜像都到不了退出 0） |
 | 出事了手动用的两把 | `read-crash-from-data-image.sh`（**adb 够不着的时候**：launcher 每次启动就崩，没人进得去开发者选项，而崩溃在 `/data/system/dropbox` 里——这个脚本把 `data.img` 拷出来在虚拟机里只读挂载，打印 DropBox、tombstone 和 ANR）、`kindle-readonly-probe.sh`（在 Kindle 原厂系统上跑，只读采集硬件信息，写 `/mnt/us/pw3-port-probe/`，移植新机型时用） |
 | 发出去之前的闸门 | `check-private-data.py`（设备序列号、Wi-Fi 名称、密钥）、`check-image-references.py`、`tests/test_doc_links.py` |
 | 宿主机测试 | `tests/`（28 个 Python 测试）、`kernel-smoke/`、`kernel-hardware/`、`aosp-*-smoke/`、`preinit-pack/`、`host-art/` |

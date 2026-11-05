@@ -1,0 +1,42 @@
+From: PW3 Android port
+Subject: [PW3] Nothing closing is nothing to keep
+
+0069's wouldLeaveTheScreenEmpty() asks whether the applications that are
+opening have anything on the screen, and when none does it says the previous
+screen is to be kept. It did not ask whether there was a previous screen to
+keep: with mClosingApps empty the answer was still "keep", the log said
+"keeping 0 screen(s)" (on the device, 2026-11-03), and the loop that holds the
+closing applications turned zero times. Harmless in effect, and wrong in what
+it said -- and that line is the one judge of this branch in every device run
+since (patches/VERIFICATION.md), so a judge that can say something false is a
+defect of its own. Issue #2 (a) in the public repository; open-items, "two
+small changes, first in line for the next image".
+
+What changes: when nothing is closing the question is answered "no" before the
+opening applications are looked at. The other half of Issue #2, writing
+ro.pw3.hold_screen_past_deadline into pw3.mk so that the property list says
+the feature is on, is in device/amazon/pw3 and not here.
+
+Not run on the device yet when this patch was written. What to watch for: a
+transition past its deadline with nothing closing logs nothing from this
+branch; the X1-X7 runs of 2026-11-04 (section 3a of the takeover notes) are
+unchanged, since every one of them had a closing application.
+
+--- a/services/core/java/com/android/server/wm/WindowSurfacePlacer.java
++++ b/services/core/java/com/android/server/wm/WindowSurfacePlacer.java
+@@ -584,6 +584,15 @@
+             // whatever was behind it, which is not this question.
+             return false;
+         }
++        if (mService.mClosingApps.isEmpty()) {
++            // Nothing is closing, so there is nothing to keep: the screen stays
++            // whatever it already is without any help from here. Without this
++            // the line below said "keeping 0 screen(s)" on the device
++            // (2026-11-03); the loop that follows turned zero times, so no
++            // harm came of it, but that line is the one judge of this branch
++            // and it stated something that was not so.
++            return false;
++        }
+         for (int i = 0; i < openingCount; i++) {
+             if (hasSomethingOnScreen(mService.mOpeningApps.valueAt(i))) {
+                 return false;

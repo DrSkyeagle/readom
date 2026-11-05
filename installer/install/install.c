@@ -24,8 +24,19 @@
 #define CLOCK_SKEW_SECONDS (24 * 3600)
 /* curl's answer when the transfer stayed under the floor the download is given
  * (--speed-limit 1024 --speed-time 60, kindle.c): under 1 KB/s for a whole
- * minute. Bytes may well have arrived; the rate is the answer. */
+ * minute. Bytes may well have arrived; the rate is the answer.
+ *
+ * 100 is what the Kindle's own curl printed for it, six times in a row, on
+ * 2026-10-31 (`curl: (100) Operation too slow`), and E101 pins the firmware
+ * that curl ships with. Every curl built from curl's own sources says 28
+ * (CURLE_OPERATION_TIMEDOUT; measured on curl 8.7, 2026-11-04). Both are taken,
+ * so that this file does not depend on one vendor build's numbering. */
 #define CURL_TOO_SLOW 100
+#define CURL_TOO_SLOW_UPSTREAM 28
+static int too_slow(int status)
+{
+	return status == CURL_TOO_SLOW || status == CURL_TOO_SLOW_UPSTREAM;
+}
 
 enum image_state { IMG_NONE, IMG_WRITING, IMG_READY };
 
@@ -658,7 +669,7 @@ static enum inst_code download(struct run *r)
 		 * serving slowly while another answered 404 twice. */
 		if (moved)
 			refused = 0;
-		if (moved && status != CURL_TOO_SLOW) {
+		if (moved && !too_slow(status)) {
 			idle = 0;
 		} else {
 			idle++;

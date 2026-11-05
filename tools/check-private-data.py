@@ -218,6 +218,31 @@ def history_items(pairs):
 HELPER_MARKER = b'\n__PW3_FIRST_KERNEL_HELPER_BASE64__\n'
 
 
+def is_text(block):
+    """Bytes a person could have written, as opposed to a compiler's output.
+
+    Used to say whether a pattern hit is worth anything. The patterns here are
+    shapes -- something @ something dot something, sixteen alphanumeric
+    characters -- and a megabyte of compiled code throws those shapes up by
+    chance, while a megabyte of text does not. This is not a judgement about the
+    file's importance: a denylisted value is reported wherever it is found,
+    because that is an exact match against one of this machine's own values.
+
+    NUL bytes or an invalid UTF-8 sequence. Deliberately not a heuristic over
+    the ratio of printable characters: a program that was mostly ASCII would
+    come out either side of any threshold depending on the build, and the whole
+    reason this function exists is that the previous test (which side of a
+    marker the bytes fell on) gave the same bytes two different answers.
+    """
+    if b'\0' in block:
+        return False
+    try:
+        block.decode('utf-8')
+    except UnicodeDecodeError:
+        return False
+    return True
+
+
 def decoded_helper(data):
     """The launcher script with its helper decoded, so that the helper is read as
     the binary it is.
@@ -256,31 +281,102 @@ def check_file(path, rel, allow, deny_text, deny_mac, word_counts, data=None):
     # this guards against something new arriving rather than limiting anything
     # that is here.
     if len(data) > MAX_BYTES:
-        return [(0, 'not scanned', 'longer than %d bytes' % MAX_BYTES)]
-    data = decoded_helper(data)
+        return [(0, 'not scanned', 'longer than %d bytes' % MAX_BYTES, False)]
+    # The bytes as they are, always, plus the decoded form when there is one.
+    #
+    # This took two wrong answers to get to, and both of them were the same
+    # mistake: deciding not to read the file's own bytes.
+    #
+    # decoded_helper() used to *replace* them, so everything after the marker was
+    # read only as whatever the base64 decoded to -- and whether that happened
+    # turned on nothing but the length of the tail, because
+    # b64decode(validate=False) throws away every character outside the alphabet
+    # and then asks only whether a multiple of four is left. Measured on this
+    # host, 2026-11-03, the same secret in the same file either side of a
+    # one-character change: a tail of 20 base64 characters hid it, 19, 21 and 22
+    # did not.
+    #
+    # The repair was to keep the raw bytes unless the tail is one well-formed
+    # base64 blob. That is still a decision not to read them, and it hides
+    # exactly the values this file exists to find: a Kindle serial number is
+    # sixteen alphanumeric characters, every one of them in the base64 alphabet,
+    # so a serial behind the marker satisfies the test and disappears. Measured
+    # the same day, with a synthesized sixteen-character serial after the marker
+    # (Codex, who was asked to build this and did):
+    #
+    #   as plain text          ->  1 finding, Kindle serial number
+    #   behind the marker      ->  0 findings
+    #   and with that value on the denylist, still 0 -- the exact comparison
+    #   against this developer's own values was cancelled with the rest
+    #
+    # The length coin flip was still there too, one gate further in: the same
+    # secret hid at 16 characters and at 20, and was found at 17, 18 and 19.
+    #
+    # So the question "should these bytes be read" is not asked any more. Both
+    # forms are read, and what the suppression was buying -- the encoded text of
+    # a real launcher is 7.6 MB of base64, and a run of it reads as an address or
+    # a serial number by chance -- is bought back where it belongs: in what the
+    # summary reports, not in what the scan skips. Pattern hits inside an encoded
+    # region are counted separately, because a count that is reported can be
+    # judged and a scan that was skipped cannot. See release-build.md step 10.
+    decoded = decoded_helper(data)
+    views = [data]
+    if decoded != data:
+        views.append(decoded)
+    # Which bytes a person could have written, and which are a compiler's or an
+    # archiver's output. A pattern here is a shape -- something @ something dot
+    # something, sixteen alphanumeric characters -- and in a megabyte of compiled
+    # code those shapes turn up by chance. In text they do not.
+    #
+    # The first version of this asked only "is this past the helper marker",
+    # which separated the wrong two things. Measured on entry-v010-ship2: the
+    # same helper binary was called a chance match inside Readom.sh, where the
+    # marker is, and a real finding as launcher/helper, where it is the whole
+    # file -- same bytes, same two hits, two different verdicts. And the standalone
+    # payload.S.o and public-initramfs.cpio.gz, which are nothing but machine
+    # output, counted as real.
+    #
+    # So the question is asked of the bytes. A launcher splits at the marker: the
+    # script above it is text, everything below it is the program. Any other file
+    # is one region, text or not. A denylist hit is never discounted either way --
+    # those are this developer's own values, sixteen characters and longer, and an
+    # exact match of one is not a coincidence.
+    marker_at = data.find(HELPER_MARKER)
+    machine_from = marker_at + len(HELPER_MARKER) if marker_at >= 0 else None
+    head_is_text = is_text(data if machine_from is None else data[:machine_from])
+
+    def machine_at(off):
+        if machine_from is not None and off >= machine_from:
+            return True
+        return not head_is_text
+
     findings = []
-    for name, pattern in PATTERNS:
-        for m in pattern.finditer(data):
-            hit = m.group(0)
-            if name == 'MAC address' and mac_key(hit) in HARMLESS_MACS:
-                continue
-            if any(fnmatch.fnmatch(rel, glob) and text in hit for glob, text in allow):
-                continue
-            line = data.count(b'\n', 0, m.start()) + 1
-            findings.append((line, name, hit[:80].decode('utf-8', 'replace')))
-    if deny_text or deny_mac:
-        words = [(m.start(), m.group(0)) for m in WORD.finditer(data)]
-        for i, (start, word) in enumerate(words):
-            for n in word_counts:
-                if i + n > len(words):
+    for view in views:
+        for name, pattern in PATTERNS:
+            for m in pattern.finditer(view):
+                hit = m.group(0)
+                if name == 'MAC address' and mac_key(hit) in HARMLESS_MACS:
                     continue
-                joined = b' '.join(w for _, w in words[i:i + n])
-                for candidate in (joined, joined.rstrip(b'.:')):
-                    if sha(candidate) in deny_text:
-                        findings.append((data.count(b'\n', 0, start) + 1, 'denylisted value', '(hidden)'))
-            key = mac_key(word)
-            if len(key) == 12 and sha(key) in deny_mac:
-                findings.append((data.count(b'\n', 0, start) + 1, 'denylisted MAC', '(hidden)'))
+                if any(fnmatch.fnmatch(rel, glob) and text in hit for glob, text in allow):
+                    continue
+                line = view.count(b'\n', 0, m.start()) + 1
+                findings.append((line, name, hit[:80].decode('utf-8', 'replace'),
+                                 machine_at(m.start())))
+        if deny_text or deny_mac:
+            words = [(m.start(), m.group(0)) for m in WORD.finditer(view)]
+            for i, (start, word) in enumerate(words):
+                for n in word_counts:
+                    if i + n > len(words):
+                        continue
+                    joined = b' '.join(w for _, w in words[i:i + n])
+                    for candidate in (joined, joined.rstrip(b'.:')):
+                        if sha(candidate) in deny_text:
+                            findings.append((view.count(b'\n', 0, start) + 1,
+                                             'denylisted value', '(hidden)', False))
+                key = mac_key(word)
+                if len(key) == 12 and sha(key) in deny_mac:
+                    findings.append((view.count(b'\n', 0, start) + 1,
+                                     'denylisted MAC', '(hidden)', False))
     return sorted(set(findings))
 
 
@@ -372,17 +468,30 @@ def main():
         if missing:
             sys.exit('not a file: %s' % ', '.join(missing))
         counted, what = len(items), 'files'
+    machine_hits = 0
     for path, rel, data, blob in items:
-        for line, name, hit in check_file(path, rel, allow, deny_text, deny_mac, word_counts, data):
+        for line, name, hit, machine in check_file(path, rel, allow, deny_text, deny_mac,
+                                                   word_counts, data):
             # In history mode the blob as well as the path: one path has as many
             # versions as it has commits, and `git log --find-object=<blob>` is
             # how the commits holding this one are found.
             where = '%s@%s:%d' % (rel, blob[:12], line) if blob else '%s:%d' % (rel, line)
-            print('%s: %s: %s' % (where, name, hit))
+            print('%s: %s: %s%s' % (where, name, hit,
+                                    ' [in machine-generated bytes]' if machine else ''))
             total += 1
+            machine_hits += bool(machine)
     how = ('patterns only, no denylist in this tree' if denylist.get('absent')
            else '%d denylist entries' % len(deny))
-    print('%d %s checked, %s, %d findings' % (counted, what, how, total), file=sys.stderr)
+    # Both numbers on the summary line, rather than leaving the split to whoever
+    # reads the findings. Compiled code and compressed archives throw up these
+    # shapes by chance, so this count is normally non-zero on an entry directory
+    # and saying so is the point: the number that has to be zero is the other
+    # one. A scan that quietly dropped those bytes is what this replaced, and a
+    # count that is reported can be judged where a skipped scan cannot.
+    print('%d %s checked, %s, %d findings%s'
+          % (counted, what, how, total,
+             ' (%d of them in machine-generated bytes, where a chance match is expected)'
+             % machine_hits if machine_hits else ''), file=sys.stderr)
     if total and a.history:
         print('A finding here is published by making the repository public, and stays published: '
               'find the commits with `git log --all --find-object=<blob>`, and decide between '

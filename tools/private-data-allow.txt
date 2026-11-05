@@ -9,6 +9,7 @@ tools/check-private-data.py	/Users/
 tools/preinit-pack/tests/test_pack.py	BEGIN PRIVATE KEY
 # A git identity a test makes up for its own temporary repository.
 tools/tests/test_patch_series.py	test@example.com
+tools/tests/test_export_refuses.py	test@example.invalid
 # Not an address: the authority half of a URL the release-URL check has to refuse,
 # because credentials written there would be published in every release.
 tools/tests/test_release_url.py	user@github.com

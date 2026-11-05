@@ -33,6 +33,8 @@ public final class StatusActivity extends Activity {
     private static final long REFRESH_MS = 10000;
 
     private final Handler handler = new Handler();
+    /** The instance on the screen, if any: see {@link #openWeReadIfInFront}. */
+    private static volatile StatusActivity inFront;
     private Installer installer;
     private TextView state, detail;
     private Button action;
@@ -63,7 +65,57 @@ public final class StatusActivity extends Activity {
     @Override
     protected void onPause() {
         super.onPause();
+        if (inFront == this) inFront = null;
         handler.removeCallbacks(refresh);
+    }
+
+    /** Window focus, not resume: a notification shade pulled over this screen
+     *  takes the focus without pausing it, and then the reader is not looking
+     *  at this screen (a Codex review, 2026-11-04). */
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) inFront = this;
+        else if (inFront == this) inFront = null;
+    }
+
+    /**
+     * The reader who waited on this screen through the download and the install
+     * gets WeRead, not the home screen.
+     *
+     * {@link Installer#installed(int, String)} runs {@link #retire} the moment
+     * the session reports success, and disabling this component makes the
+     * activity manager finish any instance of it on the screen -- so a reader
+     * watching "installing, a minute or two" was dropped on the home screen
+     * two seconds after the install, and the "installed / open" state that
+     * show() prepares for exactly this moment was never seen (the first
+     * clean install of the release build, 2026-11-04: "安装好了不会自动进
+     * 入"). Called before retire(), from the same process the result arrives
+     * in, so the open happens while this component can still start things.
+     */
+    static void openWeReadIfInFront(Context context) {
+        StatusActivity screen = inFront;
+        inFront = null;   // consumed: one open, whoever asks next
+        if (screen == null || screen.isFinishing()) return;
+        Intent open = context.getPackageManager().getLaunchIntentForPackage(Installer.PACKAGE);
+        if (open == null) return;
+        try {
+            screen.startActivity(open);
+        } catch (RuntimeException e) {
+            // Gone between the lookup and the start. Not this method's problem
+            // to fix, and not a reason to skip the retire() and the notice that
+            // follow in the caller.
+            Log.w(Installer.TAG, "could not open WeRead after installing it", e);
+            return;
+        }
+        screen.finish();
+        // The caller posted "WeRead installed" just before calling this. A
+        // reader who is being taken into WeRead this moment has been told; for
+        // them the notice would only sit in the shade until swiped (seen on
+        // 2026-11-04). Taken down here, so the one install path that is watched
+        // leaves no notice behind and the unwatched one (installed in the
+        // background) keeps it.
+        Installer.quiet(context);
     }
 
     /** What is true now, in one of the five states this can be in. */
@@ -74,6 +126,9 @@ public final class StatusActivity extends Activity {
             set(R.string.entry_installed, 0, R.string.entry_open, new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
+                    // The same one-shot as openWeReadIfInFront(): a success
+                    // broadcast queued behind this tap must not open it again.
+                    inFront = null;
                     Intent open = getPackageManager().getLaunchIntentForPackage(Installer.PACKAGE);
                     if (open != null) startActivity(open);
                     finish();
@@ -173,10 +228,15 @@ public final class StatusActivity extends Activity {
      * this entry, so WeRead appears in that same cell, wherever the reader has
      * moved it to by then, under WeRead's own name and icon.
      *
-     * The cell is handed over once, here, and never taken back: it is the
-     * reader's from then on, like every other cell.
+     * The cell is handed over here and is the reader's from then on, like
+     * every other cell -- until WeRead is removed, when the launcher deletes
+     * the row and {@link HomeScreenCell#takeBack} puts the entry's back.
      */
     static void retire(Context context) {
+        // Disabling the component makes the activity manager drop any instance
+        // of it without a pause callback, so the reference is let go of here
+        // rather than left pointing at a screen that is gone.
+        inFront = null;
         ComponentName entry = new ComponentName(context, StatusActivity.class);
         PackageManager packages = context.getPackageManager();
         if (packages.getComponentEnabledSetting(entry)
@@ -212,8 +272,22 @@ public final class StatusActivity extends Activity {
         if (packages.getComponentEnabledSetting(entry)
                 == PackageManager.COMPONENT_ENABLED_STATE_DISABLED) {
             Log.i(Installer.TAG, "WeRead is not installed any more; the entry can be opened again");
+            // Owed before enabled, so that a process that dies between the two
+            // still owes it at the next boot.
+            HomeScreenCell.owe(context);
             packages.setComponentEnabledSetting(entry,
                     PackageManager.COMPONENT_ENABLED_STATE_DEFAULT, PackageManager.DONT_KILL_APP);
+        }
+        // Enabled is "in all apps". The cell on the home screen was WeRead's
+        // since the hand-over and went with it; it comes back as well
+        // (2026-11-04, the owner: "首屏幕不会还原「安装微信读书」的 ICON").
+        // Owed only on the way back from retired, and until it succeeds: a
+        // reader who took the entry off the home screen themselves, with
+        // WeRead never installed, is not given it back at every boot, and a
+        // launcher that was not answering at the moment of the uninstall does
+        // not cost the tile for good.
+        if (HomeScreenCell.owed(context)) {
+            HomeScreenCell.takeBack(context);
         }
     }
 }

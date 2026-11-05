@@ -33,6 +33,7 @@ Checks it runs, each of which can fail:
 import argparse
 import os
 import shutil
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -133,6 +134,20 @@ def main():
     global IGNORED
     IGNORED = git_ignored()
 
+    # A link named at the top of the include list never reaches the output as a
+    # link: copy2() follows one by default, and copytree() given one starts
+    # enumerating at its target, so what lands in the output is an ordinary file
+    # or an ordinary directory and the walk below has nothing left to find. So
+    # the source is asked before anything is copied (2026-11-03, found by
+    # review: the first version of the guard looked only at the output and this
+    # went straight past it).
+    for name in INCLUDE:
+        source = ROOT / name
+        if source.is_symlink():
+            sys.exit('the include list names %s and it is a symbolic link to %s; copying it '
+                     'would dereference it, so what gets published is that target\'s content '
+                     'under this name' % (name, os.readlink(source)))
+
     output.mkdir(parents=True, exist_ok=True)
     skipped = []
     for name in INCLUDE:
@@ -140,18 +155,84 @@ def main():
             sys.exit('the include list names %s and git ignores it' % name)
         skipped += copy_tree(ROOT / name, output / name)
 
-    files = [p for p in output.rglob('*') if p.is_file()]
+    # One walk, and it has to say that it finished.
+    #
+    # Everything below asks its question about `files`, so a subtree that was
+    # never enumerated is a subtree no check reads. Both of the ways this was
+    # written before answer an unreadable directory the same way they answer an
+    # empty one -- measured on this host, 2026-11-03: with one subdirectory
+    # chmod 000, `os.walk(output, followlinks=False)` yields it with an empty
+    # file list and `rglob('*')` names the directory and nothing inside it,
+    # neither raising. "No symbolic links here" and "this subtree was not read"
+    # were the same empty list, which is the defect this guard was added to
+    # prevent, in the guard itself. `onerror` turns it into an exception.
+    #
+    # The links matter because copytree(symlinks=True) copies a link as a link,
+    # and a link is not a file: it enters none of the checks below -- not the
+    # byte-for-byte comparison, not the private data scan, not the "inside what
+    # git publishes" set -- while what would be published is its text, which can
+    # name a path outside this tree. There is no symlink inside the include list
+    # today; this is here so that the day somebody adds one is not the day it
+    # leaves quietly.
+    def stop(error):
+        raise error
+
+    # The same goes for each entry's type. is_symlink() and is_file() answer
+    # False for an entry they cannot stat, so an entry the walk named but whose
+    # type could not be read was neither, and entered no check (2026-11-03
+    # Codex review, item 9). lstat raises instead, and anything that is not a
+    # directory, a file or a link -- a fifo, a socket -- is refused by name.
+    entries = []
+    files = []
+    links = []
+    others = []
+    for directory, subdirs, names in os.walk(output, followlinks=False, onerror=stop):
+        for name in subdirs + names:
+            path = Path(directory) / name
+            entries.append(path)
+            mode = os.lstat(path).st_mode
+            if stat.S_ISLNK(mode):
+                links.append('%s -> %s' % (path.relative_to(output), os.readlink(path)))
+            elif stat.S_ISREG(mode):
+                files.append(path)
+            elif not stat.S_ISDIR(mode):
+                others.append(str(path.relative_to(output)))
     print('%d files copied into %s' % (len(files), output))
+
+    if links:
+        sys.exit('the output has %d symbolic link(s), which none of the checks below reads '
+                 'and whose target may be outside this tree:\n  %s'
+                 % (len(links), '\n  '.join(sorted(links))))
+    if others:
+        sys.exit('the output has %d entr(ies) that are neither a file, a directory nor a link, '
+                 'which none of the checks below reads:\n  %s'
+                 % (len(others), '\n  '.join(sorted(others))))
+    # Nor is an empty output this tool passing: with no files, every check
+    # below is comparing empty sets and says so cheerfully.
+    if not files:
+        sys.exit('the output has no files at all, so none of the checks below asks anything')
     if skipped:
         print('left out (%d):' % len(skipped))
         for name in sorted(set(skipped)):
             print('  ' + name)
 
     failures = []
+    # Asked over the one enumeration above rather than with a fresh rglob, so
+    # that this cannot answer "not found" out of a subtree that was not read --
+    # and over every entry, not just the regular files, because most of the deny
+    # list is directory names (private, work, .git, node_modules) and a check
+    # that only looked at files would have stopped seeing all of them.
     for bad in sorted(DENY_NAMES):
-        found = [str(p.relative_to(output)) for p in output.rglob(bad)]
+        found = [str(p.relative_to(output)) for p in entries if p.name == bad]
         if found:
             failures.append('%s is in the output: %s' % (bad, ', '.join(found[:3])))
+    # The suffixes were filtered during the copy and never looked at again, so
+    # nothing said whether that filter had run (2026-11-03, found by review).
+    for bad in sorted(DENY_SUFFIXES):
+        found = [str(p.relative_to(output)) for p in entries if p.suffix == bad]
+        if found:
+            failures.append('%d file(s) with the denied suffix %s are in the output: %s'
+                            % (len(found), bad, ', '.join(sorted(found)[:3])))
 
     # REUSE names its licence files; a missing one turns `reuse lint` red on the
     # day, which is the wrong day to find out.
@@ -164,22 +245,66 @@ def main():
     # and then compared what was left against a hardcoded list of seven --
     # five of the fifteen licences in LICENSES/ could have gone missing without
     # a word (2026-11-03).
+    # The manifest's absence is not this check passing. Written as `if
+    # manifest.is_file():` with nothing on the other side, deleting REUSE.toml
+    # -- or exporting a tree that has not got one -- switched the whole check
+    # off and the export still said ok (2026-11-03).
     manifest = (output / 'REUSE.toml')
-    if manifest.is_file():
+    if not manifest.is_file():
+        failures.append('REUSE.toml is not in the output, so this check asked nothing; '
+                        'it is what names the licences that have to be there')
+    else:
         import re
+        import tomllib
+        # Parsed, not matched. Every pattern written for this missed a spelling
+        # that TOML reads the same way, and each time the miss was silent: the
+        # first one stopped at a space, so none of the five ids inside
+        # "Apache-2.0 AND ISC" were asked for at all; the second read all four
+        # of TOML's string forms and still missed a quoted key --
+        # `"SPDX-License-Identifier" = "Apache-2.0 AND ISC"`, which
+        # tomllib.loads proves is the same document (measured on this host,
+        # 2026-11-03) -- and the form-agnostic count added to catch exactly that
+        # shares the blind spot, so the two agreed with each other and said
+        # nothing. A parser has no spellings left to miss. It also stops the
+        # opposite mistake, reading a commented-out line as a real value, which
+        # the patterns did.
+        def spdx(node):
+            if isinstance(node, dict):
+                for key, value in node.items():
+                    if key == 'SPDX-License-Identifier':
+                        yield from ([value] if isinstance(value, str) else value)
+                    else:
+                        yield from spdx(value)
+            elif isinstance(node, list):
+                for item in node:
+                    yield from spdx(item)
+
+        values = []
+        try:
+            values = list(spdx(tomllib.loads(manifest.read_text())))
+        except (tomllib.TOMLDecodeError, TypeError) as problem:
+            failures.append('REUSE.toml could not be read as TOML, so this check does not '
+                            'know what licences it names: %s' % problem)
         wanted = set()
-        for expression in re.findall(r'SPDX-License-Identifier *= *"([^"]+)"',
-                                     manifest.read_text()):
+        for expression in values:
             for word in re.split(r'[()\s]+', expression):
                 if word and word.upper() not in {'AND', 'OR', 'WITH'}:
                     wanted.add(word.rstrip('+'))
-        have = {p.stem for p in (output / 'LICENSES').glob('*.txt')}
+        # A name is not a licence. `{p.stem for p in ...glob('*.txt')}` counted
+        # anything with the right name, so an empty file -- or a directory
+        # called ISC.txt -- answered for the licence text that has to ship with
+        # the code (2026-11-03, found by review). What is wanted is a readable,
+        # non-empty regular file.
+        have = set()
+        for path in sorted((output / 'LICENSES').glob('*.txt')):
+            if path.is_file() and not path.is_symlink() and path.stat().st_size > 0:
+                have.add(path.stem)
         if not wanted:
             failures.append('REUSE.toml named no licence at all, so this check asked for '
-                            'nothing; the manifest or this pattern has changed')
+                            'nothing; the manifest or the way it is read has changed')
         for name in sorted(wanted - have):
-            failures.append('REUSE.toml names %s and LICENSES/%s.txt is missing'
-                            % (name, name))
+            failures.append('REUSE.toml names %s and LICENSES/%s.txt is not there as a '
+                            'readable, non-empty file' % (name, name))
         if wanted and not wanted - have:
             print('all %d licence(s) REUSE.toml names are in LICENSES/' % len(wanted))
 
@@ -204,8 +329,18 @@ def main():
     # nothing to it. The counts are read back and a zero in either is a failure,
     # because "0 files checked, 0 denylist entries, 0 findings" is this check's
     # ordinary way of being switched off.
+    #
+    # And the scanner's absence is not a pass either. The counts above are read
+    # back because "0 files checked, 0 denylist entries" is this check's
+    # ordinary way of being switched off -- and then the whole thing sat behind
+    # `if check.is_file():` with nothing on the other side, so renaming or
+    # losing the scanner skipped every one of those guards and the export said
+    # ok (2026-11-03, found by review; the same shape as the REUSE check above).
     check = ROOT / 'tools' / 'check-private-data.py'
-    if check.is_file():
+    if not check.is_file():
+        failures.append('tools/check-private-data.py is not in this tree, so nothing looked '
+                        "for this developer's own values in what is about to be published")
+    else:
         run = subprocess.run([sys.executable, str(check)],
                              capture_output=True, text=True, cwd=str(ROOT))
         text = run.stdout + run.stderr
@@ -257,6 +392,15 @@ def main():
             failures.append('cannot ask git what it would publish: ' + run.stderr)
             break
         seen |= {name for name in run.stdout.split('\0') if name}
+    # An empty answer from both queries is not this check passing: it is this
+    # check comparing the output against nothing, which every path is outside
+    # of -- except that the comparison is the other way round, so every path
+    # passes. git exiting non-zero is handled above; succeeding and naming no
+    # file at all is a tree this tool cannot have exported from (2026-11-03,
+    # found by review).
+    if not seen and not failures:
+        failures.append('git names no file at all in this tree, so this check compared the '
+                        'output against an empty set')
     if seen:
         unseen = sorted(str(p.relative_to(output)) for p in files
                         if str(p.relative_to(output)) not in seen)
@@ -266,6 +410,52 @@ def main():
                             % (len(unseen), ', '.join(unseen[:5])))
         else:
             print('all %d are inside what the private data check reads' % len(files))
+
+        # The other direction, which nothing above asks: everything that should
+        # be in the output is. "Every exported file is this tree's and was read"
+        # holds just as well for an export that silently left half the tree
+        # behind -- a copy that skipped what it could not stat, an INCLUDE entry
+        # that matched less than it used to. RELEASE-PLAN said the only proof
+        # was to diff the two file lists after exporting, and nothing did
+        # (2026-11-03 Codex review, item 9; added 2026-11-04). Expected is what
+        # git tracks or would add, under the included names, minus the deny
+        # list -- the same rules the copy applies -- and only files that exist,
+        # because a tracked file deleted in the work tree is not one to export.
+        #
+        # "Exists" is asked with lstat and only "no such file" counts as no:
+        # Path.is_file() on this host's Python 3.15 answers False for a file it
+        # may not stat, which would drop from the expected set exactly the file
+        # a copy that could not read it left behind.
+        exported = {str(p.relative_to(output)) for p in files}
+        expected = set()
+        unreadable = []
+        for name in seen:
+            parts = Path(name).parts
+            if not parts or parts[0] not in INCLUDE:
+                continue
+            # At every level, as the copy applies it: its ignore() is asked for
+            # each name in each directory, so a directory called `old.orig` is
+            # left out with everything under it (11-04 review, item 12).
+            if any(part in DENY_NAMES or Path(part).suffix in DENY_SUFFIXES for part in parts):
+                continue
+            try:
+                mode = os.lstat(ROOT / name).st_mode
+            except FileNotFoundError:
+                continue
+            except OSError as error:
+                unreadable.append('%s (%s)' % (name, error.strerror))
+                continue
+            if stat.S_ISREG(mode) or stat.S_ISLNK(mode):
+                expected.add(name)
+        if unreadable:
+            failures.append('cannot tell whether %d file(s) git tracks or would add exist: %s'
+                            % (len(unreadable), ', '.join(sorted(unreadable)[:5])))
+        left_behind = sorted(expected - exported)
+        if left_behind:
+            failures.append('%d file(s) git tracks or would add under the included names are not '
+                            'in the output: %s' % (len(left_behind), ', '.join(left_behind[:5])))
+        else:
+            print('and all %d files that should be there are' % len(expected))
 
     if failures:
         print('\nFAILED')

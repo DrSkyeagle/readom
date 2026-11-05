@@ -482,9 +482,15 @@ final class Installer {
             // this is where the entry gives up its cell. It used to be done
             // only by the status screen, which meant the home screen kept
             // offering to install an application that was already there until
-            // somebody opened that screen.
-            StatusActivity.retire(context);
+            // somebody opened that screen. A reader looking at that screen
+            // right now is taken into WeRead first; retire() would otherwise
+            // take the screen away under them (StatusActivity.openWeReadIfInFront).
+            // The notice first: openWeReadIfInFront() takes it down again when
+            // it did open WeRead for somebody, and a cancel that ran before the
+            // post would leave the notice standing.
             notify(context.getString(R.string.installed), null, false);
+            StatusActivity.openWeReadIfInFront(context);
+            StatusActivity.retire(context);
             return;
         }
         Log.w(TAG, "install status " + status + ": " + message);
@@ -504,6 +510,11 @@ final class Installer {
          * 2026-10-30). Queueing the retry before giving up the job is the
          * version with no window in it. */
         schedule(context);
+    }
+
+    /** Takes this application's one notification down. */
+    static void quiet(Context context) {
+        context.getSystemService(NotificationManager.class).cancel(NOTIFICATION);
     }
 
     private NotificationManager notifications() {

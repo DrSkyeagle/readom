@@ -1,0 +1,54 @@
+From: PW3 Android port
+Subject: [PW3] USB: a function switch gets the time this machine needs
+
+`UsbDeviceManager.waitForState()` polls `sys.usb.state` twenty times, 50 ms
+apart, and gives the switch up after that second. On this machine the switch
+that matters most -- to `mtp,adb` once boot completes (patch 0033 asks for it
+when the device has no lock screen) -- took longer than that on every boot that
+had adb on, and the failsafe put the previous functions, `adb`, back. So a
+device with USB debugging on had no MTP after any boot (builds g, h and i,
+2026-11-04: `waitForState(mtp,adb) FAILED: got none`, then `Failsafe 1`), and
+a computer on the cable saw an adb-only device, while `dumpsys usb` said
+`mUsbDataUnlocked: true` -- the files were meant to be there.
+
+The second is not enough because init is single-threaded and, at the moment
+of the request, is working through the actions for `sys.boot_completed=1`:
+four `exec` of `bootstat` in sequence, 1.19 s on build h and 2.07 s on build
+i, measured from init's own "processing action" and "exited" lines in the
+device log. The handler for `mtp,adb` (init.pw3.usb.rc) is queued behind them
+and runs 1.2-2.1 s after the property was set; the gadget then needs adbd
+restarted and its descriptors written before it can be enabled. In steady
+state the same switch completes in 0.3 s (build f, 2026-11-04 05:01:46).
+
+The wait is scaled by `ro.hw_timeout_multiplier`, as patch 0012 scales the
+"isn't responding" deadlines: 4 on this product, so 80 polls, 4 s -- about
+twice the longest wait seen. The constant, its meaning and the failsafes are
+AOSP's; only the count changes, and a product that sets no multiplier gets
+the second it had.
+
+Not run on the device yet when this patch was written.
+
+--- a/services/usb/java/com/android/server/usb/UsbDeviceManager.java
++++ b/services/usb/java/com/android/server/usb/UsbDeviceManager.java
+@@ -546,11 +546,19 @@
+             sendMessageDelayed(msg, UPDATE_DELAY);
+         }
+ 
++        // PW3: the polls below are sized for phone hardware. A product with
++        // slower hardware sets ro.hw_timeout_multiplier (patch 0012), and on
++        // this one init is busy for 1-2 s with its boot-completed actions when
++        // the switch to mtp,adb is requested, so the second AOSP waits was
++        // never enough there.
++        private final int mStatePolls =
++                20 * Math.max(1, SystemProperties.getInt("ro.hw_timeout_multiplier", 1));
++
+         private boolean waitForState(String state) {
+             // wait for the transition to complete.
+-            // give up after 1 second.
++            // give up after 1 second (times ro.hw_timeout_multiplier).
+             String value = null;
+-            for (int i = 0; i < 20; i++) {
++            for (int i = 0; i < mStatePolls; i++) {
+                 // State transition is done when sys.usb.state is set to the new configuration
+                 value = SystemProperties.get(USB_STATE_PROPERTY);
+                 if (state.equals(value)) return true;

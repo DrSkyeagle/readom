@@ -1,0 +1,138 @@
+From: PW3 Android port
+Subject: [PW3] Wi-Fi: the idle timer counts awake time and yields to the screen
+
+Patch 0002 made the "screen off for a minute" alarm a non-waking one (RTC, not
+RTC_WAKEUP) so that a sleeping system is not woken only to switch off a card
+that lost power with the suspend. What that alarm then does was not measured,
+and it does two wrong things, both seen on 2026-11-04 (build i, `dumpsys wifi`
+records and the device log):
+
+- While the system is awake with the screen off (a cable in: 11:05-11:21), the
+  alarm manager holds a non-waking alarm back, up to fifteen minutes when the
+  device has been non-interactive that long (AlarmManagerService's
+  non-wakeup delay). The minute became sixteen: Wi-Fi switched off at 11:21:22,
+  not 11:06:13.
+- Whatever is still pending is delivered the moment the device becomes
+  interactive, which is the moment the screen comes on. 11:43:37.783:
+  CMD_DEVICE_IDLE, DeviceActiveState -> NoLockHeldState, DISABLED_MODE sent;
+  11:43:37.786: CMD_SCREEN_ON, back to DeviceActiveState, CONNECT_MODE sent.
+  WifiStateMachine was in SupplicantStoppingState for the second message and
+  took only its mode from it; it ended in InitialState with nobody to start
+  the supplicant again, while WifiController sat in StaEnabledState and so
+  ignored every "on" from Settings (`processed=StaEnabledState` for
+  CMD_WIFI_TOGGLED at 11:52:20 and 11:52:38; the switch showed on, the page
+  reopened off). `svc wifi disable` then `enable` was the only way out. The
+  "switched on but never comes up with the screen lit" report of 2026-11-02
+  (known-issues, fifteen, kind two) is this: the module unload that failed
+  there was a DISABLED_MODE arriving as the device woke.
+
+The timer is now the state machine's own delayed message, on the uptime clock:
+sixty seconds of the system being awake with the screen off. Across a suspend
+it does not run (the card is unpowered then anyway) and resumes counting on
+wake, with the screen still off; the screen coming on removes it. Nothing is
+scheduled with the alarm manager any more, so nothing can be held back or
+delivered late. Scheduling replaces, as setting the same alarm did: a timer
+already pending is removed before the new one is queued (the battery path
+re-arms it when a plug comes out with the screen off). And CMD_DEVICE_IDLE is
+taken only while the device is not interactive: a message due in the same
+instant the screen comes on is stale, and the screen-on that follows would
+otherwise cross with it as above. DeviceActiveState asks once per message and
+does the whole of the work for it, so that the flag, the battery attribution
+and the transition cannot disagree. The pending intent and its receiver stay
+as they were; they are not used.
+
+Not run on the device yet when this patch was written.
+
+--- a/service/java/com/android/server/wifi/WifiController.java
++++ b/service/java/com/android/server/wifi/WifiController.java
+@@ -355,12 +355,25 @@
+         mWifiStateMachine.updateBatteryWorkSource(mTmpWorkSource);
+     }
+ 
++    /**
++     * PW3: whether a CMD_DEVICE_IDLE just received is the timer firing with the
++     * screen already on. Idle means the screen is off; the message is dropped.
++     */
++    private boolean idleTimerIsStale() {
++        if (!mContext.getSystemService(android.os.PowerManager.class).isInteractive()) return false;
++        Slog.i(TAG, "PW3: idle timer with the screen on; ignored");
++        return true;
++    }
++
+     class DefaultState extends State {
+         @Override
+         public boolean processMessage(Message msg) {
+             switch (msg.what) {
+                 case CMD_SCREEN_ON:
+-                    mAlarmManager.cancel(mIdleIntent);
++                    // PW3: the idle timer is a delayed message of this state
++                    // machine (CMD_SCREEN_OFF below); the screen coming on
++                    // removes it.
++                    removeMessages(CMD_DEVICE_IDLE);
+                     mScreenOff = false;
+                     mDeviceIdle = false;
+                     updateBatteryWorkSource();
+@@ -378,18 +391,30 @@
+                         if (mNetworkInfo.getDetailedState() ==
+                                 NetworkInfo.DetailedState.CONNECTED) {
+                             if (DBG) Slog.d(TAG, "set idle timer: " + mIdleMillis + " ms");
+-                            // PW3: not a waking alarm. While the system sleeps the card
+-                            // is powered off already; waking it only to switch Wi-Fi off
+-                            // would cost a resume and a firmware start. While something
+-                            // keeps the system awake, the alarm fires on time.
+-                            mAlarmManager.set(AlarmManager.RTC,
+-                                    System.currentTimeMillis() + mIdleMillis, mIdleIntent);
++                            // PW3: a delayed message on the uptime clock, not an alarm.
++                            // It counts time the system is awake with the screen off:
++                            // across a suspend the card is unpowered already, and the
++                            // count resumes on wake. A non-waking alarm (patch 0002) was
++                            // held back by the alarm manager while the device was not
++                            // interactive, up to fifteen minutes, and then delivered the
++                            // moment the screen came on, crossing with CMD_SCREEN_ON.
++                            // Removing first replaces a timer already pending, as
++                            // setting the same alarm did.
++                            removeMessages(CMD_DEVICE_IDLE);
++                            sendMessageDelayed(CMD_DEVICE_IDLE, mIdleMillis);
+                         } else {
+                             sendMessage(CMD_DEVICE_IDLE);
+                         }
+                     }
+                     break;
+                 case CMD_DEVICE_IDLE:
++                    // PW3: idle means the screen is off. A message due in the instant
++                    // the device becomes interactive is stale, and the screen-on that
++                    // follows it would put the state machine through DISABLED_MODE and
++                    // CONNECT_MODE within milliseconds, which it does not survive
++                    // (2026-11-04 11:43:37). DeviceActiveState handles the message
++                    // whole and never passes it here; this is for the other states.
++                    if (idleTimerIsStale()) break;
+                     mDeviceIdle = true;
+                     updateBatteryWorkSource();
+                     break;
+@@ -405,9 +430,9 @@
+                     if (DBG) Slog.d(TAG, "battery changed pluggedType: " + pluggedType);
+                     if (mScreenOff && shouldWifiStayAwake(mPluggedType) &&
+                             !shouldWifiStayAwake(pluggedType)) {
+-                        long triggerTime = System.currentTimeMillis() + mIdleMillis;
+                         if (DBG) Slog.d(TAG, "set idle timer for " + mIdleMillis + "ms");
+-                        mAlarmManager.set(AlarmManager.RTC, triggerTime, mIdleIntent);
++                        removeMessages(CMD_DEVICE_IDLE);
++                        sendMessageDelayed(CMD_DEVICE_IDLE, mIdleMillis);
+                     }
+ 
+                     mPluggedType = pluggedType;
+@@ -837,6 +862,13 @@
+         @Override
+         public boolean processMessage(Message msg) {
+             if (msg.what == CMD_DEVICE_IDLE) {
++                // PW3: one look at the power state for the whole message. A stale
++                // timer (the screen is on) is dropped here, and a live one does
++                // what DefaultState would have done after the transition, so that
++                // the flag and the state cannot come apart on a second look.
++                if (idleTimerIsStale()) return HANDLED;
++                mDeviceIdle = true;
++                updateBatteryWorkSource();
+                 checkLocksAndTransitionWhenDeviceIdle();
+-                // We let default state handle the rest of work
++                return HANDLED;
+             } else if (msg.what == CMD_USER_PRESENT) {

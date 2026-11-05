@@ -47,6 +47,9 @@ NO_LINE_END = set('（「“《(')
 # on a computer, and every computer can zip one.
 DIAGNOSTICS_ZH = '报告时请把 Kindle 盘上 android/logs 文件夹整个发来。'
 DIAGNOSTICS_EN = 'When you report it, send the whole android/logs folder from the Kindle drive.'
+# The last sentence of every screen that ends a run; see screens(), errors.
+TAP_BACK_ZH = '看完点一下屏幕，回到书库。'
+TAP_BACK_EN = 'Tap the screen to go back to the library.'
 
 
 # The way back when a start does not finish. A restart always returns to the
@@ -316,6 +319,14 @@ def screens(payload_mb, payload_name, supported):
          'reason it could not start is on the drive, the next tap reads it, and anything that needs reinstalling is '
          'reinstalled, with no computer needed. ' + DIAGNOSTICS_EN),
     ]
+    # Every screen that ends a run stays until the reader taps it (kindle.h,
+    # kindle_hold_screen): the launcher that runs this script repaints the
+    # library over the screen about a second after the script exits, so the run
+    # waits instead, and the screen has to say what it is waiting for. The last
+    # sentence of the text and not a paragraph of its own, because E401 draws
+    # its number under the text, and a paragraph between "the space below" and
+    # the number would put the number under the wrong sentence.
+    errors = [(code, zh + TAP_BACK_ZH, en + ' ' + TAP_BACK_EN) for code, zh, en in errors]
     for code, zh, en in errors:
         if code == 'STOPPED':
             s.append((code, '没能启动', 'Could not start', [(zh, en)], False, False))

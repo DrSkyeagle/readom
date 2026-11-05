@@ -362,6 +362,13 @@ PRODUCT_PACKAGES += \
 # correction would make SurfaceFlinger compose every frame with CPU-emulated
 # GLES: more than 4 s of its CPU per frame magnified (Test V40.1). Settings does
 # not offer them (Settings 0006).
+# ro.pw3.hold_screen_past_deadline: true, and written here so that the list
+# above says so. The window manager's default is the same (frameworks/base
+# patches 0069-0073: when a transition's deadline passes with nothing drawn,
+# the previous screen is kept until the new one draws); it was only ever in the
+# Java until 2026-11-04 (open-items, "two small changes"), which is why a reader
+# of this file could not see the feature was on. debug.pw3.hold_screen_past_deadline
+# overrides it at run time.
 # ro.pw3.disable_starting_window: false since 2026-11-03, true before that. The
 # starting window costs another window -- 6 MB of fresh pages and a full-screen
 # update of 134 ms or more -- and what it buys is that the reader sees what they
@@ -389,6 +396,7 @@ PRODUCT_PROPERTY_OVERRIDES += \
     ro.pw3.software_canvas=true \
     ro.rescue_party.no_wipe=true \
     ro.pw3.disable_starting_window=false \
+    ro.pw3.hold_screen_past_deadline=true \
     ro.pw3.disable_display_transforms=true \
     ro.hw_timeout_multiplier=4 \
     ro.logd.size=256K \

@@ -38,6 +38,7 @@ On any other model or version the installer shows E101 and stops without changin
 3. Eject the Kindle on the computer, then unplug it. A charger is fine from now on; do not connect it to a computer during the installation.
 4. Tap "Readom" in the Kindle library.
    - The screen shows, in turn: checking → downloading (skipped with the offline package) → checking the package → installing, step 1 → installing, step 2, each with a progress bar.
+   - Meanwhile the screen does not respond to touch, and a swipe down from the top does not open the Kindle menu, which would cover the progress.
    - The first installation **took about 15 minutes** on the device (2026-11-01, v0.1.0, from tapping "Readom" to done, download of 188 MB and decompression included). The run from an offline package (2026-10-19, an earlier build) took about 18 minutes without a download. Different builds and different networks, so the gap is not a speed-up; both say this takes about a quarter of an hour. Step 2 is the slowest: it writes about 1.9 GB of storage space on the Kindle.
    - Android then starts by itself, which takes about 3 minutes; the screen does not change meanwhile.
 5. Afterwards the offline package is deleted. Keep `Readom.sh`: tapping it is how you start Android from now on.
@@ -49,8 +50,8 @@ If the battery runs out, the Kindle restarts, or you leave the installer by acci
 - **Start Android:** tap "Readom" in the Kindle library; about 3 minutes.
 - **Back to the Kindle's own system:** in Android, hold the power button and choose "Restart to Kindle".
 - **If it hangs:** wait two minutes first. When a start-up check does not pass, the device restarts itself back into the Kindle's own system. If nothing has happened after two minutes, **keep the power button pressed until the screen changes** -- up to about 40 seconds -- and it comes back into its own system the same way, with no data lost. (Do not let go after a dozen seconds: the exact reset time has never been measured on this device, and Amazon's own instructions say 40 seconds.)
-- **The screen keeps saying "Starting Android":** that is normal; the screen does not change for the whole start. Only a screen that flashes over and over means it could not start.
-- **How long does installing an app take**: open the APK with Files and tap Install. A large app takes a minute or two, and the screen says "Preparing the app for this device". This machine has no GPU, so an app's code is converted for it first, which is slower than a phone; after that it starts like anything else.
+- **The screen keeps saying "Starting Android":** that is normal; the screen may stay the same for a long time while it starts (the first start after a version change also recompiles the installed applications, which takes longer). A screen that does not change is not by itself a failure: when the start fails, the Kindle usually reboots into its own system by itself within a few minutes; if it never does, hold the power button down until the screen changes.
+- **How long does installing an app take**: open the APK with Files on the home screen. A warning about apps from unknown sources comes first ("Your tablet and personal data are more vulnerable to attack by unknown apps…"): tap Continue, then Install; when it is done, tap Open or go home, where the new app is in an empty cell. (Walked end to end on release candidate l on 2026-11-04, with an empty test app.) A large app takes a minute or two, and the screen says "Preparing the app for this device". This machine has no GPU, so an app's code is converted for it first, which is slower than a phone; after that it starts like anything else.
 - **Where an installed app is**: an app you install appears in a free cell of the home screen. The home screen also has an "All apps" cell, which opens the list of everything on this machine (a swipe up on the home screen opens the same list).
 
 ## Updating
@@ -59,7 +60,7 @@ Copy the new `Readom.sh` into `documents`, replacing the old one, and tap "Reado
 
 An update that replaces only the system, leaving the data alone, **took about 5 minutes** on the device.
 
-Some updates -- the ones that replace the boot image -- have to compile the installed apps for the new system, and the screen before the start says so when that is the case. **A large app takes three to five minutes** (the figure on the start screen, deliberately wider than what was measured): WeRead, at 127 MB, took 159 seconds once the system had a usage profile for it, and 60 to 93 seconds before it had one. Connect a charger and do not force a restart: a restart does no harm, but the app being compiled starts over.
+The first start after a version change compiles **the apps installed recently, before the background job got to them**, once more (WeRead took 70 seconds; what comes out is the same level as at install, and the background job compiles them to the final level when the device is idle), and leaves the ones that job has done alone; some updates -- the ones that replace the boot image -- have to compile every installed app again, and the screen before the start says so when that is the case. **A large app takes three to five minutes** (the figure on the start screen, deliberately wider than what was measured): WeRead, at 127 MB, took 159 seconds once the system had a usage profile for it, and 60 to 93 seconds before it had one. Connect a charger and do not force a restart: a restart does no harm, but the app being compiled starts over.
 
 If that start is interrupted -- a flat battery, an impatient hand -- the next one compiles from the beginning just the same. So the notice stays up **until the work has actually finished**, however many times you tap: every Android start leaves a report on the Kindle drive, and the stock side reads it and takes the notice away only once that system has completed a start.
 
@@ -73,7 +74,7 @@ To empty Android's data only (like a factory reset): delete just `android/data.i
 
 ## When something goes wrong
 
-The screen shows an error code with an explanation in Chinese and English.
+The screen shows an error code with an explanation in Chinese and English. It stays there until you tap the screen, which takes you back to the library; it also goes back by itself after 10 minutes, or when the power button puts the Kindle to sleep.
 
 | Code | Meaning | What to do |
 |---|---|---|

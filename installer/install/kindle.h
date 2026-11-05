@@ -7,6 +7,8 @@
 #ifndef PW3_KINDLE_H
 #define PW3_KINDLE_H
 
+#include <signal.h>
+
 #include "install.h"
 #include "screen.h"
 
@@ -34,5 +36,20 @@ void kindle_restore_awake(struct kindle *k);
  * exit status says whether the launcher must add its own line, so it cannot be
  * guessed (helper.c, stop_now). */
 int kindle_show_error(struct kindle *k, const struct inst_result *r);
+
+/* Keeps a screen that ends the run on the panel until the reader has seen it.
+ * The library's scriptlet launcher repaints the whole screen with the library
+ * about a second after the script exits (measured, 2026-11-04), so a run that
+ * stopped with a reason on the screen waits here, with the touch screen taken
+ * from the stock UI, until the reader taps -- or ten minutes pass, the Kindle
+ * goes to sleep, or *stop is set by a signal. Returns at once, saying why, when
+ * there is no touch screen it can take. */
+void kindle_hold_screen(volatile sig_atomic_t *stop);
+
+/* Takes the touch screen from the stock UI for the rest of the run, so that
+ * nothing it opens -- quick settings, a book under a tap the reader did not
+ * mean for it -- lands on the installer's screens. Called at every screen;
+ * does nothing once taken, and asks again while a finger is down. */
+void kindle_take_touch(void);
 
 #endif

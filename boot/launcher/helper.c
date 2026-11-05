@@ -72,12 +72,16 @@ _Static_assert(sizeof(struct pws_plan_status) == 40, "plan status ABI");
 static int output = -1, control = -1, loaded, workspace_created;
 static char workspace[128], node[160];
 static volatile sig_atomic_t interrupted;
+/* Set by a request to stop (SIGTERM, SIGINT, SIGHUP) and never cleared, unlike
+ * interrupted, which the 90-second SIGALRM sets too: holding the last screen
+ * (kindle_hold_screen) ignores the guard and must not ignore a request. */
+static volatile sig_atomic_t terminated;
 static unsigned checks;
 static int pm_test_changed;
 static int restore_pm_test(void);
 static int original_boot(void);
 static int root_readonly(void);
-static void notice(int signal_number) { (void)signal_number; interrupted = 1; }
+static void notice(int signal_number) { if (signal_number != SIGALRM) terminated = 1; interrupted = 1; }
 static void require(int condition, const char *message);
 #ifdef PW3_INSTALLER
 /* The installer's screens (installer/install/screen.h): their picture lives in a
@@ -93,6 +97,13 @@ static struct screen screen; static char screen_dir[64]; static int screen_ready
  * itself nowhere at all. */
 static int show(enum pw3_screen id) {
     if (!screen_ready) return 0;
+#if CHECK_PROFILE == 1
+    /* These screens too, not only the installer's: a run that finds the
+     * system in place draws one CHECK and then only these, so a finger that
+     * was down at that one would leave the rest of the run untaken
+     * (kindle_take_touch, kindle.h). */
+    kindle_take_touch();
+#endif
     if (screen_show(&screen, id, -1, 0)) { printf("PW3_INSTALL cannot show screen %d\n", (int)id); return 0; }
     return 1;
 }
@@ -145,6 +156,14 @@ static void cleanup(void) {
     if (!module_ok) fprintf(stderr,"First-kernel cleanup incomplete; normal restart clears remaining module\n");
     printf("PW3_FIRST_KERNEL_CLEANUP module_unloaded=%d original_boot_verified=%d root_readonly_verified=%d pm_restore_pending=%d\n",module_ok && !loaded && present()==0,original_boot(),root_readonly(),pm_test_changed);
     fflush(stdout);fsync(STDOUT_FILENO);
+#if defined(PW3_INSTALLER) && CHECK_PROFILE == 1
+    /* A run that stopped with its reason on the screen keeps it there until
+     * the reader taps (kindle.h): the launcher that started this script paints
+     * the library over the screen about a second after the script exits. After
+     * the module is gone and the log is on the disk, so a reader who leaves it
+     * for ten minutes is holding nothing but the screen. */
+    if (stopping && stop_shown) { kindle_hold_screen(&terminated); fflush(stdout); fsync(STDOUT_FILENO); }
+#endif
     if (workspace_created) { if (node[0]) unlink(node); rmdir(workspace); }
 #ifdef PW3_INSTALLER
     if (screen_ready) { screen_free(&screen); rmdir(screen_dir); screen_ready = 0; }
@@ -564,6 +583,18 @@ static void no_computer_on_usb(void) {
 }
 int main(int argc, char **argv) {
     setvbuf(stdout, NULL, _IOLBF, 0); umask(077);
+    /* The launcher's own last line (launcher-template.sh, finish): drawn when
+     * this program could not show a screen of its own, and gone a second after
+     * the script exits for the same reason as every other one. Only the hold,
+     * nothing else: no folder, no module, no lock. A build that draws no
+     * installer screens has nothing to hold and answers at once. */
+    if (argc == 2 && !strcmp(argv[1], "--hold-screen")) {
+#if defined(PW3_INSTALLER) && CHECK_PROFILE == 1
+        signal(SIGTERM, notice); signal(SIGINT, notice); signal(SIGHUP, notice);
+        kindle_hold_screen(&terminated);
+#endif
+        return 0;
+    }
     require(atexit(cleanup) == 0, "cleanup_registration");
     signal(SIGALRM, notice); signal(SIGTERM, notice); signal(SIGINT, notice); signal(SIGHUP, notice); alarm(90);
     require(argc == 2 && getuid() == 0 && geteuid() == 0, "explicit_root_invocation");

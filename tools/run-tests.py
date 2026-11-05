@@ -137,11 +137,14 @@ TESTS = [
     ('reuse', 'python', ['tools/tests/test_reuse.py'], False),
     ('launcher-call-sites', 'python', ['tools/tests/test_launcher_call_sites.py'], False),
     ('verify-script', 'python', ['tools/tests/test_verify_script.py'], False),
+    ('verify-device-answers', 'python', ['tools/tests/test_verify_device_answers.py'], False),
+    ('export-refuses', 'python', ['tools/tests/test_export_refuses.py'], False),
     # Here and not only in the commit hook: a guard that runs once per clone, if
     # somebody remembered to enable it (README, `git config core.hooksPath`), is
     # not a guard. This repository is meant to be published, so what it would
     # publish is checked by the suite that has to pass anyway.
     ('private-data', 'python', ['tools/check-private-data.py'], False),
+    ('private-data-scanner', 'python', ['tools/tests/test_private_data_scanner.py'], False),
     ('preinit-pack', 'python', ['tools/preinit-pack/tests/test_pack.py'], False),
     ('adbd-functions', 'python', ['tools/kernel-hardware/tests/test_adbd.py'], False),
     ('allocation-ranges', 'c', ['-Iboot/handoff', 'boot/handoff/tests/test-allocation-ranges.c',
@@ -489,6 +492,17 @@ def main():
     args = parser.parse_args()
 
     tests, elsewhere = list(TESTS), list(ELSEWHERE)
+    # The exporter reads REUSE.toml with tomllib, which Python gained in 3.11;
+    # the build VM runs 3.10. There the test is not "passed" and not "failed":
+    # it cannot run, and it says so, which is what the skipped list is for. The
+    # exporter itself is only ever run on a machine with a current Python (the
+    # publish step), and the property stays checked wherever one is.
+    if sys.version_info < (3, 11):
+        for entry in [t for t in tests if t[0] == 'export-refuses']:
+            tests.remove(entry)
+            elsewhere.insert(0, (entry[0], entry[2][0],
+                                 'Python 3.11 (tomllib); this is %d.%d'
+                                 % sys.version_info[:2]))
     # The working tree is checked above; this is every version of every file in
     # the history, which is the other half of what publishing publishes: a value
     # deleted from a file is out of the working tree and still in `git log -p`,

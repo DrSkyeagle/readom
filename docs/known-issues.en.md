@@ -33,12 +33,16 @@ and survived all 8**, with `logcat -b crash` empty throughout. So the frequency
 here is "once during development, and nothing in 8 attempts under load", not
 "it crashes when the machine is busy".
 
-**If it ever becomes reproducible, the fix is known and on our side**: the line
-that throws is AOSP's own, `mContext.getContentResolver()` in
+**If it ever becomes reproducible, the fix is on our side, but it is not catching the one line
+that throws**: that line is AOSP's own, `mContext.getContentResolver()` in
 `TtsEngines.getDefaultEngine()`
-(`frameworks/base/core/java/android/speech/tts/TtsEngines.java`), and
-`TextToSpeech` already has an error channel for exactly this --
-`OnInitListener.onInit(ERROR)`, which is what "no engine in the system" uses.
+(`frameworks/base/core/java/android/speech/tts/TtsEngines.java`). Catching it there is not
+enough: the next step is `getHighestRankedEngineName()` → `getEngines()`, where the same
+unattached `Context` throws again on `mContext.getPackageManager()`, and `TtsEngines` cannot
+reach the callback anyway. The catch belongs in `TextToSpeech.initTts()`, around the whole
+engine lookup, followed by `dispatchOnInit(ERROR)` -- `TextToSpeech` already has an error
+channel for exactly this, `OnInitListener.onInit(ERROR)`, which is what "no engine in the
+system" uses.
 Turning a constructor-time NPE into that `ERROR`, rather than letting the
 process die, is what the channel is for. **Not done now**: what cannot be
 reproduced cannot be verified, and a try/catch nobody can test is no better
@@ -226,6 +230,8 @@ who could replace the launcher itself, those two minutes change nothing.
 
 **What it still costs**: moving an entry from one cell to another, or taking one out of the layout, reaches a first open and nobody else; and the four shipped icons the owner removed by hand (the entry for all applications cannot be removed) come back once, in the release that edits the layout. Avoiding even that would mean keeping a list of what was removed -- more state than that gain is worth. **Also not delivered by the difference**: a folder, a widget, a hotseat cell and a `<resolve>`, none of which can be told apart from what is on the screen already, where placing one twice is worse than not placing it. This device's layout has none of them; `tools/tests/test_home_screen_entries.py` keeps it that way, and holds the version number against a hash of the layout file, so an edit that forgets the version is told which number to move.
 
+**This path has run on the device once** (V84, 2026-10-25): the upgrade that moved the layout version from 1 to 2 put a **second** all-applications entry on the home screen of the one device that then had one. The rename had moved that cell's action from `org.kdandroid.action.ALL_APPS` to `org.readom.action.ALL_APPS`, and that cell names no activity and is told apart by its action, so the row on the screen did not answer to the new key. The mechanism did what it is for; the fault was renaming the key. A key stored on an owner's device cannot be renamed -- renaming one is removing an entry, and the difference has no way to express a removal. Since then `tools/tests/test_home_screen_entries.py` has `LAYOUT_KEYS`, which pins the layout's five keys on their own, so a changed key is named (commit `2c22d1a`).
+
 Which cell an application the owner installs lands in is a separate question: see `design/app-install.en.md`.
 
 ## 7. A system image damaged without changing size: tapping again finds it and writes it again
@@ -259,6 +265,10 @@ The cost is one notice too many: the report from that upgrade's own boot says it
 The state file holds `compiling=1`, together with `compiling_after=`, the report area's start count at the moment it was set. It is set when a system with a different boot image is installed, and cleared by a report that meets three conditions at once: it reached `boot_completed`, it was written by the system this entry installs (the report carries the build number), and its count is greater than `compiling_after`. **It is never counted down by taps, and has no ceiling.** The last two conditions keep an old report from passing for a new one: the same system may have completed a start before this install, and a copy of a report can be put back from a computer (the note on `compiling_after` in `installer/install/install.c`).
 
 **How long the compiling takes**: after a boot image change, the applications in `/data` are compiled again with `pm.dexopt.ab-ota=speed-profile` (frameworks/base patch 0047). An application that has a reference profile is compiled from it, 159 s measured for WeRead; one that has not has its dex quickened instead, 60 to 93 s (frameworks/base patch 0051, frameworks/native patch 0008). Without that second path, no profile meant compiling all of it, 1214 s.
+
+**Two more cases measured on 2026-11-04**: an upgrade that keeps the boot image and changes only the build fingerprint (f to g to h) runs dexopt on WeRead at boot with `dexoptNeeded=-3` (the old oat usable, recompiled only for the filter), **about 70 s**, both times; a manual `cmd package compile -m speed -f` of WeRead took **21 min 41 s**. So each set of numbers in these documents has its condition: by profile 159 s, no profile quickened 60-93 s, same image with a new fingerprint 70 s, a full `speed` compile 1214-1410 s (`design/app-install.en.md`) or 1301 s (11-04); the "about three to five minutes per application" on the install screen is an upper bound kept for the profiled case, not a measured mean.
+
+**And it is not paid once**: until the background job has compiled an application to `speed`, every boot after a version change compiles it again at `quicken`, and it comes out `quicken` again -- the upgrade boot asks "does this need compiling" against `speed-profile`, and with no reference profile falls back to `quicken`, so what it asks about and what it writes never meet. On 2026-11-04 the boots of builds k and l each did this to WeRead, **70 s and 74.6 s**. The fix is recorded in `open-items.en.md`.
 
 Note that "has been used" is not the same as "has a reference profile": an application writes a *current* profile as it runs, and only a profile-guided filter writes the reference one (`PackageDexOptimizer.isProfileUpdated()`). This device's background compile job compiles to `speed` (`pm.dexopt.bg-dexopt=speed` in `pw3.mk`, see section 12), which writes no reference profile, so an application the owner installed usually takes the quickened path after such an upgrade, and the background job takes it to `speed` again the next time the device is idle.
 
@@ -460,10 +470,46 @@ page turns feeling sluggish until it finishes. It also **gets faster with use**:
 `speed-profile`, over three consecutive opens of the same book, the time to quiet fell from 77 s
 to 44 s and the CPU from 52 s to 28 s.
 
-**What the screen shows**: a `screencap` taken while a book opens catches twenty-odd seconds of
-solid black. That is **in the framebuffer only and never reaches the panel**: whoever watches the
-screen sees a white screen for a while, then one black flash as the text comes up. That flash is
-`replaced()` in `Panel.h`, one GC16 by design. See section 11 of `design/performance.en.md`.
+**The first-day numbers (2026-11-04, release build h, measured after the owner reported "loading a new
+book took over a minute")**. This time the measurement is of **a book not yet downloaded**: tapped on the
+shelf, chapters fetched, parsed, typeset, to complete quiet. Two books in the freshly installed `quicken`
+state first, then two after `cmd package compile -m speed -f com.tencent.weread.eink` (what the background
+job does; measured at **21 min 41 s**) and a process restart. Four different books, so this is an order of
+magnitude, not a paired comparison:
+
+| State | Book | Download | Reader shown | Fully quiet | Process CPU |
+|---|---|---|---|---|---|
+| `quicken` | *The Inevitable* | 0.9 MB | 5.4 s | <= 46 s (the sampler lost its timeline) | 27.8 s |
+| `quicken` | *Live Long, Die Short* (25 chapters) | 7.3 MB | 2.7 s | **57.4 s** | **35.2 s** |
+| `speed` | *Excellent Advice for Living* | 0.4 MB | 9.6 s | 41.4 s | 25.9 s |
+| `speed` | *Read Write Own* (26 chapters) | 0.7 MB | 2.4 s | **23.8 s** | **15.9 s** |
+
+Same method as above (the process's `utime+stime`; two consecutive 2-second windows under 0.15 s count as
+quiet). The sampler is one shell using builtins only (`read` on `/proc/<pid>/stat`, and `read -t` on a
+stdin the host keeps open as the timer -- mksh drops a coprocess after its first timeout, and `mkfifo` is
+refused in the shell domain), so nothing is spawned while it runs. The download is the uid's `rx_bytes` in
+`/proc/net/xt_qtaguid/stats`, read once before and once after. What the owner met, "over a minute", is the
+second row: just installed, interpreted, and a large illustrated book. **Wi-Fi and memory were not the
+bottleneck this time either**: -48 dBm / 72 Mbps, 225 MB free; in that minute there were 114
+`Deoptimizing ... JIT inline cache` lines, a 0.6-2.9 s GC every 5-6 s, and a 5-minute load of 4.2 on the
+one core -- interpretation and JIT all over.
+
+So "slow on the first day" is by design: the background job waits for the device to be asleep and idle for
+about 71 minutes before compiling, and after that the bottom two rows are the level. (Seen once, 2026-11-04: WeRead set back to `quicken`, screen off at 09:07, charger connected; the job started by itself at 10:23, compiled for 21.5 minutes, and the filter read `speed` at 10:44. A connected charger does not stop it.) It was not compiled
+back to `quicken` afterwards; the device stays at `speed`. **To measure a real first night's battery, run
+`cmd package compile -m quicken -f` first and then unplug**, or that night is missing these 21 minutes of
+compilation.
+
+**What the screen shows** (as recorded on 2026-10-28): a `screencap` taken while a book opens
+catches twenty-odd seconds of solid black; what was written then is that this is "in the framebuffer
+only and never reaches the panel", because whoever watched the screen (with WeRead not yet signed in
+at the time) saw a white screen for a while, then one black flash as the text came up. That flash is
+`replaced()` in `Panel.h`, one GC16 by design. **Corrected on 2026-11-02**: once signed in, WeRead
+takes 12-30 s to draw its first frame, runs into the application transition's 5 s timeout, and that
+black **does reach the panel** (section 11 of `design/performance.en.md`). The image now (patches
+0067-0073) keeps the previous screen until the application draws, and at a start the system first
+draws WeRead's own start page (a black logo on white), so that black no longer appears; for a
+transition interrupted by the screen going to sleep, see section 16.
 
 ## 13. The system asks for services that are not there, and each ask leaves a wtf in dropbox
 
@@ -560,11 +606,21 @@ only by `CMD_SCREEN_ON`, so **waking the screen is the fix, not a restart**. A f
 this one: opening Settings means waking the screen first.
 
 **Two: the screen is on and it still will not come on.** This is what the owner reported on
-2026-11-02. The kernel log of that run has `wifi_card_disable: wifi module clean unload failed` --
-the module was not unloaded cleanly when Wi-Fi went off, and after the SDIO card was removed it was
-not found again. **Seen once and not reproducible**: five ordinary toggles afterwards, measured the
-way below, were all healthy, so no patch was written for it (there would be no way to show what such
-a patch prevented).
+2026-11-02, and **its cause was found on 2026-11-04; the SDIO card had nothing to do with it**.
+Patch 0002 had made the "screen off for a minute" alarm a non-waking one, and AlarmManager holds a
+non-waking alarm back while the screen is off, up to fifteen minutes, then delivers it the moment the
+device becomes interactive -- the moment the screen comes on. So `CMD_DEVICE_IDLE` and
+`CMD_SCREEN_ON` arrive 3 ms apart: `WifiController` enters `NoLockHeldState` (sending
+`DISABLED_MODE`) and returns to `DeviceActiveState` (sending `CONNECT_MODE`); `WifiStateMachine`
+takes the `CONNECT_MODE` while in `SupplicantStoppingState`, keeps only the mode from it, and ends in
+`InitialState` with nobody to start the supplicant again, while the controller sits in
+`StaEnabledState` and treats every "on" from Settings as already done -- the switch goes on, the page
+reopens off. The `wifi module clean unload failed` of 2026-11-02 was that `DISABLED_MODE` unloading
+the module as the device woke. Recovery on the spot: `svc wifi disable`, then `svc wifi enable`.
+Fixed by `frameworks/opt/net/wifi` patch 0004 (images after v0.1.0): the idle timer is the state
+machine's own delayed message, counting only time the system is awake with the screen off, removed
+when the screen comes on; an idle message that arrives with the screen on is dropped as stale.
+Measured on build k: off 63 s after the screen, connected within 25 s of waking.
 
 **Both share one amplifier**: unloading the kernel module whenever Wi-Fi goes off is this project's
 policy. Curing the second one properly means not unloading it on disable -- leaving the card in place
@@ -583,3 +639,70 @@ settle. Nothing moves before that measurement.
   under load, and 5 of 5 successful**.
 - **Read `ip addr show wlan0` itself**: `ip link show wlan0` answers `Permission denied` on a `user`
   build, which is not "there is no interface".
+
+## 16. Put to sleep while a transition is still waiting, the screen wakes to the two bars around black until the application draws
+
+**When it happens**: an application is tapped and has not yet drawn its first frame (the previous
+screen is being held, or its own starting page is up); the power button puts the device to sleep,
+and it is woken. The middle of the screen is black, with only the status bar and the navigation bar,
+until that application draws.
+
+**What was measured** (2026-11-04, the userdebug twin of build f, X5b/X5c/X5e; recorded in section
+3a of the takeover notes): WeRead frozen with `kill -STOP` so that it cannot draw, a book opened,
+sleep, wake -- at the moment of sleep the bookshelf layer is committed as hidden (flags `0x3` and an
+empty visible region in `dumpsys SurfaceFlinger`), after waking the hold record is still there but
+nothing shows it again; the panel counters show one full refresh at wake. **With the hold of the
+previous screen switched off altogether (X5e, upstream behaviour only) it is black in the same
+way**, so this is not something 0069-0073 brought in; it is "sleep while a transition waits"
+itself: the sleep path commits the closing side's visibility as hidden, upstream's 5-second deadline
+goes black too, and this build is no worse than upstream.
+
+**Why it is not changed**: what would have to change is how the sleep path treats the closing
+side's visibility, not the hold; and the window in which it can be hit is small -- the release
+ships with starting windows on, all four installed applications have one, and the transition is
+over within a second. If it does happen, the screen is normal as soon as that application draws,
+or Home goes back to the launcher (which is fine). As seen in X5c, a frozen application that is
+thawed draws and the hold lets go normally.
+
+## 17. After WeRead is uninstalled, the tile on the home screen does not come back (v0.1.0; the next image puts it back)
+
+**Symptom** (reported by the owner on 2026-11-04): WeRead uninstalled from Settings > Apps; the
+"Install WeRead" tile that used to be on the home screen does not reappear; to reinstall, the
+installer can only be found under "All apps".
+
+**What happens**: the moment the installer has installed WeRead it **rewrites** its own tile on the
+home screen into WeRead's icon (the same row, same cell), then disables its own launcher entry, so
+there are never two tiles after an install. When WeRead is uninstalled the launcher deletes every row
+that points at it, as it always does -- and that cell is empty. The installer **does** listen for
+"WeRead was uninstalled" (`RemovalReceiver`, and `BootReceiver` checks the same at every boot): it
+re-enables its entry, which is why the entry is back under "All apps"; but v0.1.0 does not add a row
+back to the home screen, so the tile does not return. The installer itself is still there
+(`/system/priv-app/WeReadInstaller`), listed under "All apps" as "Install WeRead"; tapping it
+downloads and installs again, and goes straight into WeRead when done.
+
+**Changed in the next image** (2026-11-04, `HomeScreenCell.takeBack`): when the cell is handed over
+its screen and position are remembered; when WeRead is uninstalled and the entry comes back, the
+entry is put back into that cell (or the first free cell of the first screen if it is taken). Only on
+the way from disabled to enabled, so a reader who dragged the tile off the home screen themselves
+does not get it back at every boot.
+
+## 18. The first start after a version change goes black for about a minute and a half (v0.1.0; not in the next image)
+
+**Symptom** (the owner, upgrading to build g on 2026-11-04: "the system is stuck on a black
+screen"): after a system with a new version is installed, the boot picture appears and then the
+screen turns black until the home screen comes up; measured at 85 s on g and 80 s on h (that stretch
+is WeRead being recompiled, section 11), and about fifteen seconds at an ordinary start.
+
+**Cause**: the handoff does draw the `BOOT` picture (kernel log: `pw3-handoff: SCREEN up`), but
+SurfaceFlinger starts composing as soon as it is up, and until the first window exists every frame
+of its holds only its own target buffer, **cleared to black**; this port's composer posted it to the
+panel all the same, and the picture was painted over (the composer's `empty_frames=6` counts those
+frames).
+
+**Changed in the next image** (2026-11-04, `composer.cpp`): a frame with no layer at all is no
+longer posted; the panel keeps what it shows -- an e-ink panel does not change unless a frame is
+pushed -- so the boot picture stays until the first window draws. Those frames are still counted,
+only not sent.
+
+**What to do now**: nothing; the black minute is the compile, and the home screen follows. Holding
+the power button only interrupts it.

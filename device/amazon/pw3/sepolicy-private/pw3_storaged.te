@@ -1,0 +1,12 @@
+# storaged reads eMMC health counters under debugfs (/sys/kernel/debug/mmc0)
+# at every boot, and this image does not let it: the counters are nothing the
+# system acts on here, and the read is refused four lines into every boot log
+# (seen again on the release image, 2026-11-04). Refused on purpose, and not
+# written down -- a denial that is known and harmless is noise in the one log
+# a reader will send in.
+#
+# In the platform-private directory, not device/amazon/pw3/sepolicy: storaged
+# is a private platform type (system/sepolicy/private/storaged.te) and the
+# vendor policy cannot name it (checkpolicy: unknown type storaged, 2026-11-04).
+dontaudit storaged debugfs_mmc:dir search;
+dontaudit storaged debugfs_mmc:file read;

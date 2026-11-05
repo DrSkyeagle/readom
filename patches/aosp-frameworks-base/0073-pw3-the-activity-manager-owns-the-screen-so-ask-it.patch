@@ -1,0 +1,155 @@
+From: PW3 Android port
+Subject: [PW3] The activity manager owns the screen, so ask it
+
+0072's own row in patches/VERIFICATION.md asked that "the activity manager and
+the window manager agree again" after the hold is let go of. On the device
+(2026-11-03, eng.builde.20261103.043516, a userdebug image because this needs
+root) they did not.
+
+What was run, and why it took a userdebug image: five attempts on the release
+image never reached the branch where the application being waited for goes away
+while the hold is in force, because a warm WeRead draws within a few hundred
+milliseconds of the deadline and `am force-stop` always landed after the
+release. With root the race goes away -- SIGSTOP the process the moment the hold
+is taken and it *cannot* draw. That part worked exactly as designed, and it is
+the first time this branch has been watched for longer than a few seconds:
+
+    +5s / +20s / +45s with the process frozen   isOnScreen=true
+    mHeldOverClosingApps={launcher3/.Launcher}  [1]
+    mHeldOverOpeningApps={weread/.LauncherActivity}  [1]
+    no "letting go" line
+
+Then the frozen process was force-stopped, and:
+
+    PW3: letting go of 1 held screen(s): an application drew
+    launcher3: mViewVisibility=0x8  isReadyForDisplay()=false  isOnScreen=false
+    on screen: NavigationBar, StatusBar, ImageWallpaper -- and nothing else
+    mResumedActivity: ActivityRecord{... com.android.launcher3/.Launcher}
+
+The screen was the two bars over the wallpaper, which is the defect this whole
+branch exists to remove, arrived at from the other side. It does not recover by
+itself: an explicit `am start` of the launcher reports "its current task has
+been brought to the front" and issues no visibility change. Opening another
+application and coming back does fix it, because that is a real transition.
+
+Two causes, and both of them are the same mistake -- reading a flag this file
+itself forces instead of asking what the activity manager intends.
+
+  * `hasSomethingOnScreen()` reads `allDrawn`, and `handleClosingApps()` sets
+    `allDrawn = true` on every closing application, unconditionally, with
+    AOSP's own comment saying why ("regardless of whether it's gotten drawn").
+    Stopping the application being waited for therefore makes it look drawn.
+    Now it also asks `!hiddenRequested`: an application on its way out does not
+    have a picture on the screen, whatever the flag says.
+  * The release hid a held screen that the activity manager had already made
+    visible again. That is the stuck screen. Now a held token whose
+    `hiddenRequested` is false is let go of without being hidden -- the same
+    rule 0072 already applied to one that had gone away, for the same reason.
+
+And one more, found by enumerating the states rather than by the device: a hold
+whose screens are all gone or all wanted-visible is a hold over nothing, so the
+records are dropped instead of waiting for an application that may never
+resolve. Without it the dummy animation would sit on a visible window until the
+next transition.
+
+The log line said "an application drew" on the strength of the forced flag; it
+now says "an application has a picture on screen", which is what the predicate
+actually asks.
+
+This is the fifth patch on this branch, and the fourth to be found by running
+it rather than by reading it. The states it separates, written out because every
+previous attempt died on one that was not: an application that has not drawn; one
+that has gone away; one that became the screen being held; one that drew; and
+one that was stopped while being waited for, which the forced flag made
+indistinguishable from the fourth.
+
+Not run on the device yet when this patch was written.
+
+--- a/services/core/java/com/android/server/wm/WindowSurfacePlacer.java
++++ b/services/core/java/com/android/server/wm/WindowSurfacePlacer.java
+@@ -595,8 +595,23 @@
+         return true;
+     }
+ 
++    /* Has this application got a picture on the screen?
++     *
++     * allDrawn alone does not answer it, because handleClosingApps() below
++     * forces it on for every closing application -- "Force the allDrawn flag,
++     * because we want to start this guy's animations regardless of whether
++     * it's gotten drawn", AOSP's own line. So an application that was being
++     * waited for and is then stopped reads allDrawn=true without ever having
++     * drawn, and the hold is released as "an application drew". Measured on
++     * the device, 2026-11-03: WeRead's process SIGSTOPped so it could not
++     * draw, then force-stopped; the log said "an application drew" and the
++     * home screen underneath was hidden.
++     *
++     * hiddenRequested is the activity manager's intent, which is the right
++     * authority for "should this be on the screen": an application on its way
++     * out has it true, one that is opening has it false. */
+     private static boolean hasSomethingOnScreen(AppWindowToken wtoken) {
+-        return wtoken.allDrawn || wtoken.startingDisplayed;
++        return !wtoken.hiddenRequested && (wtoken.allDrawn || wtoken.startingDisplayed);
+     }
+ 
+     /* Has this application gone away, as opposed to not having drawn yet?
+@@ -630,6 +645,31 @@
+         if (mService.mHeldOverClosingApps.isEmpty()) {
+             return;
+         }
++        // Before asking about the applications being waited for: is there
++        // anything left to hold? A screen that has gone away, or that the
++        // activity manager has made visible again, is not being held by this
++        // any more. If none of them is, the records are stale and keeping them
++        // would leave the dummy animation on a visible window until the next
++        // transition.
++        boolean holding = false;
++        for (int i = mService.mHeldOverClosingApps.size() - 1; i >= 0; i--) {
++            final AppWindowToken wtoken = mService.mHeldOverClosingApps.valueAt(i);
++            if (!isGone(wtoken) && wtoken.hiddenRequested) {
++                holding = true;
++                break;
++            }
++        }
++        if (!holding) {
++            Slog.i(TAG, "PW3: nothing left to hold; dropping "
++                    + mService.mHeldOverClosingApps.size() + " record(s)");
++            for (int i = mService.mHeldOverClosingApps.size() - 1; i >= 0; i--) {
++                mService.mHeldOverClosingApps.valueAt(i).mAppAnimator.setNullAnimation();
++            }
++            mService.mHeldOverClosingApps.clear();
++            mService.mHeldOverOpeningApps.clear();
++            return;
++        }
++
+         // Every application that was opening is in one of three states: it has
+         // something on the screen, it has gone away, or it is still coming. The
+         // hold ends when none of them is still coming -- not when all of them
+@@ -646,13 +686,27 @@
+             drawn |= here;
+         }
+         Slog.i(TAG, "PW3: letting go of " + mService.mHeldOverClosingApps.size()
+-                + " held screen(s): " + (drawn ? "an application drew" : "they all went away"));
++                + " held screen(s): " + (drawn ? "an application has a picture on screen"
++                                               : "they all went away"));
+         if (drawn) {
+             for (int i = mService.mHeldOverClosingApps.size() - 1; i >= 0; i--) {
+                 final AppWindowToken wtoken = mService.mHeldOverClosingApps.valueAt(i);
+                 if (isGone(wtoken)) {
+                     continue;
+                 }
++                // The activity manager has made this one visible again while it
++                // was being held -- it is the screen the reader is looking at,
++                // not the screen behind the one they are looking at. Hiding it
++                // here is what produced the blank screen on the device
++                // (2026-11-03): the window manager hid the activity the
++                // activity manager had just resumed, the two disagreed, and
++                // nothing brought it back; an explicit start of the launcher
++                // does not, because its task is already in front and no
++                // visibility change is issued.
++                if (!wtoken.hiddenRequested) {
++                    wtoken.mAppAnimator.setNullAnimation();
++                    continue;
++                }
+                 // performLayout false: this runs at the top of a surface
+                 // placement that is about to lay out anyway, and asking for
+                 // another one from in here calls performSurfacePlacement()
