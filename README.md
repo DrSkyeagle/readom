@@ -9,8 +9,8 @@
 
 <p align="center"><b>唤醒你的 Kindle。</b>把 Android 装进 Kindle，点亮一个全新的阅读世界。</p>
 
-<!-- 徽章和链接都避开 /releases/latest：GitHub 的 latest 只认正式版，而现在最新的一版
-     标着预发行，那个地址会 404、徽章会显示 "no releases"。指 /releases 两种都列得到。 -->
+<!-- 链接指 /releases 而不是 /releases/latest：GitHub 的 latest 只认正式版，某一版先以预发行
+     出来时它还指着上一个正式版（一个正式版都没有时是 404）。徽章带 include_prereleases，预发行也算。 -->
 <p align="center">
   <a href="https://github.com/hbyxabc/readom/releases"><img src="https://img.shields.io/github/v/release/hbyxabc/readom?include_prereleases&label=%E7%89%88%E6%9C%AC" alt="最新版本"></a>
   <a href="https://github.com/hbyxabc/readom/actions/workflows/tests.yml"><img src="https://github.com/hbyxabc/readom/actions/workflows/tests.yml/badge.svg" alt="测试"></a>

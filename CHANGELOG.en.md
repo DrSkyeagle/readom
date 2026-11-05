@@ -7,7 +7,7 @@ notes are written from it.
 
 ## v0.1.0
 
-**Status: released on 2026-11-04.** What is online (the GitHub Release `v0.1.0`, `readom.app/dl/v0.1.0/`,
+**Status: released on 2026-11-04, and a full release since 11-05 (it was marked a pre-release until then).** What is online (the GitHub Release `v0.1.0`, `readom.app/dl/v0.1.0/`,
 and the website) is the entry `Readom.sh` of build zb, 2026-11-05, 7,828,380 bytes, `20a7f7e8…`, and the
 system package `readom-system-v0.1.0.img.zst` of build l, 2026-11-04, 190,831,781 bytes, `497fc919…`;
 both places were read back whole and checked. The source tree is the one it was built from, and the

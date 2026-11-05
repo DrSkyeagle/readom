@@ -9,9 +9,10 @@
 
 <p align="center"><b>Wake your Kindle.</b> Put Android on your Kindle, and a whole new world of reading lights up.</p>
 
-<!-- Neither the badge nor the links go through /releases/latest: GitHub's latest
-     means the latest full release, and the newest one is marked a pre-release, so
-     that address 404s and the badge reads "no releases". /releases lists both. -->
+<!-- The links go to /releases, not /releases/latest: GitHub's latest means the
+     latest full release, so while a version is out as a pre-release it still points
+     at the full release before it (and 404s when there is none). The badge asks for
+     include_prereleases, so it counts pre-releases too. -->
 <p align="center">
   <a href="https://github.com/hbyxabc/readom/releases"><img src="https://img.shields.io/github/v/release/hbyxabc/readom?include_prereleases" alt="Latest release"></a>
   <a href="https://github.com/hbyxabc/readom/actions/workflows/tests.yml"><img src="https://github.com/hbyxabc/readom/actions/workflows/tests.yml/badge.svg" alt="Tests"></a>
