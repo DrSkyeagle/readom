@@ -126,7 +126,7 @@ Readom 是为 Kindle 定制的 Android 系统。它把 Android 8.1（AOSP）适�
 |---|---|
 | Kindle Paperwhite 3（第 7 代，2015 年） | 设置 → 设备选项 → 设备信息 |
 | 系统版本 5.16.2.1.1 | 同上。版本更早的，先按安装说明升级 |
-| 已越狱 | 按 [kindlemodding.org](https://kindlemodding.org/jailbreaking/) 的教程。越狱不属于本项目，请自行判断风险 |
+| 已越狱，且书库能显示 `.sh` 小程序 | 按 [kindlemodding.org](https://kindlemodding.org/jailbreaking/) 的教程，5.16.2.1.1 首选 WinterBreak2。越狱过、书库却显示不了或运行不了 `.sh` 的，怎么确认、找谁处理，见[安装说明](docs/install.md#越狱里有没有-sh_integration)。越狱不属于本项目，请自行判断风险 |
 | 2.6 GB 空闲空间，电量 40% 以上 | 接电脑看 Kindle 盘 |
 
 机型或系统版本不对时，安装器会显示 E101 并停下，不改动任何文件。
@@ -141,7 +141,7 @@ Readom 是为 Kindle 定制的 Android 系统。它把 Android 8.1（AOSP）适�
 
 安装器自己带着官网和 GitHub 两个下载地址，装的时候依次试。两条都下不动的话，在电脑上多下一个离线包（两处也都有），和 `Readom.sh` 一起拷进去。
 
-官网上有图文版的安装教程，也可以让 AI 带你一步步装：[readom.app/#guide](https://readom.app/#guide)。升级、离线包、出错代码，都在[安装说明](docs/install.md)里。
+官网上有图文版的安装教程，也可以让 AI 带你一步步装：[readom.app/#guide](https://readom.app/#guide)。升级、离线包、出错代码，都在[安装说明](docs/install.md)里；拷进去后书库里找不到「Readom」，或者装完 KUAL 用不了，也先看那里的[书库里找不到 Readom](docs/install.md#书库里找不到-readom)和[装完后 KUAL 用不了](docs/install.md#装完后-kual-用不了)。
 
 ### 回到 Kindle、卸载
 

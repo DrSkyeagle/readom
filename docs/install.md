@@ -1,6 +1,6 @@
 # 安装说明
 
-> 2026-11-01 修订。英文版：`install.en.md`。**v0.1.0 在一台 PW3 上走完过一次干净安装（真的从网上下载）；再往前，2026-10-19 走过一次用离线包的完整安装和一次只换系统的升级**，下文的时长就是这几次的实测值（按 Kindle 盘上日志文件夹的时间算）。还没验过的事情列在 `open-items.md`。书库里的条目叫"Readom"。
+> 2026-11-08 修订。英文版：`install.en.md`。**v0.1.0 在一台 PW3 上走完过一次干净安装（真的从网上下载）；再往前，2026-10-19 走过一次用离线包的完整安装和一次只换系统的升级**，下文的时长就是这几次的实测值（按 Kindle 盘上日志文件夹的时间算）。还没验过的事情列在 `open-items.md`。书库里的条目叫"Readom"。
 
 ## 适用的设备
 
@@ -8,9 +8,23 @@
 |---|---|
 | Kindle Paperwhite 3（第 7 代，2015 年） | 设置 → 设备选项 → 设备信息 |
 | 系统版本 5.16.2.1.1 | 同上。版本更早的见下文「系统版本更早怎么办」 |
-| 已越狱，书库里能运行 `.sh` 小程序 | 按 [kindlemodding.org](https://kindlemodding.org/jailbreaking/) 的教程越狱。越狱与本项目无关，请自行判断风险 |
+| 已越狱，**而且书库能显示和运行 `.sh` 小程序**（越狱里带着 sh_integration） | 怎么确认见下文「越狱里有没有 sh_integration」；还没越狱、或者小程序不能用的，见「越狱这一侧」。越狱与本项目无关，请自行判断风险 |
 
 型号或版本不对时，安装器会显示 E101 并停止，不改动任何文件。
+
+### 越狱里有没有 sh_integration
+
+Kindle 的书库本身不认 `.sh`。书库里出现"Readom"、点了能运行，靠的是 KindleModding 的 [sh_integration](https://github.com/KindleModding/sh_integration)：它读 `Readom.sh` 开头写的名字（`# Name: Readom`），把它登记成书库里的一项，点的时候替你运行。Readom 的入口靠的就是它，所以光是"越狱过"不够，越狱里要带着它、而且它要能用。没有它或者它没能用，`Readom.sh` 拷进去，书库里什么也不会出现。
+
+怎么确认它能用：**书库里另一个 `.sh` 小程序点了真的能运行**（比如装过的 `KUAL.sh`），就是能用；手边没有别的小程序，"Readom"本身出现了、点了能运行，也一样说明能用。盘上的 `libkh` 文件夹、`documents/JAILBROKEN.txt`、书库里的"Run Hotfix"这类东西，只说明这台机器装过越狱，既证明不了 sh_integration 能用，也分辨不出是哪一种越狱：越狱脚本 jb.sh 先建 `libkh`，登记 sh_integration 失败时只在日志里写一行，写 `JAILBROKEN.txt` 时也不试运行小程序，它自己也登记了运行"Run Hotfix"这类条目的处理程序。
+
+### 越狱这一侧
+
+本项目不带、也不打包任何越狱，也不替你判断越狱是哪一种、该怎么修。这里只给链接，具体步骤以各自的页面为准。
+
+- **还没越狱**：按 KindleModding 的[越狱教程](https://kindlemodding.org/jailbreaking/)做，它有按机型和版本推荐的向导。系统 5.16.2.1.1 的 PW3，它现在推荐 [WinterBreak2](https://github.com/KindleModding/Winterbreak2)：发行文件叫 `wb2.zip`，大家说的"wb2"就是它，不用登录亚马逊账号。另一个是 [WinterBreak](https://github.com/KindleModding/WinterBreak)，要先登录亚马逊账号。
+- **已经越狱，但 `.sh` 小程序不显示或不运行**：这是越狱那一侧的事。按你用的那个越狱自己的排错说明和支援渠道处理：KindleModding 的网站，以及那个越狱的仓库。
+- **一条提醒**：用 WinterBreak2 或 WinterBreak 越狱的机器，**不要装旧的 Universal Hotfix**。它的[安装脚本](https://github.com/KindleModding/Hotfix/blob/rewrite-lite/src/install.sh)会删掉并重建 `/var/local/kmc` 和 `/var/local/mkk`，那正是 WinterBreak2 和现在的 WinterBreak 运行的 [jb.sh](https://github.com/KindleModding/jb.sh) 放自己组件的地方；KindleModding 的 Hotfix 页面也写着用 WinterBreak 越狱的不用装。
 
 ### 系统版本更早怎么办
 
@@ -19,7 +33,7 @@
 1. 在电脑上打开亚马逊的 [Kindle 固件下载页](https://www.amazon.com/gp/help/customer/display.html?nodeId=GKMQC26VQQMM8XSW)，找 **Kindle Paperwhite（第 7 代）**，下载 `update_kindle_all_new_paperwhite_5.16.2.1.1.bin`（约 258 MB）。**别下成别的机型的**，型号不对装不上。
 2. 接数据线，把这个 `.bin` 拷到 Kindle 盘的**根目录**（不是 `documents`，和安装包不是一个地方），弹出，拔线。
 3. 设置 → 设备选项 → 升级 Kindle。升完自己重启，看一眼设备信息里的版本号。
-4. **升级会清掉越狱**（除非当年装过 Kindle Jailbreak Hotfix）。升完看书库里还有没有"Readom"：没有就按上面的教程重新越狱一次，`Readom.sh` 本身不会被升级删掉。
+4. **升级可能让越狱的 `.sh` 支持失效**。升完看书库里还有没有"Readom"、点了能不能运行；不行的话，按你用的那个越狱在系统升级之后的恢复步骤处理（KindleModding 的网站上有）。`Readom.sh` 本身不会被升级删掉。
 5. 再点书库里的"Readom"。
 
 ## 需要准备
@@ -27,15 +41,16 @@
 - 一根数据线和一台电脑（Windows、macOS、Linux 都可以，只用来拷文件）。
 - Kindle 上至少 **2.6 GB** 空闲空间。（安装器自己算的是 2.49 GB：系统镜像 512 MiB、数据空间 1.75 GiB，加 64 MiB 余量。不够时屏幕上写着还差多少 MB。）
 - 电量 40% 以上，或者接着充电器。
-- 能访问 `github.com` 或 `readom.app` 的 Wi‑Fi——安装器带着这两个地址，按这个顺序试，哪条通用哪条。两条都取不到也没关系：在电脑上多下载一个离线包（见下）。
+- 能访问 `github.com` 或 `readom.app` 的 Wi‑Fi——安装器带着这两个地址，按这个顺序试，哪条通用哪条。两条都取不到也没关系：在电脑上多下载一个离线包（见下）。**在中国大陆，请一开始就用离线包**：这两个地址都在中国大陆以外提供服务，在大陆下载可能很慢（见下文「下载很慢」）。
 
 ## 安装
 
 1. 在本项目的发行页下载 `Readom.sh`（约 8 MB）。
-   - 如果 Kindle 连的网络取不到安装包，再下载同一页面的 `readom-system-<版本>.img.zst`（约 191 MB），这就是离线包。
+   - 如果 Kindle 连的网络取不到安装包，或者你在中国大陆，再下载同一页面的 `readom-system-<版本>.img.zst`（约 191 MB），这就是离线包。**文件名保持发行页上的样子，不要改**：安装器在 `documents` 里按同名、同大小认它，浏览器自作主张加上的 `(1)` 之类也要去掉。
 2. 用数据线把 Kindle 接到电脑，打开电脑上出现的 Kindle 盘。把 `Readom.sh` 拷进 `documents` 文件夹。如果下载了离线包，也拷进去。
+   - **位置和名字**：两个文件都**直接**放在 `documents` 里，不要放在盘的根目录，也不要放进子文件夹；`Readom.sh` 一个字也不要改。入口认的是固定位置 `documents/Readom.sh`，放错了见下文「书库里找不到 Readom」第 2 条。
    - **电脑上没出现 Kindle 盘**：先按一下电源键把 Kindle 唤醒再看。休眠时它可能只充电、不把存储交给电脑（2026-10-22 在本机遇到过：USB 上认得到这台设备，但电脑上没有盘）。还是没有就换一根数据线（有些线只有电源线，没有数据线）或换一个 USB 口。
-3. 在电脑上"弹出"Kindle，再拔线。拔线后可以接充电器；安装过程中不要再接电脑。
+3. 在电脑上"弹出"Kindle，再拔线。拔线后可以接充电器；安装过程中不要再接电脑（Kindle 连着电脑时点"Readom"会报 E104）。
 4. 在 Kindle 的书库里点"Readom"。
    - 屏幕会依次显示：检查 → 下载（用了离线包就跳过）→ 核对 → 安装第 1 步 → 安装第 2 步，每步都有进度条。
    - 这期间屏幕不响应触摸，从顶部下滑也拉不出 Kindle 的菜单，免得菜单盖住进度。
@@ -44,6 +59,43 @@
 5. 装好后，离线包会自动删除。`Readom.sh` 留着，以后从书库点它进入 Android。
 
 中途没电、强制重启，或者不小心退出了，都没关系：再点一次"Readom"，会从断点接着装。下载也会从断点接着下——只有服务器不接受续传时才会重新下载，那种情况屏幕会让你再点一次。
+
+**下载很慢**：当前地址取不到、给的文件不对（比如 404、长度对不上），或者 60 秒内一直低于 1 KB/s，安装器就换另一个地址试；一直在走、只是慢（高于这个速度）的线路，不会因为慢就换。GitHub 和 `readom.app` 都在中国大陆以外提供服务（`readom.app` 用的 Cloudflare 套餐没有大陆节点）；2026-10-31 本项目自己的设备有一次 26 分钟只从 `readom.app` 下到约 515 KB，同样的文件换一条网络是 390 KB/s。所以在大陆请一开始就把离线包和 `Readom.sh` 一起拷进去。已经在下载的，可以让它下完：慢只是慢，断了也会接着下。不要在安装过程中接电脑去补拷离线包；下载开始以后再改用离线包，这条路还没在设备上走过，所以这里不写步骤。
+
+## 书库里找不到 Readom
+
+书库里的条目叫"Readom"，不叫"Readom.sh"。拷进去以后还是找不到，按这个顺序查：
+
+1. **越狱里没有 sh_integration，或者它没能用**，书库显示不了、运行不了 `.sh`。最常见的就是这一条。怎么确认见上文「越狱里有没有 sh_integration」；不能用的，按「越狱这一侧」去找你那个越狱自己的排错说明。
+2. **文件没有直接放在 `documents` 里，或者名字变了**。放在盘的根目录，书库不会收录。放进了子文件夹，或者名字变成了 `Readom (1).sh` 这类，书库里可能会有"Readom"，但只要 `documents/Readom.sh` 这个位置上没有文件，点了就只闪一行英文 `FREE SOME SPACE…`、约一秒后回到书库：入口认的是这个固定位置。浏览器存成了 `Readom.sh.txt` 的（电脑隐藏扩展名时，看起来还是 `Readom.sh`），书库不会把它当小程序。都改成 `documents/Readom.sh` 再看。
+3. **书库只筛了书**。"Readom"在书库里登记成个人文档，不算书，把筛选改回显示全部再找。（这一条是按 sh_integration 的登记方式推断的，没在设备上试过。）
+4. **书库还没收录它**。拷完要先在电脑上"弹出"再拔线，然后等一两分钟；还没有就重启 Kindle。
+5. **系统升级以后不见了**。版本更早的机器升到 5.16.2.1.1（包括联网后自动升级）以后，升级可能让越狱的 `.sh` 支持失效。按你用的那个越狱在系统升级之后的恢复步骤处理（KindleModding 的网站上有）。`Readom.sh` 不用重拷。
+
+五条都排除了、`documents/Readom.sh` 也放对了，还是不行，先分清是哪一边：
+
+- **别的 `.sh` 小程序能运行，只有 Readom 不行**：多半是 `Readom.sh` 这个文件的问题。从发行页重新下载一份覆盖进去；还是不行，就把屏幕上的原文和 `android/logs` 文件夹一起报告给我们。
+- **所有 `.sh` 小程序都不显示或不运行**：问题在越狱这一侧，按你用的那个越狱自己的排错说明处理（见「越狱这一侧」）。
+
+## 装完后 KUAL 用不了
+
+先说 Readom 动了什么：安装器和入口只写 Kindle 盘上的 `android` 文件夹，在 `documents` 里只删本版本的离线包；不碰 `extensions`，不碰 Kindle 登记应用的数据库（`appreg.db`），也不碰原厂系统自己的分区。所以 KUAL 不是被它删掉或改掉的。更可能是下面几种情况：
+
+- **新的越狱不再管老 KUAL**。WinterBreak2、WinterBreak 越狱时运行的脚本把用 MRPI 装的老 KUAL 当成过时的东西，KindleModding 也说那种 KUAL 已经过时、不能用了。现在的装法是 [PEKI](https://github.com/KindleModding/PEKI) 的 `KUAL.sh`，它本身就是一个靠 sh_integration 运行的小程序。
+- **签名"过期"**。Kindle 校验 KUAL 的签名时，用的是越狱装进去的开发者密钥库，它有有效期；Kindle 的时钟走对以后，老 KUAL 就可能被判成过期，而为了下载 Readom 连上 Wi‑Fi，时钟就会被同步对。
+- **空间太少**。空闲空间不到约 220 MB 时，KUAL 和 MRPI 可能出错。Kindle 盘一共约 3 GB，Readom 占掉 2.49 GB，装完剩下的可能就不到这个数。
+
+按下面的顺序自查；报告问题时，把每一条的答案一起写上：
+
+1. 书库里 KUAL 那一项还在不在？点了以后，屏幕上原样写着什么？
+2. Kindle 盘还剩多少空闲空间？
+3. 盘上有没有 `extensions` 文件夹？`documents` 里有没有 KUAL 的 `.sh` 或 `.azw2` 文件？
+4. `documents/JAILBROKEN.txt` 在不在？
+5. "Readom"还能不能打开？能打开，就说明 sh_integration 还在。
+6. 重启 Kindle 再试一次。
+7. 按你那个越狱和 KindleModding 现在的说明重装 KUAL（目前是 PEKI 的 `KUAL.sh`）。
+
+**不要删 `libkh` 文件夹**：sh_integration 要用里面的 fbink。
 
 ## 平时使用
 
@@ -93,7 +145,7 @@
 | E403 | 内存不够 | 重启 Kindle 后再点 |
 | E404 | 盘上的文件系统有问题：要写的位置和另一个文件共用 | **没有往那里写（书还是原样）。**用数据线连到电脑，让电脑检查并修复这个 Kindle 盘，然后再点 |
 | 没能启动 | Android 没有启动成功，已回到 Kindle 原来的系统 | **再点一次**：没能启动的原因留在了盘上，下一次点击会读到它，该重装的会自己重装（见下） |
-| 屏幕上只有一行英文 `ANDROID DID NOT START. FREE SOME SPACE…` | Kindle 盘连一个空目录都建不出来了（彻底满） | 接电脑删掉一些书再点。这一行是最后的退路，所以只有英文：此时还没有任何画面可以显示 |
+| 屏幕上只有一行英文 `ANDROID DID NOT START. FREE SOME SPACE…` | 入口还没来得及把原因画上屏幕就停了时的兜底提示，**不等于盘满了**。常见的三种：`documents/Readom.sh` 这个位置上没有文件（点的是放错位置、改了名的那一份）；`Readom.sh` 本身不完整或坏了（下载没下完、拷贝出错）；Kindle 盘满到连一个空目录都建不出来 | 先核对位置和名字（见「书库里找不到 Readom」第 2 条）；再从发行页重新下载 `Readom.sh` 覆盖进去；接电脑看一眼空闲空间，**真的不够才删书**。还是这样，就带着这一行和 `android/logs` 文件夹报告问题。这一行是最后的退路，所以只有英文：此时还没有任何画面可以显示 |
 
 再试一次还是起不来，**就再点一次**：Android 没能启动时会把原因留在 Kindle 盘上，原厂这一侧下一次点击就读得到。如果是系统文件坏了，屏幕上会写"正在重装损坏的系统文件"，然后自己重装，不用接电脑。书和应用数据在另一个文件（`data.img`）里，不受影响。
 

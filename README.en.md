@@ -130,7 +130,7 @@ So one person, with a few weeks' worth of tokens, brought a full Android system 
 |---|---|
 | Kindle Paperwhite 3 (7th generation, 2015) | Settings → Device Options → Device Info |
 | Firmware 5.16.2.1.1 | Same place. On an older version, update first as the install guide explains |
-| Jailbroken | Follow the guide at [kindlemodding.org](https://kindlemodding.org/jailbreaking/). Jailbreaking is not part of this project; the risk is yours to judge |
+| Jailbroken, with a library that can show `.sh` scriptlets | Follow the guide at [kindlemodding.org](https://kindlemodding.org/jailbreaking/); on 5.16.2.1.1, WinterBreak2 first. If it is jailbroken but the library cannot show or run `.sh` items, how to confirm that and where to turn are in the [install guide](docs/install.en.md#does-the-jailbreak-include-sh_integration). Jailbreaking is not part of this project; the risk is yours to judge |
 | 2.6 GB free, battery above 40% | Connect it to a computer and look at the Kindle drive |
 
 On the wrong model or firmware, the installer shows E101 and stops without changing any file.
@@ -145,7 +145,7 @@ On the wrong model or firmware, the installer shows E101 and stops without chang
 
 The installer carries both download addresses, the website's and GitHub's, and tries them in turn. If neither delivers, download the offline package on the computer as well (both places have it) and copy it in with `Readom.sh`.
 
-The website has an illustrated install guide, and a way to have an AI walk you through it: [readom.app/#guide](https://readom.app/#guide). Upgrades, the offline package and error codes are in the [install guide](docs/install.en.md).
+The website has an illustrated install guide, and a way to have an AI walk you through it: [readom.app/#guide](https://readom.app/#guide). Upgrades, the offline package and error codes are in the [install guide](docs/install.en.md); if "Readom" does not appear in the library after copying, or KUAL stopped working after the install, look there first too: [If Readom is not in the library](docs/install.en.md#if-readom-is-not-in-the-library) and [If KUAL stopped working after the install](docs/install.en.md#if-kual-stopped-working-after-the-install).
 
 ### Back to the Kindle, and uninstalling
 
