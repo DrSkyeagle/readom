@@ -21,7 +21,16 @@
 
 #define PW3_FILEMAP_PATH "/pw3-testmap.bin"
 #define PW3_FILEMAP_MAGIC UINT64_C(0x3250414d335750)
-#define PW3_FILEMAP_MAX_EXTENTS 1024U
+/* One mapping receipt entry stays 24 bytes, so the receipt itself is the cost of
+ * this number: 8192 extents are ~196 KiB per mapping and three mappings ~575 KiB.
+ * 1024 was too small on a real Kindle Voyage: its user store is FAT with 8 KiB
+ * clusters, and the 512 MiB system image was allocated in 1,560 runs (the whole
+ * disk is fragmented by the stock system's own use). A boot that cannot map the
+ * image cannot start, so the limit has to cover a store as fragmented as that;
+ * 8192 leaves it 5x room. The arrays are no longer on the stack (TestFileInit.h
+ * keeps the maps in .bss, SystemStamp.h its expected record), see the build's
+ * stack-usage evidence. */
+#define PW3_FILEMAP_MAX_EXTENTS 8192U
 struct pw3_file_extent { uint64_t logical, start, sectors; };
 struct pw3_file_mapping {
     uint64_t sectors, device, inode;

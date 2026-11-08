@@ -54,9 +54,9 @@ PREINIT = REPO / 'device/amazon/pw3/preinit'
 SHA_SOURCE = REPO / 'tools/preinit-sha256.c'
 DEFAULT_MUSL = Path('/home/builder/toolchains/musl-arm/bin/musl-gcc')
 DEFAULT_KERNEL_HEADERS = Path('/usr/arm-linux-gnueabi/include')
-CONTRACT = ('PW3_TESTFILE_INIT_V10_DM_CLUSTER_EXTENTS_FAT_RO_KEPT_DATA_SIZED_IMAGES_SYSTEM_STAMP'
-            '_BACKGROUND_RECHECK_FAT_CROSSLINK_OPTIONAL_REPORT_AREA_IMAGE_OWNS_APP_CODE'
-            '_THREE_KEY_CMDLINE_NO_PARTITIONING')
+CONTRACT = ('PW3_TESTFILE_INIT_V11_DM_CLUSTER_EXTENTS_FAT_READONLY_VERIFY_THEN_RW_ANDROID_TMPFS_COVERED'
+            '_DATA_SIZED_IMAGES_SYSTEM_STAMP_BACKGROUND_RECHECK_FAT_CROSSLINK_OPTIONAL'
+            '_REPORT_AREA_IMAGE_OWNS_APP_CODE_THREE_KEY_CMDLINE_NO_PARTITIONING')
 
 # The <openssl/sha.h> PreInit.c compiles against in this build. It is the same
 # interface the AOSP module gets from BoringSSL, narrowed to the four names the
@@ -105,6 +105,11 @@ CROSS_FLAGS = [
     # construction, and the source is untouched.
     '-Wno-format-truncation',
     '-D_FILE_OFFSET_BITS=64',
+    # The 8192-extent limit makes each mapping ~196 KiB; the arrays are moved off
+    # PID 1's stack (TestFileInit.h/SystemStamp.h keep them in .bss), and these
+    # two flags keep that true: any function frame over 128 KiB fails the build,
+    # and every frame is recorded in stack-usage.txt as the evidence.
+    '-fstack-usage', '-Wframe-larger-than=131072',
     '-static',
 ]
 
@@ -320,11 +325,43 @@ def strip_binary(path, output):
     return output
 
 
+def stack_usage(build_dir, output_dir, board):
+    """The per-function frame sizes GCC recorded, and the largest one.
+
+    -fstack-usage writes one .su file per compiled source (in build_dir); the
+    biggest frame is what would have to fit on PID 1's stack.
+    """
+    lines = []
+    for path in sorted(build_dir.glob('*.su')):
+        lines.extend(path.read_text().splitlines())
+    frames = []
+    for line in lines:
+        parts = line.split('\t')
+        if len(parts) >= 2 and parts[1].isdigit():
+            frames.append((int(parts[1]), parts[0]))
+    if not frames:
+        sys.exit('no stack-usage output from the %s build' % board)
+    frames.sort(reverse=True)
+    (output_dir / ('stack-usage.%s.txt' % board)).write_text('\n'.join(lines) + '\n')
+    largest = frames[0][0]
+    if largest > 131072:
+        sys.exit('the %s build has a %d-byte stack frame' % (board, largest))
+    return {'largest_frame_bytes': largest,
+            'largest_frame': frames[0][1],
+            'top_frames': [{'bytes': b, 'function': f} for b, f in frames[:5]]}
+
+
 def build_one(board, output_dir, include_dir, build_dir, musl, kernel_headers):
     binary = output_dir / ('pw3-testfile-init.%s' % board)
-    run([musl, *CROSS_FLAGS, '-DPW3_BOARD_NAME="%s"' % board,
-         '-I', include_dir, '-idirafter', kernel_headers,
-         PREINIT / 'PreInit.c', SHA_SOURCE, '-o', binary])
+    objects = []
+    for source in (PREINIT / 'PreInit.c', SHA_SOURCE):
+        obj = build_dir / (source.stem + '.o')
+        run([musl, *CROSS_FLAGS, '-DPW3_BOARD_NAME="%s"' % board,
+             '-I', include_dir, '-idirafter', kernel_headers,
+             '-c', source, '-o', obj], cwd=build_dir)
+        objects.append(obj)
+    run([musl, '-static', '-o', binary, *objects])
+    usage = stack_usage(build_dir, output_dir, board)
     elf = elf_facts(binary, board)
     strings = string_facts(binary, board)
     problems = elf['problems'] + strings['problems']
@@ -337,6 +374,7 @@ def build_one(board, output_dir, include_dir, build_dir, musl, kernel_headers):
                             [musl, *CROSS_FLAGS, '-DPW3_BOARD_NAME="%s"' % board,
                              '-I', include_dir, '-idirafter', kernel_headers,
                              PREINIT / 'PreInit.c', SHA_SOURCE, '-o', binary]),
+        'stack_usage': usage,
         'binary': {'name': binary.name, 'bytes': binary.stat().st_size, 'sha256': sha256(binary)},
         'stripped': {'name': stripped.name, 'bytes': stripped.stat().st_size,
                      'sha256': sha256(stripped)},

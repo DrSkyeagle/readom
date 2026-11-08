@@ -65,7 +65,10 @@ static inline void pw3_system_stamp_make(struct pw3_system_stamp *s, uint64_t si
 static inline bool pw3_system_stamp_matches(const struct pw3_system_stamp *recorded,
         uint64_t size, int64_t mtime_sec, int64_t mtime_nsec, const unsigned char sha[32],
         const struct pw3_file_mapping *map) {
-    struct pw3_system_stamp expected;
+    /* ~196 KiB at PW3_FILEMAP_MAX_EXTENTS = 8192: a function-static keeps PID 1's
+     * stack out of it. Single-threaded PID 1 (and the single-threaded host
+     * tests), so no reentrancy to lose. */
+    static struct pw3_system_stamp expected;
     pw3_system_stamp_make(&expected, size, mtime_sec, mtime_nsec, sha, map);
     return map->count <= PW3_FILEMAP_MAX_EXTENTS && !memcmp(recorded, &expected, sizeof(expected));
 }

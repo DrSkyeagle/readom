@@ -107,16 +107,34 @@ static inline const char *pw3_file_map_error_text(enum pw3_file_map_error e) {
     case PW3_FILEMAP_BLOCK_SIZE: return "file mapping FIGETBSZ is not 512 bytes";
     case PW3_FILEMAP_QUERY: return "file mapping FIBMAP query failed";
     case PW3_FILEMAP_HOLE_OR_BOUNDS: return "file mapping hole or physical bound rejected";
-    case PW3_FILEMAP_EXTENT_LIMIT: return "file mapping exceeds the 1024-extent limit";
+    case PW3_FILEMAP_EXTENT_LIMIT: return "file mapping exceeds the extent limit";
     case PW3_FILEMAP_OVERLAP: return "file mapping coverage or internal overlap rejected";
     case PW3_FILEMAP_CLUSTER: return "file mapping cluster size or cluster contiguity rejected";
     }
     return "file mapping unknown error";
 }
+/* The runs the last pw3_file_mapping_read() saw. Counting continues past the
+ * stored-extent limit, so a rejected start can say how fragmented the file
+ * really is (the real Voyage system image is 1,560 runs) instead of only the
+ * number it managed to keep. */
+__attribute__((unused)) static unsigned long pw3_file_map_observed_runs;
+static inline const char *pw3_file_map_error_message(enum pw3_file_map_error e,
+        enum pw3_file_kind kind, char *out, size_t cap) {
+    if (e == PW3_FILEMAP_EXTENT_LIMIT)
+        snprintf(out, cap, "file mapping exceeds the %u-extent limit (%s=%lu limit=%u)",
+                 PW3_FILEMAP_MAX_EXTENTS,
+                 kind == PW3_FILE_SYSTEM ? "system" : kind == PW3_FILE_DATA ? "data" : "report",
+                 pw3_file_map_observed_runs, PW3_FILEMAP_MAX_EXTENTS);
+    else
+        snprintf(out, cap, "%s", pw3_file_map_error_text(e));
+    return out;
+}
 static inline enum pw3_file_map_error pw3_file_mapping_read(int fd, uint64_t bytes,
         uint64_t fat_sectors, uint64_t data_start, struct pw3_file_mapping *result) {
     struct stat file; struct statfs fs; struct statvfs flags; int block_bytes = 0;
+    int limit_reached = 0;
     memset(result, 0, sizeof(*result));
+    pw3_file_map_observed_runs = 0;
     if (!bytes || bytes % 512 || bytes / 512 > INT_MAX || fat_sectors > UINT64_MAX - 16)
         return PW3_FILEMAP_INPUT;
     if (fstat(fd, &file)) { PW3_NOTE("fstat", NULL); return PW3_FILEMAP_METADATA; }
@@ -148,11 +166,17 @@ static inline enum pw3_file_map_error pw3_file_mapping_read(int fd, uint64_t byt
         struct pw3_file_extent *last = result->count ? &result->extents[result->count - 1] : NULL;
         if (last && last->start + last->sectors == physical) last->sectors += (uint64_t)span;
         else {
-            if (result->count == PW3_FILEMAP_MAX_EXTENTS) return PW3_FILEMAP_EXTENT_LIMIT;
-            struct pw3_file_extent *next = &result->extents[result->count++];
-            next->logical = (unsigned)logical; next->start = physical; next->sectors = (uint64_t)span;
+            ++pw3_file_map_observed_runs;
+            if (result->count == PW3_FILEMAP_MAX_EXTENTS) limit_reached = 1;
+            else {
+                struct pw3_file_extent *next = &result->extents[result->count++];
+                next->logical = (unsigned)logical; next->start = physical; next->sectors = (uint64_t)span;
+            }
         }
     }
+    /* The whole file is still walked past the limit: the count is what the
+     * failure message needs, and the FIBMAP reads dominate either way. */
+    if (limit_reached) return PW3_FILEMAP_EXTENT_LIMIT;
     return pw3_file_mapping_bounds(result, bytes, fat_sectors + 16)
         ? PW3_FILEMAP_OK : PW3_FILEMAP_OVERLAP;
 }
