@@ -5,6 +5,14 @@
 > Verified on hardware (Voyage / 5.13.6): install → Android 8.1 boots; Wi‑Fi, display and standby OK; WeRead runs; the right PagePress zone turns pages; returning to the stock system works. Known gaps: left PagePress zone, page-turn haptics, transition ghosting, occasional navigation-bar misdraw.
 >
 > Installation is the same as upstream: put `Readom.sh` and the offline payload into `documents/` and tap **Readom** in the library. Everything below is the upstream documentation, unchanged.
+
+> **Installing third-party APKs**: this Android image has **no package installer UI**, so tapping an APK in a file manager does nothing. Install with adb instead:
+>
+> 1. In Android, open **Settings → About tablet** and tap **Build number** seven times to unlock developer options;
+> 2. Open **Developer options** and enable **USB debugging**;
+> 3. Connect the Kindle to a computer over USB while it is running Android (not the stock system), with platform-tools installed;
+> 4. Run `adb devices` (accept the prompt on the Kindle, "Always allow"), then `adb install app.apk`.
+
 <h1 align="center">
   <a href="https://readom.app">
     <picture>

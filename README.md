@@ -5,6 +5,14 @@
 > 真机已验证（KV 第 7 代 / 5.13.6）：安装后进入 Android 8.1；Wi‑Fi、显示、待机正常；微信读书可用；右侧 PagePress 可翻页；可正常回原厂系统。待修：左侧 PagePress、翻页振动、翻页残影、导航栏偶发错位。
 >
 > 安装方式与上游一致：把 documents/Readom.sh 和离线载荷放进 documents/，书库点 **Readom**。以下内容均为上游原文档，未作修改。
+
+> **安装第三方应用（APK）的说明**：这套 Android 系统**没有内置应用安装器**（PackageInstaller 界面），在文件管理器里点 APK 不会弹出安装界面。可以改用 adb 安装：
+>
+> 1. 在 Android 里打开 **设置 → 关于平板电脑**，连点"版本号"7 次开启开发者选项；
+> 2. 进入 **开发者选项**，打开 **USB 调试**；
+> 3. 用数据线把 Kindle 连到电脑（Kindle 需处于 Android 系统，不是原厂系统），电脑上装好 platform-tools；
+> 4. 电脑执行 db devices（Kindle 上弹出授权时勾选"始终允许"），然后 db install 应用.apk。
+
 <h1 align="center">
   <a href="https://readom.app">
     <picture>
