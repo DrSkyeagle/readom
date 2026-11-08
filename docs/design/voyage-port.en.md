@@ -3,11 +3,12 @@
 The Voyage (7th generation, 2014) is the second model this system is for. Its device directory, boot
 profile, identity checks and kernel patches are in the repository, and **the complete start chain has
 run in the emulator** (QEMU with the stock 5.13.6 firmware): handoff into the Voyage kernel →
-handoff-init → preinit mounting the images → Android `boot_completed=1`, with the Android desktop read
-back through an emulator-only display-source option. **Not one line has run on real hardware**, so every
-device conclusion is still open. This document says where it differs from the PW3, what the repository
-has, what the emulator proved, which switches belong to the emulator only, and what real hardware still
-has to be tested.
+handoff-init → preinit mounting the images → Android `boot_completed=1`, the Android desktop read back
+through an emulator-only display-source option, and **the release installer's whole install flow, touch
+input and a long-press-power restart back to the stock system all verified as well**. **Not one line has
+run on real hardware**, so every device conclusion is still open. This document says where it differs
+from the PW3, what the repository has, what the emulator proved, which switches belong to the emulator
+only, and what real hardware still has to be tested.
 
 ## 1. Where it differs from the PW3
 
@@ -70,15 +71,19 @@ find its rc.
 | handoff-init (BEGIN/DRIVER/SCREEN/END, PMIC keeper restored) | ✅ | `voyage-e2e-report` section 6B.3 |
 | preinit (V10 contract, dm-linear mount, system SHA256) | ✅ | `voyage-e2e-report` section 6B.4 |
 | Android init to `sys.boot_completed=1` | ✅ | `voyage-e2e-report` section 6B.5 |
-| Android's composition readable on the panel | ✅ | `qemu-epdc-report` section 6.3 (panel vs reference 823,296/823,296 identical; only the clock changed after 75 s) |
-| Installer release end to end (install → start the installed system) | ⏳ in progress | `installer-e2e-report` |
-| Touch / restart back to the stock system | ⏳ not verified | not run yet (section 5) |
+| Android's composition readable on the panel (GTK console + `update-source`) | ✅ | `voyage-e2e-report` section 6C (`task23-evidence.txt`; a complete 1072×1448 desktop: status bar, search box, five icons, bottom navigation) |
+| Touch (QMP-injected tap/back) | ✅ | `voyage-e2e-report` section 6C: a tap on the Settings icon opens Android Settings, a tap on Back returns Home; `shots/task23-*.png` |
+| Long-press power → Android power menu → restart to stock | ✅ | `voyage-e2e-report` section 6C: QMP holds POWER for 20 s, "restart to Kindle" is chosen, and the U-Boot reboot lands on the stock Home (`source=stored`, lab126_gui running, fsr modules reloaded) |
+| Installer release end to end (install → start the installed system) | ✅ | `installer-e2e-report`: release-v2 installs, the strict module is correctly refused by the hardware gate, and the installed images start to `boot_completed=1` (93.0 s) |
 
 What the emulator **can** prove: the handoff chain, the kernel starting, handoff-init, preinit, Android
-up to `boot_completed`, and that the composer's output reaches the EPDC panel. What it **cannot** prove:
-real EPDC waveform instructions/greys/ghosting/refresh timing (QEMU models scanout only), the real SoC's
-low-power suspend and wake sources, front light/touch calibration/Wi-Fi calibration/battery/charging
-behaviour, or eMMC performance -- those need the device. The full list is in `voyage-e2e-report` section 6A.7.
+up to `boot_completed`, that the composer's output reaches the EPDC panel and is readable, that injected
+touch drives the Android UI, that a long-press of power goes through Android's own menu back to the stock
+system, and that the release installer's whole install flow and its installed images boot. What it
+**cannot** prove: real EPDC waveform instructions/greys/ghosting/refresh timing (QEMU models scanout
+only), the real SoC's low-power suspend and wake sources, front light/touch calibration/Wi-Fi
+calibration/battery/charging behaviour, or eMMC performance -- those need the device. The full list is in
+`voyage-e2e-report` section 6C.1.
 
 ## 4. Emulator-only switches
 
@@ -87,7 +92,7 @@ behaviour, or eMMC performance -- those need the device. The full list is in `vo
 | `readom.emulator=1` (kernel cmdline) | repository: patch 1060; **only the test entry's** cmdline carries it, a release cmdline never does | skip the `bus_freq` Cortex-A9 TLB lockdown probe and fill the i.MX6SL static map's VA/PA/attr instead; a no-op without the token, so device behaviour is unchanged |
 | `PWS_EMULATOR` (module compile define) | repository: `boot/build_module.py --emulator`; a strict/release module never defines it | synthesise the hardware attestation only (MIDR/DCP/USB/engine fields); probe and the default commit still use the real `pm_suspend`; the module gains the `direct_commit` parameter |
 | `direct_commit` (module parameter) | repository: emulator module only, 0644, default 0 | 0 = real suspend (the production path); 1 = commit by a direct jump that skips `pm_suspend`, a run-time fallback for a guest whose driver wedges the suspend |
-| `-global driver=imx.epdc,property=update-source,value=on` | QEMU fork (not this repository); default off | scan the panel out of the EPDC update buffer so Android's composition is readable; without it the output is pixel-identical to before. The short form `imx.epdc.update-source=on` does not work (the type name has a dot); use the long form |
+| `-global driver=imx.epdc,property=update-source,value=on` | QEMU fork (not this repository); default off; `tools/emulator/start-voyage.sh --epdc-update-source` adds it | scan the panel out of the EPDC update buffer so Android's composition is readable; without it the output is pixel-identical to before. Touch validation also needs `--gui` + Xvfb. The short form `imx.epdc.update-source=on` does not work (the type name has a dot); use the long form |
 | Disable `deviced` (`/etc/upstart/deviced.conf.off`) | guest, runtime (emulator only) | the emulator does not implement fsr_keypad's I2C; deviced blocks in D state and breaks the freeze |
 | Unload `fsr_keypad` (+ `drv26xx_haptics`) after stopping `lab126_gui`/`x`/`lab126` | guest, runtime: `tools/emulator/prepare-voyage-suspend.sh` | on the emulator the stock suspend hangs in fsr_keypad's suspend callback waiting on a mutex; unloading it lets the real suspend complete. A device/release path never depends on this |
 | Serial console (`ttymxc0`) + a rate-limited character tool | emulator run procedure | the entry must run from the serial console; an SSH shell makes the pm freeze fail. TCG drops UART characters, so long commands need pacing |
@@ -126,9 +131,9 @@ and identity checks.
 ## 7. What is not verified yet, and the risks
 
 - **Not one line has run on real hardware**: every item in section 5 is still open.
-- **The installer end to end is still in progress**: the release-v2 entry and payload are built (hashes in section 9), and the start of the installed system plus the strict module's negative hardware-gate check wait for results.
-- **Touch and restart back to stock are not verified**: the emulator starts headless, and touch injection needs a start with a display console.
-- **Display quality is not verified**: the emulator only proves that composition reaches the panel; the greys and refresh policy are the PW3 panel's measurements.
+- **The installer passed end to end in the emulator, but a real-hardware install is untested**: release-v2's install, the strict module's refusal at the hardware gate and the installed images' start all passed on the emulator (`installer-e2e-report`); a device install and the HTTPS download route have not run.
+- **Touch and restart passed through QMP injection, on the emulator only**: real touch calibration, the power key and the Hall cover still need testing.
+- **Display quality is not verified**: the emulator only proves that composition reaches the panel and is readable; the greys and refresh policy are the PW3 panel's measurements.
 - **The bootstrap images are not AOSP build products**: they must be replaced before a release, and the release image must be accepted on hardware again.
 - **The kernel/module bytes depend on the build-tree path**: 3.0.35 writes absolute source paths into the image, so byte-for-byte reproducibility holds only when building at `/root/readom-kernel`, see `kernel-fix-report` section 4.3 and `release-build`.
 - **The profile's Wi-Fi path records the WAN file**: a Wi-Fi-only unit may differ, see section 5.

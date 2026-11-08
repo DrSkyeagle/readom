@@ -508,7 +508,8 @@ failed` 正是唤醒瞬间的那条 `DISABLED_MODE` 在卸模块。现场恢复�
 
 - **QEMU 上原厂 suspend 需要先卸载 fsr_keypad**：模拟器没有实现 fsr_keypad 的 kl05 I2C，它的 suspend 回调会等一个 mutex，直到内核 hung task 检测把调用栈写进日志；`tools/emulator/prepare-voyage-suspend.sh` 先停 `lab126_gui`/`x`/`lab126` 再卸载 `fsr_keypad`（连同 `drv26xx_haptics`）后，真实 suspend 才能完成。真机不需要这一步。
 - **Cortex-A9 TLB lockdown 的 QEMU 模型与真机不同**：QEMU fork 会把锁定位期间的任意 TLB 填表记进 lockdown 项，transition 之后的新内核在 `bus_freq` 探测里读回探测函数自己的代码页而死循环；发行补丁序列的 1060 用 `readom.emulator=1` token 门控跳过探测，token 只出现在测试入口 cmdline，真机/发行不受影响。
-- **imx_epdc 的固定扫描地址看不到 Android 合成结果**：QEMU 机器给 EPDC 写死 `fb-addr=0x81000000`，而 Android 合成到 update buffer；QEMU 侧新增默认关闭的 `update-source` 属性（`-global driver=imx.epdc,property=update-source,value=on`）才能读到桌面，只用于模拟器验证。
-- **headless 启动下触摸/重启未验证**：模拟器用 `-display none` 启动，触摸注入需要带显示 console 的方式；触摸与重启回原厂因此还没跑。
+- **imx_epdc 的固定扫描地址看不到 Android 合成结果**：QEMU 机器给 EPDC 写死 `fb-addr=0x81000000`，而 Android 合成到 update buffer；QEMU 侧新增默认关闭的 `update-source` 属性（`tools/emulator/start-voyage.sh --epdc-update-source` 会加上长格式 `-global driver=imx.epdc,property=update-source,value=on`）才能读到桌面。打开 `--gui` + Xvfb 后已验证 Android 桌面完整可读、触摸可操作；默认关闭时与改动前逐像素一致。
+- **触摸注入需要显示 console**：模拟器用 `-display none` 启动时无法注入触摸；用 `-display gtk`（Xvfb :9 + openbox）后靠 QMP `input-send-event` 驱动 cyttsp4，已验 tap 设置/返回，但 `xdotool click` 对 GTK 窗口无效。坐标换算与面板位置写在 `tools/emulator/README.md`。
 - **bootstrap system 镜像不是 AOSP 构建产物**：它由官方 v0.1.0 的 PW3 镜像换入 Voyage 模块、改写身份属性得到，只用于模拟器验证；正式发行必须用 `PW3_AOSP_PRODUCT=voyage` 的 AOSP 全量构建替换。
-- **installer 端到端与真机都还没有最终结论**：installer 发行版端到端仍在模拟器上推进；真机上没有任何一行跑过，面板灰阶/前光/触摸校准/Wi-Fi/休眠功耗都还要测。
+- **installer 端到端在模拟器上已通过，真机未跑**：release-v2 完成安装（产物哈希与预期一致、report area 创建、payload 删除），严格模块在模拟器硬件门正确地拒绝跳转并清理，安装产物用 v3 链路启动到 `boot_completed=1`；真机安装、HTTPS 下载路径和真机看门狗/FSP 时序仍未验证。
+- **TCG 大写入会触发 imx2 watchdog 复位（installer 安装时）**：内核 timer 每 15 s 喂狗，但 FSP/vfat 大量写会让 timer softirq 长时间得不到调度。模拟器专用规避：`devmem 0x020bc000 16 0xFF3D` 把 WCR timeout 从 60 s 调到 128 s，并在 guest 内每 4 s 用户态喂 WSR；`/mnt/us` 余量 2.7 GiB 下写 2.3 GiB 不再复位。真机 eMMC 写入路径不同，不适用这个规避。

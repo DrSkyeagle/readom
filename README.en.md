@@ -34,7 +34,7 @@
 
 <br>
 
-<p align="center">The demo, the download and an illustrated install guide are on the website: <b><a href="https://readom.app">readom.app</a></b><br>It has only been verified on real hardware on the Kindle Paperwhite 3 (7th generation); the Voyage (7th generation) port is in the sources and has run through to Android in the emulator, but not on a real one. Both keep the Kindle's own system.</p>
+<p align="center">The demo, the download and an illustrated install guide are on the website: <b><a href="https://readom.app">readom.app</a></b><br>It has only been verified on real hardware on the Kindle Paperwhite 3 (7th generation); the Voyage (7th generation) port is in the sources and has run through to Android, the install, touch and a restart back to the stock system in the emulator, but not on a real one. Both keep the Kindle's own system.</p>
 
 <br>
 
@@ -195,7 +195,7 @@ Real hardware has only been run on the PW3 so far; the Voyage port runs the whol
 
 | Model | How far from the PW3 |
 |---|---|
-| Voyage | Closest: Amazon builds it with the same kernel configuration as the PW3 and the kernel already builds; its device directory, boot profile, identity table and build wiring are in the sources, and the chain has run through to Android `boot_completed=1` with a readable desktop in the emulator, but not on a real device |
+| Voyage | Closest: Amazon builds it with the same kernel configuration as the PW3 and the kernel already builds; its device directory, boot profile, identity table and build wiring are in the sources, and the chain has run through to Android `boot_completed=1`, the install, touch and a restart back to stock in the emulator, but not on a real device |
 | Oasis 1 | The kernel already builds; the Wi-Fi driver is missing |
 | Kindle 8, PW4 and others | A different kernel, but the display side can be reused |
 | PW5, Kindle 11th generation, Scribe and other MediaTek models | Display, Wi-Fi and power all have to be rewritten |

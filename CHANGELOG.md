@@ -19,9 +19,11 @@ target-lock 也从 profile 读 stock release/version/CPUID；`boot/profiles/voya
 （`pm_test=core`，先按 `prepare-voyage-suspend.sh` 停 UI 并卸载 `fsr_keypad`）、commit 走真实 suspend
 并 transition 到 Voyage 内核、patch 1060 让新内核绕过 QEMU 的 Cortex-A9 TLB lockdown 模型、
 handoff-init 恢复 PMIC keeper 并加载 EPDC、preinit 校验并 dm-linear 挂载 system/data、Android init
-到 `sys.boot_completed=1`；再用 QEMU `imx.epdc` 的 `update-source=on` 选项，Android 合成的桌面在
-面板上与其参考图 823,296/823,296 像素逐像素相同（75 秒后只有时钟变化）。**真机上一行都还没跑过**：
-面板灰阶/刷新、前光/VCOM、触摸校准、Wi-Fi 校准、休眠功耗、重启回原厂都要在真机上验。
+到 `sys.boot_completed=1`；再用 QEMU `imx.epdc` 的 `update-source=on` 选项（GTK console + Xvfb），
+Android 合成的桌面在面板上与其参考图 823,296/823,296 像素逐像素相同（75 秒后只有时钟变化），QMP
+注入触摸能打开设置/返回桌面，长按电源 20 秒走 Android 自己的电源菜单“重启回 Kindle 系统”回到
+stock Home。**真机上一行都还没跑过**：面板灰阶/刷新、前光/VCOM、触摸校准、Wi-Fi 校准、休眠功耗
+都要在真机上验。
 
 **内核侧：** 发行补丁序列新增第 86 个补丁（`patches/android-core/1060-…`，
 `early_param("readom.emulator")` 门控的 TLB lockdown 探测旁路，无 token 时 no-op）；发行内核已由同一
@@ -31,9 +33,11 @@ handoff-init 恢复 PMIC keeper 并加载 EPDC、preinit 校验并 dm-linear 挂
 
 **模拟器专用开关与未完成项：** `PWS_EMULATOR` 模块只合成硬件 attestation（probe 与默认 commit 仍走
 真实 suspend），`direct_commit` 模块参数（默认 0）是 QEMU 上 suspend 卡住时的运行期兜底；QEMU 的
-`update-source` 属性默认关闭、只用于模拟器显示验证；guest 侧还要停 deviced、卸载 fsr_keypad。
-installer 发行版端到端仍在模拟器上推进，触摸与重启回原厂尚未验证；发行 installer 的真机验证仍只做过
-PW3。依据、证据与真机必测项见 [voyage-port.md](docs/design/voyage-port.md)。
+`update-source` 属性默认关闭、只用于模拟器显示/触摸验证；guest 侧还要停 deviced、卸载 fsr_keypad，
+installer 大写入时要用 `devmem` 调长看门狗并用户态喂狗。**模拟器上的 installer 端到端也已通过**：
+release-v2 安装出与预期同哈希的 system/data（含 report area），严格模块在模拟器硬件门正确地拒绝跳转
+并清理，安装产物用 v3 链路启动到 `boot_completed=1`；真机安装、HTTPS 下载路径与真机外设仍未验证。
+依据、证据与真机必测项见 [voyage-port.md](docs/design/voyage-port.md)。
 
 ## v0.1.0
 

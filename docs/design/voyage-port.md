@@ -2,9 +2,10 @@
 
 Voyage（第 7 代，2014 年款）是这套系统的第二个机型。设备目录、启动配置、身份校验和内核补丁都在仓库里，
 而且**已经在模拟器（QEMU 里跑原厂 5.13.6 固件）上跑通了完整启动链**：交接进 Voyage 内核 → handoff-init →
-preinit 挂载镜像 → Android `boot_completed=1`，并用模拟器专用的显示选源选项把 Android 桌面读出来。
-**真机上一行都还没跑过**，所有真机结论都还是空的。这份文档写清楚：和 PW3 差在哪、仓库里已经做了什么、
-模拟器验到了哪里、哪些开关只属于模拟器、真机上还必须测什么。
+preinit 挂载镜像 → Android `boot_completed=1`，用模拟器专用的显示选源选项把 Android 桌面读出来，并验通了
+**发行 installer 的完整安装流程、触摸操作和长按电源回原厂**。**真机上一行都还没跑过**，所有真机结论都还是
+空的。这份文档写清楚：和 PW3 差在哪、仓库里已经做了什么、模拟器验到了哪里、哪些开关只属于模拟器、
+真机上还必须测什么。
 
 ## 一、和 PW3 差在哪
 
@@ -63,14 +64,16 @@ preinit 挂载镜像 → Android `boot_completed=1`，并用模拟器专用的�
 | handoff-init（BEGIN/DRIVER/SCREEN/END，PMIC keeper 恢复） | ✅ | `voyage-e2e-report` §6B.3 |
 | preinit（V10 contract、dm-linear 挂载、system SHA256） | ✅ | `voyage-e2e-report` §6B.4 |
 | Android init 到 `sys.boot_completed=1` | ✅ | `voyage-e2e-report` §6B.5 |
-| Android 合成结果在面板上可读 | ✅ | `qemu-epdc-report` §6.3（面板与参考图 823,296/823,296 逐像素相同；75 s 后只有时钟变化） |
-| installer 发行版端到端（安装 → 安装产物启动） | ⏳ 进行中 | `installer-e2e-report` |
-| 触摸 / 重启回原厂 | ⏳ 未验证 | 尚未执行（见第五节） |
+| Android 合成结果在面板上可读（GTK console + `update-source`） | ✅ | `voyage-e2e-report` §6C（`task23-evidence.txt`；1072×1448 完整桌面：状态栏、搜索框、五个图标、底部导航栏） |
+| 触摸（QMP 注入 tap/返回） | ✅ | `voyage-e2e-report` §6C：tap 设置图标进入 Android 设置、tap 返回键回 Home；`shots/task23-*.png` |
+| 长按电源 → Android 电源菜单 → 重启回原厂 | ✅ | `voyage-e2e-report` §6C：QMP 长按 POWER 20 s，选“重启回 Kindle 系统”，U-Boot 重启后回 stock Home（`source=stored`、lab126_gui running、fsr 模块重载） |
+| installer 发行版端到端（安装 → 安装产物启动） | ✅ | `installer-e2e-report`：release-v2 安装成功、严格模块硬件门正确拒绝、安装产物启动到 `boot_completed=1`（93.0 s） |
 
 模拟器“能证明”的是：交接链、内核启动、handoff-init、preinit、Android 启动到 `boot_completed`、
-以及合成器送出的内容确实到了 EPDC 面板。模拟器“不能证明”的是真实 EPDC 波形指令/灰阶/鬼影/刷新时序
-（QEMU 只建模扫描输出）、真实 suspend 的 SoC 低功耗与唤醒源、前光/触摸校准/Wi-Fi 校准/电池/充电等
-外设行为，以及 eMMC 性能——这些都要真机。详细清单见 `voyage-e2e-report` §6A.7。
+合成器送出的内容确实到了 EPDC 面板并且可读、触摸注入能驱动 Android UI、长按电源能走 Android 自己的
+菜单回到原厂系统，以及发行 installer 的完整安装流程与安装产物可启动。模拟器“不能证明”的是真实 EPDC
+波形指令/灰阶/鬼影/刷新时序（QEMU 只建模扫描输出）、真实 suspend 的 SoC 低功耗与唤醒源、前光/触摸校准/
+Wi-Fi 校准/电池/充电等外设行为，以及 eMMC 性能——这些都要真机。详细清单见 `voyage-e2e-report` §6C.1。
 
 ## 四、模拟器专用开关清单
 
@@ -79,7 +82,7 @@ preinit 挂载镜像 → Android `boot_completed=1`，并用模拟器专用的�
 | `readom.emulator=1`（内核 cmdline） | 仓库：patch 1060；**只出现在测试入口**的 cmdline，发行 cmdline 永不含 | 跳过 `bus_freq` 的 Cortex-A9 TLB lockdown 探测，改填 i.MX6SL 静态映射的 VA/PA/attr；无 token 时 no-op，真机行为不变 |
 | `PWS_EMULATOR`（模块编译宏） | 仓库：`boot/build_module.py --emulator`；strict/发行模块不定义 | 只合成硬件 attestation（MIDR/DCP/USB/engine fields），probe 与默认 commit 仍是真实 `pm_suspend`；模块多带 `direct_commit` 参数 |
 | `direct_commit`（模块参数） | 仓库：模拟器模块内，0644，默认 0 | 0=真实 suspend（生产路径）；1=commit 直接用跳转绕过 `pm_suspend`，只作为 QEMU 上某个驱动卡住 suspend 时的运行期兜底 |
-| `-global driver=imx.epdc,property=update-source,value=on` | QEMU fork（不在本仓库）；默认 off | 面板改由 EPDC update buffer 扫描输出，Android 合成结果才可读；不传则与改动前逐像素一致，只用于模拟器验证。简写 `imx.epdc.update-source=on` 无效（类型名带点），要用长格式 |
+| `-global driver=imx.epdc,property=update-source,value=on` | QEMU fork（不在本仓库）；默认 off；`tools/emulator/start-voyage.sh --epdc-update-source` 会加上它 | 面板改由 EPDC update buffer 扫描输出，Android 合成结果才可读；不传则与改动前逐像素一致，只用于模拟器验证（触摸验证还需要 `--gui` + Xvfb）。简写 `imx.epdc.update-source=on` 无效（类型名带点），要用长格式 |
 | 停用 `deviced`（`/etc/upstart/deviced.conf.off`） | guest 运行时（模拟器专用） | 模拟器没有实现 fsr_keypad 的 I2C，deviced 会卡在 D 状态，破坏 freeze |
 | 卸载 `fsr_keypad`（+ `drv26xx_haptics`），先停 `lab126_gui`/`x`/`lab126` | guest 运行时：`tools/emulator/prepare-voyage-suspend.sh` | 原厂 suspend 在模拟器上会因 fsr_keypad 的 suspend 回调等 mutex 而挂死；卸载后真实 suspend 才能完成。真机/发行路径不依赖它 |
 | 串口 console（`ttymxc0`）+ 字符限速工具 | 模拟器运行方式 | 入口必须从串口 console 启动；SSH shell 会让 pm freeze 失败。TCG 下 UART 会丢字符，长命令要限速 |
@@ -109,9 +112,9 @@ bootstrap 路线的价值是让内核、交接、preinit、Android 启动在真�
 ## 七、还没验证的与风险
 
 - **没有任何一行在真机上跑过**：第五节的所有项都还是空的。
-- **installer 端到端仍在进行**：release-v2 入口与 payload 已构建（哈希见第九节），安装后的启动与严格模块的负向硬件门验证还要等结果。
-- **触摸/重启回原厂未验证**：模拟器是 headless 启动，触摸注入需要带显示 console 的启动方式。
-- **显示质量未验证**：模拟器只证明合成结果到了面板，灰阶/刷新策略是 PW3 面板的实测值。
+- **installer 已通过模拟器端到端，但真机安装未验证**：release-v2 的安装、严格模块硬件门拒绝、安装产物启动都在模拟器上通过（`installer-e2e-report`）；真机安装与 HTTPS 下载路径还没走。
+- **触摸与回原厂已通过 QMP 注入验证，但仅限模拟器**：真机触摸校准、电源键与霍尔盖仍要测。
+- **显示质量未验证**：模拟器只证明合成结果到了面板且可读，灰阶/刷新策略是 PW3 面板的实测值。
 - **bootstrap 镜像不是 AOSP 构建产物**：发行前必须替换，且发行镜像要重新在真机验收。
 - **内核/模块的字节可复现性依赖构建树路径**：3.0.35 把源码绝对路径写进镜像，只有在 `/root/readom-kernel` 规范路径下构建才逐字节可复现，见 `kernel-fix-report` §4.3 与 `release-build`。
 - **profile 的 Wi-Fi 路径按 WAN 文件记录**：Wi-Fi-only 机型可能不同，见第五节。

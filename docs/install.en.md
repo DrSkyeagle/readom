@@ -12,7 +12,7 @@
 
 On any other model or version the installer shows E101 and stops without changing any file.
 
-The Voyage (7th generation) port is in the sources and has run through to Android in the emulator, but this guide and the released installer have only been verified on real hardware with the PW3 release; a Voyage install (and the start after it) has not been tested, so no Voyage install steps are given here.
+The Voyage (7th generation) port is in the sources and has run through to Android, the release installer's full install and the start of the installed images in the emulator, but this guide and the released installer have only been verified on real hardware with the PW3 release; a Voyage install (and the start after it) has not been tested, and the emulator installs a bootstrap image (repacked from the released v0.1.0, not an AOSP build product), so no Voyage install steps are given here.
 
 ### Does the jailbreak include sh_integration?
 

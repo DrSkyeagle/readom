@@ -24,10 +24,12 @@ real `pm_suspend` (`pm_test=core`, after `prepare-voyage-suspend.sh` stops the U
 `fsr_keypad`), the commit uses the real suspend and transitions into the Voyage kernel, patch 1060 lets
 the new kernel bypass QEMU's Cortex-A9 TLB lockdown model, handoff-init restores the PMIC keeper and
 loads EPDC, preinit verifies and dm-linear mounts system/data, and Android init reaches
-`sys.boot_completed=1`; with QEMU `imx.epdc`'s `update-source=on` option, Android's composed desktop is
-pixel-identical to its reference image on 823,296/823,296 pixels (after 75 s only the clock changes).
-**Not one line has run on real hardware**: panel greys/refresh, front light/VCOM, touch calibration,
-Wi-Fi calibration, suspend power and restarting back to the stock system all need the device.
+`sys.boot_completed=1`; with QEMU `imx.epdc`'s `update-source=on` option (GTK console + Xvfb), Android's
+composed desktop is pixel-identical to its reference image on 823,296/823,296 pixels (after 75 s only the
+clock changes), QMP-injected touch opens Settings and returns Home, and a 20 s power long-press goes
+through Android's own power menu's "restart to Kindle" back to the stock Home. **Not one line has run on
+real hardware**: panel greys/refresh, front light/VCOM, touch calibration, Wi-Fi calibration and suspend
+power all need the device.
 
 **Kernel side:** the release patch series gained its 86th patch (`patches/android-core/1060-…`, a TLB
 lockdown probe bypass gated by `early_param("readom.emulator")`, a no-op without the token); the
@@ -39,10 +41,13 @@ need no rebuild for the kernel. There is one kernel: the test entry's cmdline en
 **Emulator-only switches and what is unfinished:** a `PWS_EMULATOR` module synthesises only the hardware
 attestation (probe and the default commit still use the real suspend), the `direct_commit` module
 parameter (default 0) is the run-time fallback when QEMU's suspend wedges; QEMU's `update-source`
-property is off by default and only for emulator display validation; the guest also needs deviced
-disabled and fsr_keypad unloaded. The installer's release end to end is still progressing in the
-emulator, and touch and restarting back to the stock system are not verified; real-hardware installer
-validation is still PW3-only. The reasoning, the evidence and the real-device checklist are in
+property is off by default and only for emulator display/touch validation; the guest also needs deviced
+disabled, fsr_keypad unloaded, and for a large installer write the watchdog timeout lengthened with
+`devmem` plus a user-space feed. **The installer end to end also passed in the emulator**: release-v2
+installed system/data with the expected hashes (report area included), the strict module was correctly
+refused at the emulator's hardware gate and cleaned up, and the installed images started to
+`boot_completed=1` through the v3 chain; a device install, the HTTPS download route and real device
+peripherals are still untested. The reasoning, the evidence and the real-device checklist are in
 [voyage-port.en.md](docs/design/voyage-port.en.md).
 
 ## v0.1.0

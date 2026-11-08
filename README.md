@@ -32,7 +32,7 @@
 
 <br>
 
-<p align="center">演示、下载和图文安装教程都在官网：<b><a href="https://readom.app">readom.app</a></b><br>目前只在 Kindle Paperwhite 3（第 7 代）上做过真机验证；Voyage（第 7 代）的移植已经在源码里，并在模拟器上跑通了启动到 Android，还没有上真机。两种机器都保留 Kindle 原厂系统。</p>
+<p align="center">演示、下载和图文安装教程都在官网：<b><a href="https://readom.app">readom.app</a></b><br>目前只在 Kindle Paperwhite 3（第 7 代）上做过真机验证；Voyage（第 7 代）的移植已经在源码里，并在模拟器上跑通了启动到 Android、安装、触摸和回原厂，还没有上真机。两种机器都保留 Kindle 原厂系统。</p>
 
 <br>
 
@@ -191,7 +191,7 @@ Readom 的真机验证目前只做过 PW3，Voyage 的源码移植已在模拟�
 
 | 机型 | 离 PW3 多远 |
 |---|---|
-| Voyage | 最近：亚马逊给它和 PW3 用同一份内核配置，内核已经能编出来；设备目录、启动配置、身份表和构建接线都在源码里，并已在模拟器上跑通到 Android `boot_completed=1` 与可读桌面，真机还没上 |
+| Voyage | 最近：亚马逊给它和 PW3 用同一份内核配置，内核已经能编出来；设备目录、启动配置、身份表和构建接线都在源码里，并已在模拟器上跑通到 Android `boot_completed=1`、安装、触摸与回原厂，真机还没上 |
 | Oasis 1 | 内核已经能编出来，差 Wi‑Fi 驱动 |
 | Kindle 8、PW4 等 | 要换内核，显示部分能复用 |
 | PW5、Kindle 11 代、Scribe 等联发科机型 | 显示、Wi‑Fi、电源都要重写 |

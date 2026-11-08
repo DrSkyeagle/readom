@@ -37,7 +37,10 @@ Besides the full AOSP build there is a **validation-only** route: start from the
 swap in the Voyage kernel's modules and rewrite the identity properties in `build.prop` to get a
 Voyage-identity system image (the tool is `tools/build-voyage-release.py`). It lets the kernel, the
 handoff, preinit and the Android start be exercised against the real firmware before an AOSP build
-exists; but it is **not a release**: the userspace is still the released PW3 bytes.
+exists; but it is **not a release**: the userspace is still the released PW3 bytes. These bootstrap
+images went through the release installer's full install flow in the emulator and were started to Android
+through the v3 test entry, so the installer chain can be validated without waiting for an AOSP build; a
+device install and the final release still need the AOSP-built image.
 
 | Item | Full AOSP build | bootstrap repack |
 |---|---|---|

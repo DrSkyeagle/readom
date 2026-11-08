@@ -36,7 +36,9 @@
 除了 AOSP 全量构建，还有一条**只用于验证**的路线：从官方 v0.1.0 的发布物出发，换入 Voyage 内核的模块、
 改写 `build.prop` 的身份属性，得到 Voyage 身份的 system 镜像（工具 `tools/build-voyage-release.py`）。
 它让内核、交接、preinit 和 Android 启动可以在真机固件上先跑通，而不必等 AOSP 构建；但它**不是发行版**：
-用户空间仍是发布版 PW3 的字节。
+用户空间仍是发布版 PW3 的字节。这套 bootstrap 镜像在模拟器上通过了发行 installer 的完整安装流程，并被
+v3 测试入口启动到 Android，因此 installer 链本身不必等 AOSP 构建就能验证；真机安装与最终发行仍以
+AOSP 构建的镜像为准。
 
 | 项目 | AOSP 全量构建 | bootstrap 重打包 |
 |---|---|---|
