@@ -12,6 +12,8 @@
 
 On any other model or version the installer shows E101 and stops without changing any file.
 
+The Voyage (7th generation) port is in the sources and has run through to Android in the emulator, but this guide and the released installer have only been verified on real hardware with the PW3 release; a Voyage install (and the start after it) has not been tested, so no Voyage install steps are given here.
+
 ### Does the jailbreak include sh_integration?
 
 The Kindle library does not know `.sh` files by itself. "Readom" appears in the library and runs when tapped because of KindleModding's [sh_integration](https://github.com/KindleModding/sh_integration): it reads the name written at the top of `Readom.sh` (`# Name: Readom`), registers it as an item in the library, and runs it when you tap it. Readom's entry depends on it, so "jailbroken" is not enough; the jailbreak has to have brought it, and it has to work. Without it, or with it not working, `Readom.sh` can be copied in and nothing appears in the library at all.

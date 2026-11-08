@@ -706,3 +706,12 @@ only not sent.
 
 **What to do now**: nothing; the black minute is the compile, and the home screen follows. Holding
 the power button only interrupts it.
+
+## 19. Voyage emulator limits, and what is not yet a conclusion
+
+- **A stock suspend on QEMU needs fsr_keypad unloaded first**: the emulator does not implement fsr_keypad's kl05 I2C, and its suspend callback waits on a mutex until the kernel's hung-task detector writes the stack into the log; `tools/emulator/prepare-voyage-suspend.sh` stops `lab126_gui`/`x`/`lab126` and then unloads `fsr_keypad` (with `drv26xx_haptics`) so the real suspend can complete. A real device needs none of this.
+- **QEMU's Cortex-A9 TLB lockdown model differs from hardware**: the QEMU fork records any TLB fill performed while the lockdown bit is set into the lockdown entry, so after the transition the new kernel's `bus_freq` probe reads back the probe function's own code page and loops forever; release-series patch 1060 skips the probe when the `readom.emulator=1` token is present, and the token only appears on the test entry's cmdline, so a device/release is unaffected.
+- **imx_epdc's fixed scan-out address does not show Android's composition**: the QEMU machine hard-codes `fb-addr=0x81000000` for EPDC while Android composes into the update buffer; a new QEMU-side `update-source` property, off by default (`-global driver=imx.epdc,property=update-source,value=on`), is what makes the desktop readable, and it is for emulator validation only.
+- **Touch and restart are unverified under a headless start**: the emulator runs with `-display none`, and touch injection needs a start with a display console; touch and restarting back to the stock system have therefore not been run.
+- **The bootstrap system image is not an AOSP build product**: it is the released v0.1.0 PW3 image with the Voyage modules swapped in and the identity properties rewritten, and it exists for emulator validation; a real release has to replace it with the `PW3_AOSP_PRODUCT=voyage` full AOSP build.
+- **Neither the installer end to end nor real hardware has a final answer**: the installer release end to end is still progressing in the emulator, and not one line has run on hardware -- panel greys, front light, touch calibration, Wi-Fi and suspend power all remain to be measured.

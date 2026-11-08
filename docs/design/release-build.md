@@ -31,6 +31,24 @@
 3. **`user` 构建**：`lunch pw3-user`（`build-aosp-system.sh` 按 `PW3_BUILD_VARIANT` 选）；检查 SELinux 中只给调试版的规则（如 `su` 域）是否被本项目的策略引用；`adbd` 服务的 `--root_seclabel` 在 `user` 版里不起作用，可以保留。
 4. **adb 默认关闭**：`user` 构建不会给 `persist.sys.usb.config=mtp` 加 adb；开发者选项里的"USB 调试"照常可用，电脑第一次连接时要在 Kindle 上授权（`usb-mtp.md`）。
 
+## 第二条路：bootstrap 镜像（验证用，不是发行版）
+
+除了 AOSP 全量构建，还有一条**只用于验证**的路线：从官方 v0.1.0 的发布物出发，换入 Voyage 内核的模块、
+改写 `build.prop` 的身份属性，得到 Voyage 身份的 system 镜像（工具 `tools/build-voyage-release.py`）。
+它让内核、交接、preinit 和 Android 启动可以在真机固件上先跑通，而不必等 AOSP 构建；但它**不是发行版**：
+用户空间仍是发布版 PW3 的字节。
+
+| 项目 | AOSP 全量构建 | bootstrap 重打包 |
+|---|---|---|
+| 输入 | 本仓库 + AOSP 树 + 内核产物 | 官方 v0.1.0 的 system.img/data 模板 + Voyage 内核模块 |
+| 身份来源 | `build.prop` 由 AOSP 构建生成（`voyage.mk`） | 只改写 7 类身份属性，其余字节仍是 PW3 |
+| 用途 | 正式发行 | 模拟器验证；不能作为发行镜像 |
+
+发行物要逐字节可复现，还有一条工程约束：3.0.35 内核把源码的**绝对路径**写进镜像（`__FILE__`，约 583 条），
+所以只有在规范路径 `/root/readom-kernel` 下构建，zImage/uImage/modules 才与历史发行物逐字节一致；
+换个路径（如 `/home/builder/readom-kernel`）哈希就会变，并且会波及任何嵌入内核或模块的产物。
+复现步骤（bind mount 到该路径）见 `readom-port` 的 `kernel-fix-report` 第 4.3 节。
+
 ## 随发行附源码
 
 `tools/collect-copyleft-sources.py`，在构建虚拟机里、导出镜像（`export-aosp-images.py`）之后运行，生成每个 Release 要附的源码文件。

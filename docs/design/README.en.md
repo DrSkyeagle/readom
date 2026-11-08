@@ -11,7 +11,7 @@ Each one answers a question, and they are divided by who arrives with which ques
 | [diagnostics.en.md](diagnostics.en.md) | How the device gets itself out when a start fails, and how the evidence reaches a person | Before changing the start checks, the report area or the log export |
 | [release-build.en.md](release-build.en.md) | How to build a release and what has to be true before one (the release checklist, the keys, the security review, the data that expires) | Before a release, line by line |
 | [porting-to-other-models.en.md](porting-to-other-models.en.md) | What it takes to move this to another Kindle, and what is already there | When considering a second model |
-| [voyage-port.en.md](voyage-port.en.md) | What the Voyage, the second model, changed, what it shares with the PW3, and what is still missing | Before touching the Voyage device directory, boot profile or build wiring |
+| [voyage-port.en.md](voyage-port.en.md) | What the Voyage, the second model, changed, what the emulator proved, which switches are emulator-only, and what real hardware still needs | Before touching the Voyage device directory, boot profile or build wiring |
 
 **Why eight**: they are for different readers -- somebody changing the interface, somebody making a release, somebody porting. More than forty "see design/..." comments in the code each point at a particular one, so whoever follows a comment lands on the content it means. The other way round, the two halves of one thing share a document -- WeRead's automatic install and "installing a large application here", the way out of a failed start and the diagnostic channel, the security review and the release checklist -- so the reader does not have to put them together.
 

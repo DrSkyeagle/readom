@@ -12,6 +12,8 @@
 
 型号或版本不对时，安装器会显示 E101 并停止，不改动任何文件。
 
+Voyage（第 7 代）的移植在源码里，并已在模拟器上跑通到 Android 启动；但本安装说明和发行安装器目前只为 PW3 的发行物做过真机验证，Voyage 真机安装（以及安装后的启动）还没有验过，因此这里不提供 Voyage 的安装步骤。
+
 ### 越狱里有没有 sh_integration
 
 Kindle 的书库本身不认 `.sh`。书库里出现"Readom"、点了能运行，靠的是 KindleModding 的 [sh_integration](https://github.com/KindleModding/sh_integration)：它读 `Readom.sh` 开头写的名字（`# Name: Readom`），把它登记成书库里的一项，点的时候替你运行。Readom 的入口靠的就是它，所以光是"越狱过"不够，越狱里要带着它、而且它要能用。没有它或者它没能用，`Readom.sh` 拷进去，书库里什么也不会出现。

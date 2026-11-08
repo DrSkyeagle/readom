@@ -503,3 +503,12 @@ failed` 正是唤醒瞬间的那条 `DISABLED_MODE` 在卸模块。现场恢复�
 画面——墨水屏不推新帧就不变，所以启动画面一直留到第一扇窗口画出来。那几帧照旧计数，只是不送。
 
 **现在能做的**：不用做什么，黑屏那一分多钟就是在编译，等桌面出来即可；长按电源键只会打断它。
+
+## 十九、Voyage 在模拟器上的限制，以及哪些还不是结论
+
+- **QEMU 上原厂 suspend 需要先卸载 fsr_keypad**：模拟器没有实现 fsr_keypad 的 kl05 I2C，它的 suspend 回调会等一个 mutex，直到内核 hung task 检测把调用栈写进日志；`tools/emulator/prepare-voyage-suspend.sh` 先停 `lab126_gui`/`x`/`lab126` 再卸载 `fsr_keypad`（连同 `drv26xx_haptics`）后，真实 suspend 才能完成。真机不需要这一步。
+- **Cortex-A9 TLB lockdown 的 QEMU 模型与真机不同**：QEMU fork 会把锁定位期间的任意 TLB 填表记进 lockdown 项，transition 之后的新内核在 `bus_freq` 探测里读回探测函数自己的代码页而死循环；发行补丁序列的 1060 用 `readom.emulator=1` token 门控跳过探测，token 只出现在测试入口 cmdline，真机/发行不受影响。
+- **imx_epdc 的固定扫描地址看不到 Android 合成结果**：QEMU 机器给 EPDC 写死 `fb-addr=0x81000000`，而 Android 合成到 update buffer；QEMU 侧新增默认关闭的 `update-source` 属性（`-global driver=imx.epdc,property=update-source,value=on`）才能读到桌面，只用于模拟器验证。
+- **headless 启动下触摸/重启未验证**：模拟器用 `-display none` 启动，触摸注入需要带显示 console 的方式；触摸与重启回原厂因此还没跑。
+- **bootstrap system 镜像不是 AOSP 构建产物**：它由官方 v0.1.0 的 PW3 镜像换入 Voyage 模块、改写身份属性得到，只用于模拟器验证；正式发行必须用 `PW3_AOSP_PRODUCT=voyage` 的 AOSP 全量构建替换。
+- **installer 端到端与真机都还没有最终结论**：installer 发行版端到端仍在模拟器上推进；真机上没有任何一行跑过，面板灰阶/前光/触摸校准/Wi-Fi/休眠功耗都还要测。
