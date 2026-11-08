@@ -716,3 +716,23 @@ the power button only interrupts it.
 - **The bootstrap system image is not an AOSP build product**: it is the released v0.1.0 PW3 image with the Voyage modules swapped in and the identity properties rewritten, and it exists for emulator validation; a real release has to replace it with the `PW3_AOSP_PRODUCT=voyage` full AOSP build.
 - **The installer end to end passed in the emulator, but has not run on hardware**: release-v2 completed the install (artifact hashes as expected, report area created, payload deleted), the strict module was correctly refused at the emulator's hardware gate and cleaned up, and the installed images booted to `boot_completed=1` through the v3 chain; a device install, the HTTPS download route and device watchdog/FSP timing are still untested.
 - **Large writes under TCG trip the imx2 watchdog during an install**: the kernel timer feeds it every 15 s, but the FSP/vfat write load can starve the timer softirq for long stretches. The emulator-only workaround is `devmem 0x020bc000 16 0xFF3D` (WCR timeout 60 s to 128 s) plus a user-space WSR feed every 4 s while the guest writes the 2.3 GiB; the device's eMMC path does not need it.
+
+## Voyage device results, and the boundary of this verification (v8.3)
+
+**Verified on hardware** (Kindle Voyage 7th generation, firmware 5.13.6): after copying
+`documents/Readom.sh` and the offline payload into `documents/`, tapping Readom installed the
+images, Android 8.1 booted, and WeRead works. The emulator additionally verified probe/commit to
+`boot_completed`, a deliberately fragmented `system=1575` extents against limit 8192, the PagePress
+preinit load and its `PW3_PAGEPRESS` line, and that a write to the read-write store reaches the
+host-side FAT.
+
+**Not yet verified**: the actual page-turn direction of PagePress on hardware (awaiting the user's
+reply), real app reads/writes under `/kindle-us` (the AOSP vfat policy rules were checked), and the
+device panel waveform/ghosting/frontlight/VCOM/touch calibration/Wi-Fi calibration/suspend power.
+
+**The release image used for this verification is a bootstrap rebuild** (released v0.1.0 system +
+Voyage modules + rewritten identity + a debugfs-injected `/vendor/usr/keylayout/fsr_keypad.kl`),
+not an output of this repository's AOSP build chain; this machine has no AOSP userspace toolchain.
+An upstream rebuild needs `PW3_AOSP_INSTALLCLEAN=1`, plus rebuilding `pw3-init-check` with V11
+semantics and restoring its storage `exec_start` in `init.pw3.rc` (today that action only publishes
+`sys.pw3.storage_ready=1`).

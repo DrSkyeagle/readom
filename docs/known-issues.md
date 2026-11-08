@@ -513,3 +513,26 @@ failed` 正是唤醒瞬间的那条 `DISABLED_MODE` 在卸模块。现场恢复�
 - **bootstrap system 镜像不是 AOSP 构建产物**：它由官方 v0.1.0 的 PW3 镜像换入 Voyage 模块、改写身份属性得到，只用于模拟器验证；正式发行必须用 `PW3_AOSP_PRODUCT=voyage` 的 AOSP 全量构建替换。
 - **installer 端到端在模拟器上已通过，真机未跑**：release-v2 完成安装（产物哈希与预期一致、report area 创建、payload 删除），严格模块在模拟器硬件门正确地拒绝跳转并清理，安装产物用 v3 链路启动到 `boot_completed=1`；真机安装、HTTPS 下载路径和真机看门狗/FSP 时序仍未验证。
 - **TCG 大写入会触发 imx2 watchdog 复位（installer 安装时）**：内核 timer 每 15 s 喂狗，但 FSP/vfat 大量写会让 timer softirq 长时间得不到调度。模拟器专用规避：`devmem 0x020bc000 16 0xFF3D` 把 WCR timeout 从 60 s 调到 128 s，并在 guest 内每 4 s 用户态喂 WSR；`/mnt/us` 余量 2.7 GiB 下写 2.3 GiB 不再复位。真机 eMMC 写入路径不同，不适用这个规避。
+
+## 真机可见限制：Voyage 的 pw3-init-check storage 服务被禁用（v8.2）
+
+预置的 `pw3-init-check` 二进制按 `PW3_FILEMAP_MAX_EXTENTS=1024` 编译；V11 的 receipt 是 8192 项（真机 system.img 需 1,560/模拟 1,575 runs），旧检查无法通过，且本机构建环境没有 AOSP userspace 工具链重建它。v8.2 起 `init.pw3.rc` 的 `on pw3-verify-storage` 不再启动该服务（注释说明），存储的独立复核改由 preinit 的全量 SHA/extent/dm 校验与 `pw3-system-verify` 的 dm-1 SHA256 复核承担；ffs/interface 检查不受影响。有 AOSP 构建链后按 V11 语义重建即可恢复。
+
+### 更新（v8.3）：storage 服务改为只发布 storage_ready
+
+v8.2 把 `exec_start pw3-init-check` 注释掉后，`sys.pw3.storage_ready` 无人发布，导致 Android 后半段所有 trigger（post-fs/late-fs/post-fs-data/zygote-start/boot）停住，表现为 perf_harden 之后 CPU idle、面板停在"正在启动 Android"。v8.3 在 `init.pw3.rc` 的 `on pw3-verify-storage` 中改为 `setprop sys.pw3.storage_ready 1`（storage 复核由 preinit 全量 SHA/extent/dm 与 pw3-system-verify 承担）；模拟器四项全绿。**PagePress 运行期（实际翻页方向）只能在真机验证；模拟器禁止 Android 睡眠**（fsr_i2c_poweroff kl05 mutex 死锁，真机 kl05 在不受影响）。
+
+## Voyage 真机结果与本次验证边界（v8.3）
+
+**已在真机验证**（Kindle Voyage 第 7 代，固件 5.13.6）：把 `documents/Readom.sh` 与离线载荷放进
+`documents/` 后点 Readom，安装完成，Android 8.1 启动，微信读书可用。模拟器上另已验证：probe/commit
+到 `boot_completed`、人为碎片化后 `system=1575` extents（limit 8192）、PagePress 在 preinit 层的
+加载与 `PW3_PAGEPRESS`、以及 rw 书库写入在宿主 FAT 上落盘。
+
+**尚未验证**：真机 PagePress 的实际翻页方向（等用户回复）、`/kindle-us` 下 app 的实际读写（vfat
+读写策略已核对存在）、真机面板波形/灰暗/前光/VCOM/触摸校准/Wi-Fi 校准/休眠功耗。
+
+**这次验证用的发行镜像是 bootstrap 重打包**（官方 v0.1.0 system + Voyage 模块 + 改身份 +
+debugfs 注入 `/vendor/usr/keylayout/fsr_keypad.kl`），不是本仓库 AOSP 构建链的产物；本机也没有
+AOSP userspace 工具链。上游若要重建，需要 `PW3_AOSP_INSTALLCLEAN=1`，并先用 V11 语义重建
+`pw3-init-check`、再恢复 `init.pw3.rc` 里的 storage `exec_start`（当前只发布 `sys.pw3.storage_ready=1`）。
