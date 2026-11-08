@@ -10,7 +10,7 @@
 #   fsr_keypad's suspend callback: `fsr_i2c_suspend -> fsr_i2c_poweroff` waits
 #   for a mutex whose holder is stuck on the unimplemented kl05/fsr I2C
 #   (ring-buffer evidence: error task `helper` blocked >120 s in dpm_suspend,
-#   backtrace through fsr_keypad; see readom-port/voyage-e2e-report.md §5.1).
+#   backtrace through fsr_keypad; see readom-port's voyage-e2e-report §5.1).
 #   Unloading fsr_keypad (with its drv26xx_haptics dependency) lets the real
 #   stock suspend complete: `PM: suspend of devices complete ...`,
 #   `suspend debug: Waiting for 5 seconds.`, `Restarting tasks ... done.`,

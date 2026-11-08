@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """The Voyage bootstrap images: the released v0.1.0 system image, re-identified, plus an empty data image.
 
-This is the no-AOSP half of the port's release (readom-port/bootstrap-build-report.md):
+This is the no-AOSP half of the port's release (readom-port's bootstrap-build-report):
 take `release/system.img` (the shipped PW3 image), replace its kernel modules with the
 Voyage kernel's, rewrite the six identity properties in `/build.prop`, and make an empty
 `data` image -- then pack both the way a release is packed (zstd -19, window <= 8 MiB) and
@@ -50,7 +50,7 @@ import tempfile
 from pathlib import Path
 
 # The released v0.1.0 set these default expectations are taken from
-# (readom-port/release-pipeline-report.md, appendix; installer/build_payload.py builds the
+# (readom-port's release-pipeline-report, appendix; installer/build_payload.py builds the
 # same manifest fields for the PW3 release).
 RELEASE_SYSTEM_BYTES = 536870912
 RELEASE_SYSTEM_SHA256 = '968ca8e2b358107a17757770f80cc4291809d9bda0657753b6b5c3e5de74371a'

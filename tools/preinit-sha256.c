@@ -6,7 +6,7 @@
  * once, in TestFileInit.h, the one-shot SHA256). Inside AOSP the preinit module
  * links BoringSSL's libcrypto for those; this file is what the standalone
  * cross-compile links instead, so the entry can be built without an AOSP tree
- * (readom-port/release-pipeline-report.md, gap G1) and without pulling a
+ * (readom-port's release-pipeline-report, gap G1) and without pulling a
  * differently licensed hash implementation into the binary.
  *
  * The interface is the OpenSSL shape the callers use and nothing more:

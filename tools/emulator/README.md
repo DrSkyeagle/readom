@@ -77,7 +77,7 @@ python3 $REPO/tools/emulator/verify-voyage-guest.py
 ```
 
 Expected final state (raw output in
-`readom-port/emu-voyage/environment-report.md`):
+readom-port's emu-voyage environment report):
 
 ```
 source: stored
@@ -254,7 +254,7 @@ checks, and the decoded panel strings.
 A real `pm_suspend(PM_SUSPEND_MEM)` (`pm_test=core`, the production path: the SoC
 never actually sleeps, the kernel just runs its suspend/syscore path) deadlocks on
 this QEMU machine in `fsr_keypad`'s suspend callback. The ring-buffer evidence is in
-`readom-port/voyage-e2e-report.md` §5.1: the `helper` task blocks >120 s inside
+readom-port's voyage-e2e-report §5.1: the `helper` task blocks >120 s inside
 `dpm_suspend`, backtrace `fsr_i2c_suspend -> fsr_i2c_poweroff` waiting for a mutex
 whose holder is stuck on the unimplemented kl05/fsr I2C — the same emulator
 limitation that makes `prepare-voyage-guest.sh` disable `deviced`.
