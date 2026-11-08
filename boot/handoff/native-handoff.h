@@ -30,6 +30,28 @@ static void *native_stack;
 static void __iomem *native_ccm,*native_dcp,*native_usb;
 #endif
 static int native_commit;
+#if defined(PWS_EMULATOR)
+/* Runtime fallback for the emulator, default off. With direct_commit=0 (the
+ * default) a commit is the production path: pm_suspend(PM_SUSPEND_MEM) below
+ * calls the kernel's own syscore callback, which performs the commit, and the
+ * device-suspend order and the PMIC keeper state are exercised for real. That
+ * is what an emulator run is for; the only emulator-specific thing anywhere in
+ * this module is the synthesised hardware attestation.
+ *
+ * With direct_commit=1 a commit instead takes the direct jump
+ * (native_emulator_commit()) without suspending. It exists because a stock
+ * driver's suspend callback can stop this QEMU guest from suspending at all --
+ * fsr_keypad's callback waits on a mutex whose holder is stuck in the
+ * unimplemented kl05 I2C, so the guest halts before syscore_suspend() -- and
+ * then no commit can be tested by any entry shape. It is a diagnostic escape
+ * hatch for a guest that cannot suspend, not a replacement for the production
+ * path, and it is a module parameter so one emulator build can do both:
+ *   /sys/module/pw3_first_kernel/parameters/direct_commit
+ * A release build never has this parameter or this function. */
+static int direct_commit;
+module_param(direct_commit,int,0644);
+MODULE_PARM_DESC(direct_commit,"commit by a direct jump, skipping pm_suspend (emulator builds only; 0 = real suspend)");
+#endif
 #if PWS_PROFILE == 2
 static int native_test_reject;
 module_param(native_test_reject,int,0600);
@@ -90,49 +112,58 @@ static int native_prepare(struct store *s)
     return 0;
 }
 #if defined(PWS_EMULATOR)
-/* The probe on a machine that has none of the hardware the device has: QEMU
- * carries the board's RAM, CPU and stock kernel but not its MIDR, DCP or USB
- * blocks, so a real sample would read registers that are not there and a real
- * suspend would end in a syscore callback with nothing to measure. The report
- * the helper reads is written directly instead -- every value its gates ask for
- * (version 4, profile 1, one suspend sample and one resume, the CPU and register
- * profiles valid, the DCP stopped, all clock gates clear, the backend check done
- * and the caller returned to, no error) -- and the machine is not suspended.
- * This is only for the test entry (build_module.py --emulator, build_launcher.py
- * --emulator): a release build never defines it, and a module built one way and
- * a helper the other are refused by build_launcher.py.
+/* The commit itself, from the MMU/cache checks to the jump, minus the hardware
+ * sample. Both emulator-build callers -- the direct commit and the syscore
+ * callback that this build still registers -- run it with IRQ and FIQ masked
+ * and preemption disabled, on the owning task's stack, so the state it sees is
+ * the same in both. With `jump` 0 it only checks and copies the live page table
+ * (a dry run, which must return); with 1 it ends in pw3_cache_backend(), which
+ * flushes the caches, disables them and the MMU, copies the pinned payload and
+ * enters the new kernel, and does not return.
  *
- * The commit path is not this. It still runs the real suspend and the syscore
- * callback, because what it has to prove is that the pinned kernel, ATAGs and
- * initramfs at their destinations enter the new kernel; that path has no
- * hardware gate after native_prepare() and native_sample() is the one branch
- * that differs. */
-static int native_probe_synthetic(struct store *s)
+ * This function is compiled only for the emulator build. The device build keeps
+ * the same sequence inline in native_core_suspend() below, byte for byte as it
+ * shipped: on a Kindle the commit has to happen inside the kernel's own
+ * suspend, and a strict module must not change one instruction of it for a test
+ * path it will never run. Nothing here is relaxed against that code: TTBCR must
+ * be 0 and TTBR0 must point at a page table inside this machine's 512 MiB of
+ * RAM, the live PGD's high sections are copied into the private table,
+ * expected_thread_info is the owning task's stack, and
+ * pw3_cache_backend_check() re-reads SCTLR/TTBR/TTBCR/DACR/CPSR/PC/SP and the
+ * private table before the first cache operation. */
+static int native_prepare_backend_and_jump(int jump)
 {
-    int rc=native_prepare(s);
-    if(rc)return rc;
-    memset(&native_report,0,sizeof(native_report));
-    native_report.version=4;native_report.profile=PWS_PROFILE;
-    native_report.pm_called=1;
-    native_report.suspend_samples=1;native_report.resume_samples=1;
-    native_report.irq_fiq_masked=1;native_report.cpu_profile_valid=1;
-    native_report.registers_valid=1;native_report.hardware_sampled=1;
-    native_report.gates_clear=1;native_report.dcp_stopped=1;
-    native_report.dcp_reset=1;native_report.dcp_clock_gated=1;
-    native_report.dcp_ctrl=0xe0000000u;
+    u32 ttbr,ttbcr,i,*pgd;int rc;
+    __asm__ volatile("mrc p15,0,%0,c2,c0,0":"=r"(ttbr));
+    __asm__ volatile("mrc p15,0,%0,c2,c0,2":"=r"(ttbcr));
+    if(ttbcr || (ttbr&~16383u)<PHYS_OFFSET || (ttbr&~16383u)>PHYS_OFFSET+512u*1024u*1024u-16384u)return -EOPNOTSUPP;
+    native_backend.original=phys_to_virt(ttbr&~16383u);pgd=(u32 *)native_backend.private;
+    for(i=IDENTITY_SECTIONS;i<4096;i++)pgd[i]=native_backend.original[i];
+    native_backend.expected_thread_info=(u32)task_thread_info(native_owner);
     native_report.backend_check_performed=1;
-    native_report.returned_to_caller=1;
-    native_report.pm_result=0;native_report.backend_result=0;
-    s->native_ready=1;
-    return 0;
+#if PWS_PROFILE == 2
+    if(native_test_stack)rc=pws_call_on_stack(pw3_cache_backend_check,&native_backend,(u8 *)native_stack+PAGE_SIZE);
+    else
+#endif
+    rc=pw3_cache_backend_check(&native_backend);
+    native_report.backend_result=rc;
+    if(rc || !jump)return rc;
+    rc=pw3_cache_backend(&native_backend);
+    native_report.backend_result=rc;
+    return rc;
 }
 #endif
 static int native_sample(void)
 {
 #if defined(PWS_EMULATOR)
-    /* Synthesised: the values the device's own sample reports when everything is
-     * idle, because the blocks it would read do not exist here. See
-     * native_probe_synthetic() for what this build is and is not. */
+    /* Synthesised hardware attestation, and the only thing this build fakes:
+     * the CPU profile, the DCP state and the USB block are reported as a was
+     * idle device reports them, because QEMU has no such blocks to read. The
+     * suspend that produces the report is the device's own pm_suspend path:
+     * native_cycle() still calls it, and native_core_suspend() runs this sample
+     * inside the kernel's syscore callback exactly as a release does. A commit
+     * takes the direct jump instead only when the direct_commit parameter says
+     * so (see above); nothing about the probe is special-cased. */
     native_report.irq_fiq_masked=1;
     native_report.cpu_profile_valid=1;
     native_report.registers_valid=1;
@@ -209,6 +240,87 @@ static int native_sample(void)
     return native_report.cpu_profile_valid && valid && pws_engine_fields_ok(&native_report);
 #endif
 }
+#if defined(PWS_EMULATOR)
+/* Direct commit: a diagnostic fallback for a QEMU guest that cannot suspend,
+ * selected at run time by the direct_commit module parameter (default 0). It is
+ * not the production path and is not what an emulator run uses when the guest
+ * suspends: with direct_commit=0 a commit is the device's own
+ * pm_suspend(PM_SUSPEND_MEM) and syscore callback, and the only emulator
+ * difference is the synthesised hardware sample.
+ *
+ * A stock driver's suspend callback can stop the guest from suspending at all: a
+ * pm_test=devices suspend with no readom module loaded -- and again with
+ * mxc_epdc_fb removed -- stalls in dpm_suspend() with the CPU halted in
+ * cpu_v7_do_idle(), because fsr_keypad's callback waits on a mutex whose holder
+ * is stuck in the unimplemented kl05 I2C (the Voyage end-to-end report). Until
+ * the guest can suspend, no commit can be tested by any entry shape, so this
+ * parameter lets the commit be reached anyway. A release keeps the real suspend
+ * unconditionally: on a Kindle, suspend is what freezes the tasks, flushes the
+ * filesystems and quiesces the devices, and the handoff's own rule is that DMA
+ * has stopped before the caches are disabled.
+ *
+ * What it runs is the same commit the syscore callback runs, from the same CPU
+ * state. The ioctl arrives in process context on the calling task's stack; the
+ * IRQ save, FIQ mask and preempt disable below put it in exactly the state
+ * suspend_enter() has already produced when the syscore callback runs (SVC
+ * mode, CPSR 0xd3, DACR client, TTBCR 0, a live task stack for
+ * expected_thread_info). The backend check is not relaxed: it re-reads the
+ * MMU/cache registers and the private PGD copy, and the transition still
+ * disables the caches and the MMU in non-returning assembly that hands the new
+ * kernel its r0=0 / r1=TARGET_MACHINE / r2=ATAGS contract. What is skipped is
+ * everything the stock suspend does before syscore_suspend(): freezing,
+ * filesystem sync and device suspend. On the emulator there is no real
+ * hardware to leave in a bad state and the guest is disposable; a device model
+ * with a transfer still in flight would corrupt this test boot, not a reader's
+ * Kindle. On a device that same skip could let a device write the pages the
+ * caches were just cleaned of -- which is why this function and the parameter
+ * are compiled only for the emulator build, never into a strict or release
+ * module. */
+static int noinline native_emulator_commit(void)
+{
+    unsigned long flags;int okay,rc;
+    native_report.pm_called=1;
+    okay=native_sample();
+    if(!okay){native_report.callback_rejected=1;native_active=NULL;native_owner=NULL;return -EPERM;}
+    /* The last line the serial console can show from the stock kernel: at the
+     * test entry's loglevel=7 it says the jump is about to happen and where it
+     * goes, which is the one fact a hang records nothing about. It runs before
+     * the state below is taken because printk may sleep on the console
+     * semaphore; nothing is armed yet for a preemption to disturb. */
+    pr_info("pw3-first-kernel: emulator direct commit: entry=%08x atags=%08x\n",
+            (unsigned int)destination(0),(unsigned int)destination(1));
+    local_irq_save(flags);local_fiq_disable();preempt_disable();
+    rc=native_prepare_backend_and_jump(1);
+    /* Only reachable when a check refused the jump; the successful path ends
+     * inside the transition and never returns. Nothing is re-enabled: a boot
+     * that stops here must not go on in the stock kernel. */
+    native_report.callback_rejected=1;
+    native_active=NULL;native_owner=NULL;
+    preempt_enable();__asm__ volatile("msr cpsr_c,%0"::"r"(flags):"memory","cc");
+    return rc;
+}
+#endif
+#if defined(PWS_EMULATOR)
+static int native_core_suspend(void)
+{
+    unsigned long flags;int okay,rc=0;
+    if(!native_active || native_owner!=current)return 0;
+    native_report.suspend_samples++;
+    if(!native_mode_core()){native_report.callback_rejected=1;return -EPERM;}
+    local_irq_save(flags);local_fiq_disable();preempt_disable();
+    okay=native_sample();
+    if(native_commit && (!okay || native_report.suspend_samples!=1)) {native_report.callback_rejected=1;rc=-EBUSY;goto out;}
+    rc=native_prepare_backend_and_jump(native_commit);
+    if(rc){native_report.callback_rejected=1;if(!native_commit)rc=0;goto out;}
+out:
+    preempt_enable();__asm__ volatile("msr cpsr_c,%0"::"r"(flags):"memory","cc");return rc;
+}
+#else
+/* The device's commit, unchanged: this is the code a strict module and a
+ * release have always shipped, and it stays inline (not the emulator build's
+ * shared function) so that adding a test-only path cannot change one
+ * instruction of the path that runs on a Kindle. The checks it performs are the
+ * ones documented on native_prepare_backend_and_jump() above. */
 static int native_core_suspend(void)
 {
     unsigned long flags;u32 ttbr,ttbcr,i,*pgd;int okay,rc=0;
@@ -236,6 +348,7 @@ static int native_core_suspend(void)
 out:
     preempt_enable();__asm__ volatile("msr cpsr_c,%0"::"r"(flags):"memory","cc");return rc;
 }
+#endif
 static void native_core_resume(void)
 {
     if(native_active && native_owner==current)native_report.resume_samples++;
@@ -250,6 +363,13 @@ static int native_cycle(struct store *s,int commit)
     rc=native_prepare(s);if(rc)return rc;
     memset(&native_report,0,sizeof(native_report));native_report.version=4;native_report.profile=PWS_PROFILE;native_report.commit_requested=commit;
     native_commit=commit;native_owner=current;native_active=s;
+#if defined(PWS_EMULATOR)
+    /* The commit is a real pm_suspend below unless the guest cannot suspend and
+     * the operator set direct_commit=1; then this is the fallback jump
+     * (native_emulator_commit()). The probe (commit 0) always takes the real
+     * suspend, in an emulator build exactly as in a release. */
+    if(commit && direct_commit)return native_emulator_commit();
+#endif
     native_report.pm_called=1;rc=pm_suspend(PM_SUSPEND_MEM);
     native_active=NULL;native_owner=NULL;native_report.pm_result=rc;native_report.returned_to_caller=1;
     if(!commit && !rc && native_report.suspend_samples==1 && native_report.resume_samples==1 && native_report.cpu_profile_valid && native_report.registers_valid && native_report.backend_check_performed && !native_report.backend_result && !native_report.callback_rejected && pws_engine_fields_ok(&native_report))s->native_ready=1;

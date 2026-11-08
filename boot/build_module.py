@@ -88,10 +88,13 @@ def main():
     ap.add_argument('--cmdline', type=Path, required=True)
     ap.add_argument('--output', type=Path, required=True)
     ap.add_argument('--emulator', action='store_true',
-                    help='build for the emulator (PWS_EMULATOR): the probe reports synthesised '
-                         'hardware values instead of sampling a DCP/USB block QEMU does not have. '
-                         'Only for the test entry, never for a release; build_launcher.py refuses '
-                         'an --emulator module without an --emulator launcher and the reverse')
+                    help='build for the emulator (PWS_EMULATOR): the hardware attestation is '
+                         'synthesised instead of sampled from a DCP/USB block QEMU does not have, '
+                         'and the module carries the direct_commit fallback parameter (default '
+                         'off). The suspend itself is the real pm_suspend unless that parameter is '
+                         'set at run time. Only for the test entry, never for a release; '
+                         'build_launcher.py refuses an --emulator module without an --emulator '
+                         'launcher and the reverse')
     a = ap.parse_args()
     if platform.node() != 'lima-pw3' or os.geteuid() == 0:
         sys.exit('Run as the builder in the build VM (tools/vm.sh shell).')

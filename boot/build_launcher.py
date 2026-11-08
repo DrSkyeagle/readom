@@ -16,9 +16,10 @@ Usage: build_launcher.py --module DIR --kernel ZIMAGE --public-initramfs FILE --
   --profile        the model's boot profile (boot/profiles/*.json): which stock firmware the
                    helper checks for, and which model the installer's screens name. Default:
                    the PW3's, which is the only one this project has run on a device
-  --emulator       build the helper for the emulator's synthesised probe report (PW3_EMULATOR);
-                   the module must be a build_module.py --emulator build too, and this is a
-                   test entry only (a release never defines it)
+  --emulator       an entry for the emulator: the module must be a build_module.py --emulator
+                   build (synthesised hardware attestation, direct_commit fallback parameter).
+                   The helper and the suspend are the same real ones as a device build; a
+                   release never defines PWS_EMULATOR, and this is a test entry only
   --installer      installer/build_payload.py output for the same system image: the entry
                    installs it first (installer/install/), from documents/ or downloaded
                    from --release-url/<payload name>; the system image must be
@@ -409,10 +410,10 @@ def main():
     ap.add_argument('--profile', type=Path, default=PROFILE,
                     help='the model\'s boot profile (boot/profiles/*.json); default: the PW3\'s')
     ap.add_argument('--emulator', action='store_true',
-                    help='build the helper for the emulator (PW3_EMULATOR): its probe checks the '
-                         'module\'s synthesised report instead of hardware the emulator does not '
-                         'have. The module must have been built with build_module.py --emulator; '
-                         'test entries only')
+                    help='an entry for the emulator: the module must have been built with '
+                         'build_module.py --emulator (synthesised hardware attestation and the '
+                         'direct_commit fallback parameter; the suspend stays the real pm_suspend '
+                         'unless that parameter is set). Test entries only')
     for name in ['installer', 'screens', 'system-image', 'ca-bundle', 'zstd-archive']:
         ap.add_argument('--' + name, type=Path)
     ap.add_argument('--release-url', action='append', default=[],
@@ -439,23 +440,25 @@ def main():
     # against a FAT disk -- could not be given anything to run.
     if receipt['module_profile'] not in (1, 2):
         sys.exit('unknown module profile: %r' % receipt['module_profile'])
-    # The module and the helper have to agree about the probe: one built for the
-    # emulator hands over synthesised hardware values and the other, built for a
-    # device, would judge them against hardware it never sampled (or the reverse,
-    # which fails the emulator's probe). Two half-finished test entries are worse
-    # than one that refuses to build.
+    # An emulator entry has to pair with an emulator module: the module is the
+    # side that synthesises the hardware attestation and carries the
+    # direct_commit parameter, while the helper is the same build either way. A
+    # launcher that says emulator and embeds a device module is a test entry
+    # with no fallback when the guest cannot suspend, and the reverse would ship
+    # a test module in a device-shaped entry. Refuse both.
     if bool(receipt.get('emulator', False)) != a.emulator:
-        sys.exit('the module was built %s --emulator and this launcher %s: the probe '
-                 'report and the checks on it have to be the same kind of build'
+        sys.exit('the module was built %s --emulator and this launcher %s: an emulator '
+                 'entry needs the emulator module (synthesised attestation and the '
+                 'direct_commit parameter), and a device entry must not carry one'
                  % ('with' if receipt.get('emulator') else 'without',
                     'with' if a.emulator else 'without'))
     virtual = receipt['module_profile'] == 2
     if virtual and a.installer:
         sys.exit('a release entry installs a system image, which is the stock profile')
     if a.emulator and a.installer:
-        sys.exit('--emulator is for a test entry, not a release: a release never defines '
-                 'PW3_EMULATOR, and an installer-shaped emulator build would have no '
-                 'device to install to')
+        sys.exit('--emulator is for a test entry, not a release: a release installs a system '
+                 'image and is built from a device module, and PWS_EMULATOR is never part of '
+                 'a release')
     if (sha(module) != receipt['modules_sha256']['pw3_first_kernel'] or sha(kernel) != receipt['kernel']['sha256'] or
             sha(public) != receipt['public_initramfs']['sha256'] or cmdline != receipt['cmdline']):
         sys.exit('the module was built for another kernel, initramfs or command line')
@@ -502,7 +505,7 @@ def main():
     command = [MUSL, '-std=gnu11', '-static', '-O2', '-Wall', '-Wextra', '-Werror',
                '-DCHECK_PROFILE=%d' % receipt['module_profile']] + \
               ([] if virtual else ['-DPW3_ANDROID_FIRST_BOOT']) + \
-              stock_identity(profile) + (['-DPW3_EMULATOR'] if a.emulator else []) + [
+              stock_identity(profile) + [
                '-I', str(out), '-I', str(HERE / 'launcher'), '-I', str(HERE / 'handoff'), '-I', str(HERE / 'devicedata'),
                '-I', str(PORT / 'device/amazon/pw3/report'),
                str(HERE / 'launcher/helper.c'), str(HERE / 'launcher/userlog.c'),

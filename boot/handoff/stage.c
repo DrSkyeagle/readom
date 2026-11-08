@@ -449,16 +449,16 @@ static long stage_ioctl(struct file *file,unsigned int command,unsigned long arg
     if(mutex_lock_interruptible(&s->lock))return -EINTR;
     switch(command) {
     case PWS_NATIVE_PROBE:
-#if defined(PWS_EMULATOR)
-        /* The emulator has none of the hardware the device probe samples, so it
-         * does not suspend: the report the helper's gates read is written
-         * directly (native-handoff.h native_probe_synthetic). The commit path
-         * below is the device's own -- real suspend, syscore callback and
-         * transition -- because that is what the start has to prove. */
-        rc=arg?-EINVAL:native_probe_synthetic(s);
-#else
+        /* The probe is a real pm_suspend(PM_SUSPEND_MEM) on every build: an
+         * emulator build synthesises only the hardware attestation inside the
+         * syscore callback (native-handoff.h native_sample), so the callback,
+         * the device-suspend order and the PMIC keeper state are exercised for
+         * real. A commit takes the direct jump instead only when the module
+         * parameter direct_commit is set, at run time; the probe never does, so
+         * the production path stays the default one under test here. There is
+         * no per-build dispatch for the probe at all, and only a direct_commit=1
+         * commit skips the suspend. */
         rc=arg?-EINVAL:native_cycle(s,0);
-#endif
         break;
     case PWS_NATIVE_COMMIT:rc=arg?-EINVAL:native_cycle(s,1);break;
     case PWS_NATIVE_REPORT:rc=copy_to_user((void __user *)arg,&native_report,sizeof(native_report))?-EFAULT:0;break;
