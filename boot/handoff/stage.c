@@ -448,7 +448,18 @@ static long stage_ioctl(struct file *file,unsigned int command,unsigned long arg
     if(!capable(CAP_SYS_BOOT))return -EPERM;
     if(mutex_lock_interruptible(&s->lock))return -EINTR;
     switch(command) {
-    case PWS_NATIVE_PROBE:rc=arg?-EINVAL:native_cycle(s,0);break;
+    case PWS_NATIVE_PROBE:
+#if defined(PWS_EMULATOR)
+        /* The emulator has none of the hardware the device probe samples, so it
+         * does not suspend: the report the helper's gates read is written
+         * directly (native-handoff.h native_probe_synthetic). The commit path
+         * below is the device's own -- real suspend, syscore callback and
+         * transition -- because that is what the start has to prove. */
+        rc=arg?-EINVAL:native_probe_synthetic(s);
+#else
+        rc=arg?-EINVAL:native_cycle(s,0);
+#endif
+        break;
     case PWS_NATIVE_COMMIT:rc=arg?-EINVAL:native_cycle(s,1);break;
     case PWS_NATIVE_REPORT:rc=copy_to_user((void __user *)arg,&native_report,sizeof(native_report))?-EFAULT:0;break;
     case PWS_BEGIN:rc=begin(s,(void __user *)arg);break;

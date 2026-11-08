@@ -92,7 +92,25 @@ static void run_native_cycle(int commit) {
     snprintf(filename,sizeof(filename),"%s-return.txt",phase);write_result(filename,record);
     require(restored,"restore_pm_none");require(!commit,"commit_returned_without_new_kernel");require(rc==0 && report_ok,"native_core_cycle_return");
     require(clock_ok && ms>=0,"native_core_clock_read"); /* Monotonic excludes time spent in syscore suspend. */
-    const char *added=new_log_suffix(log_before,log_after);require(added && strstr(added,"suspend debug: Waiting for 5 seconds.") && !pm_log_has_error(added),"native_core_checkpoint_and_no_reported_error");
+    const char *added=new_log_suffix(log_before,log_after);
+#if defined(PW3_EMULATOR)
+    /* The emulator build's probe is synthesised in the module
+     * (native-handoff.h native_probe_synthetic): the machine is not suspended,
+     * so the kernel log carries no "suspend debug: Waiting for 5 seconds." line
+     * and no registers were sampled. What still has to be true is that the call
+     * returned a report of the shape the helper reads, with no error in it and
+     * nothing reported from a machine that was never asked. This whole branch
+     * exists only in test entries; a release build never defines PW3_EMULATOR,
+     * and build_launcher.py refuses a module built one way against a helper
+     * built the other. */
+    require(!added || !pm_log_has_error(added),"emulator_core_no_reported_error");
+    require(r.version==4 && r.profile==CHECK_PROFILE && !r.commit_requested && r.pm_called==1 &&
+        r.suspend_samples==1 && r.resume_samples==1 && r.returned_to_caller &&
+        !r.callback_rejected && !r.pm_result && !r.backend_result && r.backend_check_performed==1 &&
+        pws_engine_fields_ok(&r),"emulator_core_probe_report");
+#else
+    require(added && strstr(added,"suspend debug: Waiting for 5 seconds.") && !pm_log_has_error(added),"native_core_checkpoint_and_no_reported_error");
     require(r.version==4 && r.profile==CHECK_PROFILE && !r.commit_requested && r.pm_called==1 && r.suspend_samples==1 && r.resume_samples==1 && r.irq_fiq_masked && r.cpu_profile_valid && r.registers_valid && r.hardware_sampled==1 && !r.callback_rejected && r.returned_to_caller && !r.pm_result && !r.backend_result && r.backend_check_performed==1 && r.diagnostic_only==0 && pws_engine_fields_ok(&r),"hardware_core_preflight_pass");
+#endif
 
 }

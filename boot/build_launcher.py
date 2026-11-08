@@ -7,7 +7,7 @@ to a device; the helper adds the device's part on the device (devicedata/).
 
 Usage: build_launcher.py --module DIR --kernel ZIMAGE --public-initramfs FILE --cmdline TEXTFILE
                          --preinit-conf FILE [--data PATH:BYTES] --name FILE.sh --title TITLE --output DIR
-                         [--profile PROFILE]
+                         [--profile PROFILE] [--emulator]
                          [--installer DIR --screens DIR --system-image FILE --release-url URL
                           --ca-bundle FILE --zstd-archive FILE]
   --module         output of build_module.py for the same kernel, initramfs and command line
@@ -16,6 +16,9 @@ Usage: build_launcher.py --module DIR --kernel ZIMAGE --public-initramfs FILE --
   --profile        the model's boot profile (boot/profiles/*.json): which stock firmware the
                    helper checks for, and which model the installer's screens name. Default:
                    the PW3's, which is the only one this project has run on a device
+  --emulator       build the helper for the emulator's synthesised probe report (PW3_EMULATOR);
+                   the module must be a build_module.py --emulator build too, and this is a
+                   test entry only (a release never defines it)
   --installer      installer/build_payload.py output for the same system image: the entry
                    installs it first (installer/install/), from documents/ or downloaded
                    from --release-url/<payload name>; the system image must be
@@ -405,6 +408,11 @@ def main():
     ap.add_argument('--data')
     ap.add_argument('--profile', type=Path, default=PROFILE,
                     help='the model\'s boot profile (boot/profiles/*.json); default: the PW3\'s')
+    ap.add_argument('--emulator', action='store_true',
+                    help='build the helper for the emulator (PW3_EMULATOR): its probe checks the '
+                         'module\'s synthesised report instead of hardware the emulator does not '
+                         'have. The module must have been built with build_module.py --emulator; '
+                         'test entries only')
     for name in ['installer', 'screens', 'system-image', 'ca-bundle', 'zstd-archive']:
         ap.add_argument('--' + name, type=Path)
     ap.add_argument('--release-url', action='append', default=[],
@@ -431,6 +439,16 @@ def main():
     # against a FAT disk -- could not be given anything to run.
     if receipt['module_profile'] not in (1, 2):
         sys.exit('unknown module profile: %r' % receipt['module_profile'])
+    # The module and the helper have to agree about the probe: one built for the
+    # emulator hands over synthesised hardware values and the other, built for a
+    # device, would judge them against hardware it never sampled (or the reverse,
+    # which fails the emulator's probe). Two half-finished test entries are worse
+    # than one that refuses to build.
+    if bool(receipt.get('emulator', False)) != a.emulator:
+        sys.exit('the module was built %s --emulator and this launcher %s: the probe '
+                 'report and the checks on it have to be the same kind of build'
+                 % ('with' if receipt.get('emulator') else 'without',
+                    'with' if a.emulator else 'without'))
     virtual = receipt['module_profile'] == 2
     if virtual and a.installer:
         sys.exit('a release entry installs a system image, which is the stock profile')
@@ -480,7 +498,7 @@ def main():
     command = [MUSL, '-std=gnu11', '-static', '-O2', '-Wall', '-Wextra', '-Werror',
                '-DCHECK_PROFILE=%d' % receipt['module_profile']] + \
               ([] if virtual else ['-DPW3_ANDROID_FIRST_BOOT']) + \
-              stock_identity(profile) + [
+              stock_identity(profile) + (['-DPW3_EMULATOR'] if a.emulator else []) + [
                '-I', str(out), '-I', str(HERE / 'launcher'), '-I', str(HERE / 'handoff'), '-I', str(HERE / 'devicedata'),
                '-I', str(PORT / 'device/amazon/pw3/report'),
                str(HERE / 'launcher/helper.c'), str(HERE / 'launcher/userlog.c'),
@@ -604,6 +622,7 @@ def main():
               'helper_sha256': sha(helper.read_bytes()), 'module_receipt_sha256': sha((a.module / 'build-result.json').read_bytes()),
               'kernel_sha256': sha(kernel), 'public_initramfs_sha256': sha(public), 'cmdline': cmdline,
               'profile': a.profile.name, 'device_data_profile': profile.get('device_data_profile'),
+              'emulator': a.emulator,
               'data_path': data_path, 'data_size': data_size, 'installer': installer_receipt, 'contains_device_data': False}
     (out / 'build-result.json').write_text(json.dumps(result, indent=2) + '\n')
     print(json.dumps(result, indent=1))

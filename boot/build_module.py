@@ -87,10 +87,18 @@ def main():
     ap.add_argument('--public-initramfs', type=Path, required=True)
     ap.add_argument('--cmdline', type=Path, required=True)
     ap.add_argument('--output', type=Path, required=True)
+    ap.add_argument('--emulator', action='store_true',
+                    help='build for the emulator (PWS_EMULATOR): the probe reports synthesised '
+                         'hardware values instead of sampling a DCP/USB block QEMU does not have. '
+                         'Only for the test entry, never for a release; build_launcher.py refuses '
+                         'an --emulator module without an --emulator launcher and the reverse')
     a = ap.parse_args()
     if platform.node() != 'lima-pw3' or os.geteuid() == 0:
         sys.exit('Run as the builder in the build VM (tools/vm.sh shell).')
     profile = json.loads(a.profile.read_text())
+    if a.emulator and profile['module_profile'] != 1:
+        sys.exit('--emulator is for a stock profile (module_profile 1): the emulator runs '
+                 'the stock firmware, and a virtual profile has its own QEMU harness')
     kernel, public = a.kernel.read_bytes(), a.public_initramfs.read_bytes()
     cmdline = a.cmdline.read_text().rstrip('\n')
     if kernel[0x24:0x28] != bytes.fromhex('18286f01'):
@@ -120,8 +128,10 @@ def main():
     make += 'pw3_first_kernel-y := stage.o sha256.o pw3_plan.o backend.o transition.o cache-ops.o' + ('' if stock else ' stack.o') + '\n'
     if not stock:
         make += 'pw3_qemu_pm-y := qemu-pm.o\n'
-    make += ('ccflags-y += -fno-pic -fno-pie -Werror -DPWS_PROFILE=%d -DPW3_CONTROLLED_HANDOFF -DPW3_TRANSITION_BUILD_FOR_REVIEW\n'
-             'asflags-y += -DPW3_CONTROLLED_HANDOFF -DPW3_TRANSITION_BUILD_FOR_REVIEW\n') % profile['module_profile']
+    make += ('ccflags-y += -fno-pic -fno-pie -Werror -DPWS_PROFILE=%d -DPW3_CONTROLLED_HANDOFF -DPW3_TRANSITION_BUILD_FOR_REVIEW%s\n'
+             'asflags-y += -DPW3_CONTROLLED_HANDOFF -DPW3_TRANSITION_BUILD_FOR_REVIEW%s\n') % (
+                 profile['module_profile'], ' -DPWS_EMULATOR' if a.emulator else '',
+                 ' -DPWS_EMULATOR' if a.emulator else '')
     (work / 'Makefile').write_text(make)
     command = ['make', '-C', profile['module_kernel_source'], 'O=' + profile['module_kernel_output'], 'ARCH=arm',
                'CROSS_COMPILE=' + TOOLS + 'arm-linux-androidkernel-', 'M=' + str(work), 'modules']
@@ -134,6 +144,7 @@ def main():
     receipt = {
         'schema': 1, 'profile': profile.get('description'), 'profile_sha256': sha(a.profile.read_bytes()),
         'module_profile': profile['module_profile'],
+        'emulator': a.emulator,
         'kernel': {'bytes': len(kernel), 'sha256': sha(kernel)},
         'public_initramfs': {'bytes': len(public), 'sha256': sha(public)},
         'cmdline': cmdline, 'footprint': envelope,
@@ -143,7 +154,7 @@ def main():
         'contains_device_data': False,
     }
     (a.output / 'build-result.json').write_text(json.dumps(receipt, indent=2) + '\n')
-    print(json.dumps({k: receipt[k] for k in ['module_profile', 'modules_sha256', 'contains_device_data']}, indent=1))
+    print(json.dumps({k: receipt[k] for k in ['module_profile', 'emulator', 'modules_sha256', 'contains_device_data']}, indent=1))
 
 
 if __name__ == '__main__':

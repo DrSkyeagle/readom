@@ -89,8 +89,61 @@ static int native_prepare(struct store *s)
     flush_icache_range((unsigned long)control,(unsigned long)control+blob);
     return 0;
 }
+#if defined(PWS_EMULATOR)
+/* The probe on a machine that has none of the hardware the device has: QEMU
+ * carries the board's RAM, CPU and stock kernel but not its MIDR, DCP or USB
+ * blocks, so a real sample would read registers that are not there and a real
+ * suspend would end in a syscore callback with nothing to measure. The report
+ * the helper reads is written directly instead -- every value its gates ask for
+ * (version 4, profile 1, one suspend sample and one resume, the CPU and register
+ * profiles valid, the DCP stopped, all clock gates clear, the backend check done
+ * and the caller returned to, no error) -- and the machine is not suspended.
+ * This is only for the test entry (build_module.py --emulator, build_launcher.py
+ * --emulator): a release build never defines it, and a module built one way and
+ * a helper the other are refused by build_launcher.py.
+ *
+ * The commit path is not this. It still runs the real suspend and the syscore
+ * callback, because what it has to prove is that the pinned kernel, ATAGs and
+ * initramfs at their destinations enter the new kernel; that path has no
+ * hardware gate after native_prepare() and native_sample() is the one branch
+ * that differs. */
+static int native_probe_synthetic(struct store *s)
+{
+    int rc=native_prepare(s);
+    if(rc)return rc;
+    memset(&native_report,0,sizeof(native_report));
+    native_report.version=4;native_report.profile=PWS_PROFILE;
+    native_report.pm_called=1;
+    native_report.suspend_samples=1;native_report.resume_samples=1;
+    native_report.irq_fiq_masked=1;native_report.cpu_profile_valid=1;
+    native_report.registers_valid=1;native_report.hardware_sampled=1;
+    native_report.gates_clear=1;native_report.dcp_stopped=1;
+    native_report.dcp_reset=1;native_report.dcp_clock_gated=1;
+    native_report.dcp_ctrl=0xe0000000u;
+    native_report.backend_check_performed=1;
+    native_report.returned_to_caller=1;
+    native_report.pm_result=0;native_report.backend_result=0;
+    s->native_ready=1;
+    return 0;
+}
+#endif
 static int native_sample(void)
 {
+#if defined(PWS_EMULATOR)
+    /* Synthesised: the values the device's own sample reports when everything is
+     * idle, because the blocks it would read do not exist here. See
+     * native_probe_synthetic() for what this build is and is not. */
+    native_report.irq_fiq_masked=1;
+    native_report.cpu_profile_valid=1;
+    native_report.registers_valid=1;
+    native_report.hardware_sampled=1;
+    native_report.gates_clear=1;
+    native_report.dcp_stopped=1;
+    native_report.dcp_reset=1;
+    native_report.dcp_clock_gated=1;
+    native_report.dcp_ctrl=0xe0000000u;
+    return 1;
+#else
     u32 cpsr,midr,sctlr,ttbcr,prrr,nmrr,dacr,ccgr[7],ctrl=0,i,valid=1,clear=1;
     __asm__ volatile("mrs %0,cpsr":"=r"(cpsr));
     __asm__ volatile("mrc p15,0,%0,c0,c0,0":"=r"(midr));
@@ -154,6 +207,7 @@ static int native_sample(void)
     native_report.usb_idle_observed=pws_usb_idle(&native_report);
     native_report.dcp_idle_observed=pws_dcp_idle(&native_report);
     return native_report.cpu_profile_valid && valid && pws_engine_fields_ok(&native_report);
+#endif
 }
 static int native_core_suspend(void)
 {
