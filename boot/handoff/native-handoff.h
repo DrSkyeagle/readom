@@ -102,7 +102,10 @@ static int native_sample(void)
     native_report.irq_fiq_masked=(cpsr&0xff)==0xd3;
     native_report.cpu_profile_valid=native_report.irq_fiq_masked && pw3_identity_profile(sctlr,prrr,nmrr) && !ttbcr && (sctlr&0x1005)==0x1005 && !(sctlr&0x22000000) && (dacr&3)==1;
 #if PWS_PROFILE == 1
-    native_report.cpu_profile_valid&=midr==0x412fc09au && prrr==0x000a81a8u && nmrr==0x40e040e0u;
+    /* The CPU identity is the profile's (target-lock.h TARGET_CPUID, from the
+     * profile JSON's stock_cpuid), not the PW3's literal: the two models share
+     * the SoC but a build must pin what it was told it runs on. */
+    native_report.cpu_profile_valid&=midr==TARGET_CPUID && prrr==0x000a81a8u && nmrr==0x40e040e0u;
     for(i=0;i<7;i++)ccgr[i]=readl(native_ccm+0x68+i*4);
     ctrl=readl(native_dcp);
     /* Reject absent/unreadable/all-ones decodes. Never read keys, descriptors

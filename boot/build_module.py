@@ -51,6 +51,21 @@ def target_lock(profile, kernel, public, cmdline, footprint):
            '#define TARGET_DEVICE_ARCHIVE_MAX %du' % p['device_archive_max'],
            'static const char target_cmdline[]=%s;' % c_string(cmdline),
            'static const u32 target_atag_kinds[]={%s};' % ','.join('%#xu' % int(k, 0) for k in p['atag_kinds'])]
+    # The stock kernel a device profile loads into, and the CPU it runs on. These
+    # were literals in boot/handoff/stage.c and native-handoff.h -- the PW3's
+    # firmware version and MIDR -- so a second model's module would have refused
+    # to load on the firmware it was built for. A virtual profile (module_profile
+    # 2) runs under a test kernel with no device firmware to pin and no hardware
+    # gate, so it carries none of them.
+    if p['module_profile'] == 1:
+        for key in ('stock_kernel_release', 'stock_kernel_version', 'stock_cpuid'):
+            if key not in p:
+                sys.exit('the profile has no %r: the module would have to guess which stock '
+                         'kernel and CPU it is for, and a wrong guess is a device that stops '
+                         'at the handover with no screen that can say why' % (key,))
+        out += ['#define TARGET_STOCK_RELEASE %s' % c_string(p['stock_kernel_release']),
+                '#define TARGET_STOCK_VERSION %s' % c_string(p['stock_kernel_version']),
+                '#define TARGET_CPUID %#xu' % int(p['stock_cpuid'], 0)]
     lock = '\n'.join(out) + '\n'
     lock += ranges('target_ram', p['ram']) + ranges('target_forbidden', p['forbidden'])
     lock += ranges('target_footprint', [[hex(footprint['start']), hex(footprint['bytes'])]])

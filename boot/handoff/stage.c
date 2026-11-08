@@ -529,8 +529,14 @@ static int __init stage_init(void)
     BUILD_BUG_ON(TARGET_IDENTITY_LIMIT>(unsigned int)MODULES_VADDR);
     if(!PWS_PROFILE)return -EOPNOTSUPP;
 #if PWS_PROFILE == 1
-    if(strcmp(u->release,"3.0.35-lab126") ||
-       strcmp(u->version,"#8 PREEMPT Tue Aug 1 12:49:59 UTC 2023") ||
+    /* The stock kernel this module loads into, and the CPU it runs on: pinned by
+     * the build from the profile (target-lock.h), not written here. They were
+     * the PW3's firmware strings and MIDR as literals, which made a module for
+     * the second model refuse to load on the firmware it was built for -- or,
+     * worse, load into another one. The machine id and PHYS_OFFSET stay as the
+     * board facts below, because a module never runs on another machine. */
+    if(strcmp(u->release,TARGET_STOCK_RELEASE) ||
+       strcmp(u->version,TARGET_STOCK_VERSION) ||
        strcmp(u->machine,"armv7l") || PHYS_OFFSET!=0x80000000)return -ENOEXEC;
 #elif PWS_PROFILE == 2
     if(!strstr(u->release,"-pw3-core-smoke") || PHYS_OFFSET!=0x60000000)return -ENOEXEC;

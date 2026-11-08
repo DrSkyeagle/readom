@@ -19,7 +19,7 @@ watched one can use.
 Usage: build_entry.py --export DIR --kernel DIR --system-path PATH --data PATH:BYTES
                       --installer DIR --screens DIR --release-url URL [--release-url URL] --ca-bundle FILE
                       --zstd-archive FILE
-                      --name FILE.sh --title TITLE --output DIR [--profile PROFILE]
+                      --name FILE.sh --title TITLE --output DIR [--profile PROFILE] [--kernel-source DIR]
   --export       export-aosp-images.py output (ramdisk.img, system.raw.img)
   --kernel       build-kernel.sh android-core output (zImage, modules.tar.gz, kernel.release);
                  every kernel module in the system image must be this kernel's, byte for byte
@@ -28,6 +28,11 @@ Usage: build_entry.py --export DIR --kernel DIR --system-path PATH --data PATH:B
   --profile      the model's boot profile (boot/profiles/*.json): the stock command line the
                  entry appends to, and the model the E101 screen names. Default: the PW3's,
                  the only one this project has run on a device
+  --kernel-source the kernel source tree whose UAPI headers the boot programs are built
+                 against. Default: the android-core tree tools/build-kernel.sh leaves behind.
+                 A model whose kernel was built elsewhere (the Voyage tree this port built in
+                 /home/builder/readom-kernel) passes its own; the headers are the same UAPI
+                 either way, and the wrong tree is a build error, not a broken boot.
   --installer …  the system image the entry installs first (build_launcher.py); all
                  five are required, because an entry that installs nothing is not
                  one this project makes. build_launcher.py can still build the
@@ -107,14 +112,22 @@ def static_arm(path):
         sys.exit('not a static ARM executable: ' + str(path))
 
 
-def boot_programs(work):
+def boot_programs(work, release, kernel_source):
     """The restore program (PID 1 after the jump) and the state tool, against this kernel's UAPI headers."""
     headers = work / 'uapi'
     (work / 'headers-build').mkdir()
-    run(['make', '-s', '-C', str(KERNEL_SOURCE), 'O=' + str(work / 'headers-build'), 'ARCH=arm', 'headers_install',
+    run(['make', '-s', '-C', str(kernel_source), 'O=' + str(work / 'headers-build'), 'ARCH=arm', 'headers_install',
          'INSTALL_HDR_PATH=' + str(headers)], stdout=subprocess.DEVNULL)
     flags = [MUSL, '-std=gnu11', '-static', '-Os', '-Wall', '-Wextra', '-Werror', '-isystem', str(headers / 'include'),
              '-I', str(HERE / 'handoff-init')]
+    # The restore program only does its PMIC/EPDC/start-picture work when the
+    # kernel it runs under is the one this entry was built for
+    # (boot/handoff-init/pw3-handoff-init.c, KERNEL_RELEASE); without the -D it
+    # carries the PW3 string and a Voyage boot would silently skip that work and
+    # leave the panel dark. The value is the kernel build's own kernel.release.
+    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*', release):
+        sys.exit('kernel.release is not a single build string: %r' % (release,))
+    flags.append('-DKERNEL_RELEASE="%s"' % release)
     out = {}
     for name, source in [('pw3-handoff-init', HERE / 'handoff-init/pw3-handoff-init.c')]:
         run(flags + [str(source), '-o', str(work / (name + '.unstripped'))])
@@ -136,9 +149,14 @@ def main():
                     help='the directory the payload sits in; repeat it for a second origin, in the order the installer tries them')
     ap.add_argument('--profile', type=Path, default=PROFILE,
                     help='the model\'s boot profile (boot/profiles/*.json); default: the PW3\'s')
+    ap.add_argument('--kernel-source', type=Path, default=KERNEL_SOURCE,
+                    help='the kernel source tree whose UAPI headers the boot programs are built '
+                         'against; default: %s (tools/build-kernel.sh android-core)' % KERNEL_SOURCE)
     a = ap.parse_args()
     if platform.node() != 'lima-pw3' or os.geteuid() == 0:
         sys.exit('Run as the builder in the build VM (tools/vm.sh shell).')
+    if not (a.kernel_source / 'Makefile').is_file():
+        sys.exit('--kernel-source is not a kernel tree: %s' % a.kernel_source)
     # One directory of the user store holds both images, and the entry reads its
     # name from the configuration under the rule of preinit/TestFileFormat.h. The
     # device refuses to start when the two paths are not that one directory
@@ -185,7 +203,7 @@ def main():
     system_modules = sorted((work / 'modules').glob('*.ko'))
     if not system_modules or any(modules.get(m.name) != m.read_bytes() for m in system_modules):
         sys.exit('the system image carries kernel modules other than --kernel\'s')
-    programs = boot_programs(work)
+    programs = boot_programs(work, release, a.kernel_source)
 
     # The public initramfs: this build's ramdisk with the boot programs, the
     # EPDC module, and the storage entry's file-based mount table.
