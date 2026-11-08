@@ -1,3 +1,10 @@
+> **This is a personal fork.**
+>
+> Upstream: [hbyxabc/readom](https://github.com/hbyxabc/readom). This fork carries the **Kindle Voyage (7th gen, firmware 5.13.6)** port in branch **`voyage`**, submitted upstream as Pull Request [#26](https://github.com/hbyxabc/readom/pull/26).
+>
+> Verified on hardware (Voyage / 5.13.6): install → Android 8.1 boots; Wi‑Fi, display and standby OK; WeRead runs; the right PagePress zone turns pages; returning to the stock system works. Known gaps: left PagePress zone, page-turn haptics, transition ghosting, occasional navigation-bar misdraw.
+>
+> Installation is the same as upstream: put `Readom.sh` and the offline payload into `documents/` and tap **Readom** in the library. Everything below is the upstream documentation, unchanged.
 <h1 align="center">
   <a href="https://readom.app">
     <picture>

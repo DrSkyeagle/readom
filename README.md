@@ -1,3 +1,10 @@
+> **这是一个个人 fork / This is a personal fork**
+>
+> 上游项目：[hbyxabc/readom](https://github.com/hbyxabc/readom)。本 fork 只用来做 **Kindle Voyage（第 7 代，固件 5.13.6）** 的适配与真机验证，代码在 **oyage** 分支，已向上游提交 Pull Request：[#26](https://github.com/hbyxabc/readom/pull/26)。
+>
+> 真机已验证（KV 第 7 代 / 5.13.6）：安装后进入 Android 8.1；Wi‑Fi、显示、待机正常；微信读书可用；右侧 PagePress 可翻页；可正常回原厂系统。待修：左侧 PagePress、翻页振动、翻页残影、导航栏偶发错位。
+>
+> 安装方式与上游一致：把 documents/Readom.sh 和离线载荷放进 documents/，书库点 **Readom**。以下内容均为上游原文档，未作修改。
 <h1 align="center">
   <a href="https://readom.app">
     <picture>
