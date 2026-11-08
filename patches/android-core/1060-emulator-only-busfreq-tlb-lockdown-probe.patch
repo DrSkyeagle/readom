@@ -1,0 +1,130 @@
+--- a/arch/arm/mach-mx6/bus_freq.c
++++ b/arch/arm/mach-mx6/bus_freq.c
+@@ -134,6 +134,35 @@
+ static int  __devinit get_page_properties(char* name, void *vaddr, int* va, int* pa, int* attr);
+ static void __devinit  get_iram_pages_properties(void);
+ 
++/*
++ * Emulator-only bypass for the Cortex-A9 TLB lockdown probe.
++ *
++ * busfreq_probe() learns the VA/PA/attribute tuple of the pages the
++ * low-frequency IRAM routine locks by priming the Cortex-A9
++ * implementation-defined TLB lockdown entry and reading it back
++ * (get_iram_pages_properties()).  QEMU models that interface by recording
++ * any translation performed while the lockdown bit is set into the one
++ * modelled entry, so on an emulated boot the read-back can describe a page
++ * other than the one just primed and the probe retries forever.  On the
++ * emulated board those pages are the static i.MX6SL maps, so with
++ * readom.emulator= on the command line fill the tuple in directly instead of
++ * probing.
++ *
++ * The token appears only on the emulator test command line; a production
++ * boot never passes it and keeps using the probe.
++ */
++static int readom_emulator;
++
++static int __init readom_emulator_setup(char *str)
++{
++	readom_emulator = 1;
++	return 1;
++}
++early_param("readom.emulator", readom_emulator_setup);
++
++static void __devinit readom_fill_iram_page_properties(unsigned long wfi_paddr,
++		unsigned long ddr_paddr);
++
+ void reduce_bus_freq(void)
+ {
+ 	if (!cpu_is_mx6sl()) {
+@@ -599,6 +628,44 @@
+  *
+  */
+ 
++static void __devinit readom_fill_iram_page_properties(unsigned long wfi_paddr,
++		unsigned long ddr_paddr)
++{
++	mx6sl_wfi_va = (int)((unsigned long)mx6sl_wfi_iram);
++	mx6sl_wfi_pa = (int)wfi_paddr;
++	mx6sl_wfi_attr = 0;
++	mx6sl_ddr_va = (int)((unsigned long)mx6sl_ddr_freq_base);
++	mx6sl_ddr_pa = (int)ddr_paddr;
++	mx6sl_ddr_attr = 0;
++
++#define READOM_STATIC_PAGE(_pa_base, _va, _pa) do { \
++		_va = (int)((_pa_base) + PERIPBASE_VIRT); \
++		_pa = (int)(_pa_base); \
++	} while (0)
++	READOM_STATIC_PAGE(MX6Q_IOMUXC_BASE_ADDR,
++			   mx6sl_iomuxc_va, mx6sl_iomuxc_pa);
++	READOM_STATIC_PAGE(ANATOP_BASE_ADDR,
++			   mx6sl_anatop_va, mx6sl_anatop_pa);
++	READOM_STATIC_PAGE(CCM_BASE_ADDR,
++			   mx6sl_ccm_va, mx6sl_ccm_pa);
++	READOM_STATIC_PAGE(MMDC_P0_BASE_ADDR,
++			   mx6sl_mmdcp0_va, mx6sl_mmdcp0_pa);
++	READOM_STATIC_PAGE(L2_BASE_ADDR,
++			   mx6sl_l2_va, mx6sl_l2_pa);
++	READOM_STATIC_PAGE(ARM_PERIPHBASE,
++			   mx6sl_perif_va, mx6sl_perif_pa);
++#undef READOM_STATIC_PAGE
++	mx6sl_iomuxc_attr = 0;
++	mx6sl_anatop_attr = 0;
++	mx6sl_ccm_attr = 0;
++	mx6sl_mmdcp0_attr = 0;
++	mx6sl_l2_attr = 0;
++	mx6sl_perif_attr = 0;
++
++	printk(KERN_INFO "readom-emulator: iram page properties from the "
++	       "static i.MX6SL maps, TLB lockdown probe skipped\n");
++}
++
+ static int __devinit busfreq_probe(struct platform_device *pdev)
+ {
+ 	u32 err;
+@@ -764,7 +831,7 @@
+ 	if (!cpu_is_mx6sl())
+ 		init_mmdc_settings();
+ 	else {
+-		unsigned long iram_paddr;
++		unsigned long wfi_paddr, ddr_paddr;
+ #ifdef CONFIG_LAB126
+ 		/*LAB126 Display DDR Mfginfo */
+ 		display_ddr_mfginfo();
+@@ -772,12 +839,12 @@
+ 		/* Allocate IRAM for WFI code when system is
+ 		  * in low freq mode.
+ 		  */
+-		iram_alloc(SZ_4K, &iram_paddr);
++		iram_alloc(SZ_4K, &wfi_paddr);
+ 
+ 		/* Need to remap the area here since we want
+ 		   * the memory region to be executable.
+ 		   */
+-		mx6sl_wfi_iram_base = __arm_ioremap(iram_paddr,
++		mx6sl_wfi_iram_base = __arm_ioremap(wfi_paddr,
+ 						SZ_4K, MT_MEMORY_NONCACHED);
+ 
+ 		mx6sl_wfi_iram = (void*)mx6sl_wfi_iram_base;
+@@ -785,16 +852,19 @@
+ 		/* Allocate IRAM for WFI code when system is
+ 		 *in low freq mode.
+ 		 */
+-		iram_alloc(SZ_4K, &iram_paddr);
++		iram_alloc(SZ_4K, &ddr_paddr);
+ 		/* Need to remap the area here since we want the memory region
+ 		   to be executable. */
+-		mx6sl_ddr_freq_base = __arm_ioremap(iram_paddr,
++		mx6sl_ddr_freq_base = __arm_ioremap(ddr_paddr,
+ 					SZ_4K, MT_MEMORY_NONCACHED);
+ 
+ 		mx6sl_ddr_freq_change_iram = (void *)mx6sl_ddr_freq_base;
+ 		
+ 
+-		get_iram_pages_properties();
++		if (readom_emulator)
++			readom_fill_iram_page_properties(wfi_paddr, ddr_paddr);
++		else
++			get_iram_pages_properties();
+ 
+ 
+ 		memcpy(mx6sl_wfi_iram_base, mx6sl_wait, SZ_4K);
