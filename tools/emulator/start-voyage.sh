@@ -28,6 +28,12 @@
 #     --ssh-port N     host TCP port for guest USB SSH (default 2222)
 #     --wifi-ssh-port N  host TCP port for guest Wi-Fi SSH (default 2223)
 #     --gui            use -display gtk (needs a live $DISPLAY, e.g. Xvfb :9)
+#     --epdc-update-source
+#                      make imx_epdc render the EPDC update buffer instead of the
+#                      fixed WARIO_FB_ADDR (the Android display path; default off
+#                      keeps the stock fixed-framebuffer behaviour). Only the long
+#                      -global form works: `imx.epdc.update-source=on` is silently
+#                      ignored by QEMU's dotted driver-name parser.
 #     --foreground     run QEMU in the foreground (default: background)
 #     --force          kill a QEMU recorded in $MACHINE/kv.pid before starting
 #     --no-serial-log  do not rotate the previous kv.serial.log
@@ -45,6 +51,7 @@ PANEL=$(cd "$REPO/.." && pwd)/readom-port/emu-voyage/panel/panel.img
 SSH_PORT=2222
 WIFI_SSH_PORT=2223
 GUI=0
+EPDC_UPDATE_SOURCE=0
 FOREGROUND=0
 FORCE=0
 ROTATE_LOG=1
@@ -58,6 +65,7 @@ while [ $# -gt 0 ]; do
         --ssh-port) SSH_PORT=$2; shift 2 ;;
         --wifi-ssh-port) WIFI_SSH_PORT=$2; shift 2 ;;
         --gui) GUI=1; shift ;;
+        --epdc-update-source) EPDC_UPDATE_SOURCE=1; shift ;;
         --foreground) FOREGROUND=1; shift ;;
         --force) FORCE=1; shift ;;
         --no-serial-log) ROTATE_LOG=0; shift ;;
@@ -132,6 +140,12 @@ CMD=(
   -global mx25l4005a.drive=panelwbf
 )
 
+# Android display validation: render the EPDC update buffer (long form only; the
+# dotted shorthand `imx.epdc.update-source=on` is silently rejected by QEMU).
+if [ "$EPDC_UPDATE_SOURCE" = 1 ]; then
+    CMD+=(-global driver=imx.epdc,property=update-source,value=on)
+fi
+
 if [ "$PRINT_ONLY" = 1 ]; then
     printf '%q ' "${CMD[@]}"
     printf '\n'
@@ -169,6 +183,7 @@ echo "          $(sha256sum "$PANEL" | cut -d' ' -f1) ($PANEL_SIZE bytes)"
 echo "disk:     $DISK"
 echo "serial:   $SERIAL_LOG"
 echo "qmp:      $QMP"
+echo "epdc-update-source: $EPDC_UPDATE_SOURCE (Android display path; 0 = stock fixed framebuffer)"
 echo "ssh:      root@127.0.0.1:$SSH_PORT (key $EMULATOR/build/ssh/id_ed25519)"
 echo "boot:     QEMU launched without -no-reboot on purpose"
 

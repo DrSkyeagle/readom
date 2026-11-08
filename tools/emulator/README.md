@@ -29,7 +29,7 @@ Produced artifacts live in `readom-port/emu-voyage/`:
 |---|---|
 | `make_voyage_panel.py` | deterministic generator of `panel.img`, `synth.wrf.gz`, `synth.pw3.gz`; self-validates against replicas of `dd_envelope()`, `dd_gzip_stored()`, `android_wf_header_valid/container/wrf_layout`, the stock `process_fw` rules and the panel-driver decode |
 | `verify-voyage-guest.py` | verifies the bytes the **running guest** returned against the generated files (must be run after the guest dump) |
-| `start-voyage.sh` | starts QEMU directly with the panel backing file; no `-no-reboot`; rotates the serial log; prints the QEMU pid |
+| `start-voyage.sh` | starts QEMU directly with the panel backing file; no `-no-reboot`; rotates the serial log; prints the QEMU pid. `--gui` selects `-display gtk` and `--epdc-update-source` adds the long-form `-global driver=imx.epdc,property=update-source,value=on` (Android display path; default off) |
 | `prepare-voyage-guest.sh` | guest-side prep: disables deviced, stops wand/mwan, writes the waveform to the hidden FAT and installs the stock `/opt/eink/images/<PANEL_CODE>/` override |
 | `prepare-voyage-suspend.sh` | guest-side prep for **real-suspend** runs: stops the UI jobs that hold `/dev/keypad` and `/dev/input/event2`, then unloads `fsr_keypad` (+ its `drv26xx_haptics` dependency) so the stock suspend path can complete on QEMU |
 
@@ -294,6 +294,63 @@ ssh ... bash -s < $REPO/tools/emulator/prepare-voyage-suspend.sh
 
 The script is emulator-only and does not persist anything: the modules are reloaded
 by the next boot, and the UI jobs come back with it.
+
+## Android display and touch (QEMU `update-source` + QMP input)
+
+Stock Kindle paints `/dev/fb0`, which the QEMU `imx_epdc` model scans from the
+fixed `WARIO_FB_ADDR=0x81000000`. The readom Android composer instead posts the
+composed luma to the EPDC update buffer (`EPDC_UPD_ADDR`), so the stock scanout
+shows stale memory (noise). qemu-epdc added a default-off `update-source` property
+to `imx.epdc` that makes the model render the update buffer instead; with it the
+Android home screen is readable:
+
+```bash
+export DISPLAY=:9                       # Xvfb :9, see below
+env -u WAYLAND_DISPLAY GDK_BACKEND=x11 \
+    bash tools/emulator/start-voyage.sh --gui --epdc-update-source --force
+# verify: QMP qom-get {"path":"/machine/epdc","property":"update-source"} -> true
+```
+
+Notes:
+
+- **Long form only**: `-global driver=imx.epdc,property=update-source,value=on`.
+  The dotted shorthand (`imx.epdc.update-source=on`) is silently ignored by
+  QEMU's driver-name parser (`warning: ... invalid class name`).
+- `WAYLAND_DISPLAY` must be unset (or `GDK_BACKEND=x11` set), otherwise GTK
+  attaches to a Wayland surface and the X window never appears under Xvfb.
+- Default (without `--epdc-update-source`) still scans `0x81000000` and is
+  byte-identical to the old stock-Home behaviour.
+- Headless runs (`-display none`) are fine for screendumps, but keep the GTK
+  display for the interactive/touch path.
+
+Xvfb + window-manager setup used for task-23:
+
+```bash
+Xvfb :9 -screen 0 1080x1460x24 -nolisten tcp -noreset &
+DISPLAY=:9 openbox &
+DISPLAY=:9 x11vnc -display :9 -forever -shared -nopw -rfbport 5909 &
+```
+
+Touch injection: the `cyttsp4` model registers a QEMU absolute pointing handler,
+and QMP `input-send-event` drives it directly (an `xdotool click` on the GTK
+window did *not* register in task-23; QMP did). Panel coordinates are
+1072x1448; QEMU's absolute axis range is 0..32767, scaled by the device to
+`x_resolution-1`/`y_resolution-1`:
+
+```
+abs_x = round(panel_x * 32767 / 1071)      # 1072 - 1
+abs_y = round(panel_y * 32767 / 1447)      # 1448 - 1
+events = [{"type":"abs","data":{"axis":"x","value":abs_x}},
+          {"type":"abs","data":{"axis":"y","value":abs_y}},
+          {"type":"btn","data":{"down":true,"button":"left"}}]
+# then send {"type":"btn","data":{"down":false,"button":"left"}} ~150 ms later
+```
+
+The navigation bar (Back, Home and Recent buttons) is at panel y≈1412; the launcher icons are
+at y≈455 (设置 x≈929, 文件 x≈663, 浏览器 x≈407, 微信读书 x≈151). Verified: tap on
+设置 opens the Android Settings screen, back returns to Home, long-press power
+(`Q_KEY_CODE_POWER` down 20 s then up) opens the power menu whose
+"重启回 Kindle 系统" entry reboots back to the stock Kindle home.
 
 ## Known limits / risks
 
