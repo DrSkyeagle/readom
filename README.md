@@ -32,7 +32,7 @@
 
 <br>
 
-<p align="center">演示、下载和图文安装教程都在官网：<b><a href="https://readom.app">readom.app</a></b><br>目前只在 Kindle Paperwhite 3（第 7 代）上验证过；Voyage（第 7 代）的移植已经在源码里，还没有上机。两种机器都保留 Kindle 原厂系统。</p>
+<p align="center">演示、下载和图文安装教程都在官网：<b><a href="https://readom.app">readom.app</a></b><br>目前只在 Kindle Paperwhite 3（第 7 代）上做过真机验证；Voyage（第 7 代）的移植已经在源码里，并在模拟器上跑通了启动到 Android，还没有上真机。两种机器都保留 Kindle 原厂系统。</p>
 
 <br>
 
@@ -50,7 +50,7 @@
 
 <img src="docs/img/why.webp" alt="独角兽吹掉抽屉里一台旧阅读器上的灰，屏幕亮了起来" width="100%">
 
-Readom 是为 Kindle 定制的 Android 系统。它把 Android 8.1（AOSP）适配到 Kindle Paperwhite 3 上，按墨水屏和这台机器的硬件重做了刷新、界面、输入法和安装方式。装上之后，Kindle 能用浏览器上网、装 Android 应用、用官方墨水屏版微信读书看书；原来的 Kindle 系统还在，随时切得回去。
+Readom 是为 Kindle 定制的 Android 系统。它把 Android 8.1（AOSP）适配到 Kindle Paperwhite 3 上（第二个机型 Voyage 的移植在源码里，模拟器已跑通到 Android 启动，真机待验），按墨水屏和这台机器的硬件重做了刷新、界面、输入法和安装方式。装上之后，Kindle 能用浏览器上网、装 Android 应用、用官方墨水屏版微信读书看书；原来的 Kindle 系统还在，随时切得回去。
 
 名字是 Read 和 Freedom 拼起来的：读什么书、用哪个应用、在哪台设备上读，由你自己决定。
 
@@ -187,11 +187,11 @@ Readom 不刷机，整套系统由下面几块拼起来：
 
 <img src="docs/img/porting.webp" alt="独角兽用角点亮一排不同年代的阅读器，后面几台还蒙着灰" width="100%">
 
-Readom 现在只跑在 PW3 上，但大部分代码和机型无关：内核补丁里约三分之二不碰硬件代码，AOSP 一侧的改动大多能直接沿用，启动交接按「机型 + 固件」各写一份配置。换一台 Kindle，要重做的是内核里碰硬件的那些补丁、一份启动配置和一个设备目录，再在真机上重新测一遍。
+Readom 的真机验证目前只做过 PW3，Voyage 的源码移植已在模拟器上整条跑通、真机还没上；但大部分代码和机型无关：内核补丁里约三分之二不碰硬件代码，AOSP 一侧的改动大多能直接沿用，启动交接按「机型 + 固件」各写一份配置。换一台 Kindle，要重做的是内核里碰硬件的那些补丁、一份启动配置和一个设备目录，再在真机上重新测一遍。
 
 | 机型 | 离 PW3 多远 |
 |---|---|
-| Voyage | 最近：亚马逊给它和 PW3 用同一份内核配置，内核已经能编出来；设备目录、启动配置和构建接线已经在源码里，还没上机 |
+| Voyage | 最近：亚马逊给它和 PW3 用同一份内核配置，内核已经能编出来；设备目录、启动配置、身份表和构建接线都在源码里，并已在模拟器上跑通到 Android `boot_completed=1` 与可读桌面，真机还没上 |
 | Oasis 1 | 内核已经能编出来，差 Wi‑Fi 驱动 |
 | Kindle 8、PW4 等 | 要换内核，显示部分能复用 |
 | PW5、Kindle 11 代、Scribe 等联发科机型 | 显示、Wi‑Fi、电源都要重写 |

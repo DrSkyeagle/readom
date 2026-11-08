@@ -34,7 +34,7 @@
 
 <br>
 
-<p align="center">The demo, the download and an illustrated install guide are on the website: <b><a href="https://readom.app">readom.app</a></b><br>It has only been verified on the Kindle Paperwhite 3 (7th generation); the Voyage (7th generation) port is in the sources and has not run on one. Both keep the Kindle's own system.</p>
+<p align="center">The demo, the download and an illustrated install guide are on the website: <b><a href="https://readom.app">readom.app</a></b><br>It has only been verified on real hardware on the Kindle Paperwhite 3 (7th generation); the Voyage (7th generation) port is in the sources and has run through to Android in the emulator, but not on a real one. Both keep the Kindle's own system.</p>
 
 <br>
 
@@ -52,7 +52,7 @@ What each release changed, and how far it was verified on the device, is in full
 
 <img src="docs/img/why.webp" alt="The unicorn blows the dust off an old e-reader in a drawer, and its screen lights up" width="100%">
 
-Readom is an Android system made for the Kindle. It brings Android 8.1 (AOSP) to the Kindle Paperwhite 3, with the refresh, the interface, the keyboard and the way it installs all redone for the e-ink screen and this device's hardware. With it, a Kindle browses the web, installs Android apps and reads in the official e-ink edition of WeRead; the Kindle's own system is still there, a switch away.
+Readom is an Android system made for the Kindle. It brings Android 8.1 (AOSP) to the Kindle Paperwhite 3 (the second model, the Voyage, is ported in the sources and has run through to Android in the emulator; real hardware is still untested), with the refresh, the interface, the keyboard and the way it installs all redone for the e-ink screen and this device's hardware. With it, a Kindle browses the web, installs Android apps and reads in the official e-ink edition of WeRead; the Kindle's own system is still there, a switch away.
 
 The name is Read and Freedom put together: what you read, which app you read it in, and on which device, is up to you.
 
@@ -191,11 +191,11 @@ The build environment and steps are in [CONTRIBUTING.en.md](CONTRIBUTING.en.md),
 
 <img src="docs/img/porting.webp" alt="The unicorn lights up a row of e-readers from different years with its horn; the ones further along are still dusty" width="100%">
 
-Readom runs on the PW3 only for now, but most of it does not depend on the model: about two in three kernel patches never touch hardware code, most of the AOSP changes carry over as they are, and the boot handover takes one configuration per model and firmware. Moving to another Kindle means redoing the kernel patches that touch hardware, one boot configuration and one device directory, then measuring everything again on the real device.
+Real hardware has only been run on the PW3 so far; the Voyage port runs the whole chain in the emulator and has not been on a real device. Most of it does not depend on the model: about two in three kernel patches never touch hardware code, most of the AOSP changes carry over as they are, and the boot handover takes one configuration per model and firmware. Moving to another Kindle means redoing the kernel patches that touch hardware, one boot configuration and one device directory, then measuring everything again on the real device.
 
 | Model | How far from the PW3 |
 |---|---|
-| Voyage | Closest: Amazon builds it with the same kernel configuration as the PW3 and the kernel already builds; its device directory, boot profile and build wiring are in the sources, and have not run on one |
+| Voyage | Closest: Amazon builds it with the same kernel configuration as the PW3 and the kernel already builds; its device directory, boot profile, identity table and build wiring are in the sources, and the chain has run through to Android `boot_completed=1` with a readable desktop in the emulator, but not on a real device |
 | Oasis 1 | The kernel already builds; the Wi-Fi driver is missing |
 | Kindle 8, PW4 and others | A different kernel, but the display side can be reused |
 | PW5, Kindle 11th generation, Scribe and other MediaTek models | Display, Wi-Fi and power all have to be rewritten |

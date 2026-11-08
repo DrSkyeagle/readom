@@ -7,17 +7,42 @@ notes are written from it.
 
 ## Unreleased
 
-**The Voyage (7th generation) device side is in the sources, and not one line of it has run on a
-Voyage.** `device/amazon/voyage/` is new: it inherits the pw3 product and board configuration and
-replaces only the product identity (`PRODUCT_NAME`/`PRODUCT_DEVICE`/`PRODUCT_BRAND`/`PRODUCT_MODEL`)
-and the board name, because the two machines are the same part in every place this system touches.
-The helper's model check no longer names the pw3 struct but takes it from the boot profile
-(`-DDD_PROFILE`); the build scripts gained `--model` / `--profile` / `PW3_AOSP_PRODUCT`, and without
-them everything falls back to pw3 with the build command unchanged. The firmware facts in
-`boot/profiles/voyage-5.13.6.json` — the stock command line, the kernel's build string, the four
-function bodies' hashes, the Wi-Fi calibration and firmware paths — **are still TODO**: they are read
-off that machine, and one wrong token stops every Voyage at E101. The installer still knows only the
-PW3. The reasoning, the files touched and what is outstanding are in
+**The Voyage (7th generation) port now runs the whole start chain in the emulator.** `device/amazon/voyage/`
+is new: it inherits the pw3 product and board configuration and replaces only the product identity
+(`PRODUCT_NAME`/`PRODUCT_DEVICE`/`PRODUCT_BRAND`/`PRODUCT_MODEL`) and the board name, because the two
+machines are the same part in every place this system touches. The helper's stock identity check no
+longer uses the PW3 literals but takes them from the boot profile's `stock_files`/`stock_cpuid` identity
+table (`-DDD_PROFILE`), and the handoff module's target lock reads the stock release/version/CPUID from
+the profile too; `boot/profiles/voyage-5.13.6.json` has every firmware fact filled in (stock command
+line, kernel build string, the four function bodies' hashes, the four stock files' path/bytes/sha256,
+the Wi-Fi calibration and firmware paths). The build scripts gained `--model` / `--profile` /
+`PW3_AOSP_PRODUCT` / `--emulator` / `--kernel-source`, and without them everything falls back to pw3
+with the PW3 build command unchanged.
+
+**How far the emulator got (QEMU with the stock 5.13.6 firmware, test entry v3):** the probe uses the
+real `pm_suspend` (`pm_test=core`, after `prepare-voyage-suspend.sh` stops the UI and unloads
+`fsr_keypad`), the commit uses the real suspend and transitions into the Voyage kernel, patch 1060 lets
+the new kernel bypass QEMU's Cortex-A9 TLB lockdown model, handoff-init restores the PMIC keeper and
+loads EPDC, preinit verifies and dm-linear mounts system/data, and Android init reaches
+`sys.boot_completed=1`; with QEMU `imx.epdc`'s `update-source=on` option, Android's composed desktop is
+pixel-identical to its reference image on 823,296/823,296 pixels (after 75 s only the clock changes).
+**Not one line has run on real hardware**: panel greys/refresh, front light/VCOM, touch calibration,
+Wi-Fi calibration, suspend power and restarting back to the stock system all need the device.
+
+**Kernel side:** the release patch series gained its 86th patch (`patches/android-core/1060-…`, a TLB
+lockdown probe bypass gated by `early_param("readom.emulator")`, a no-op without the token); the
+release kernel was rebuilt from the same series (zImage `4384bbb5…`, uImage `0695bb0f…`), and
+`modules.tar.gz` is byte-identical to the old release (`cb9cf419…`), so the system image/payload/screens
+need no rebuild for the kernel. There is one kernel: the test entry's cmdline ends with
+`readom.emulator=1`, and a release cmdline never contains it.
+
+**Emulator-only switches and what is unfinished:** a `PWS_EMULATOR` module synthesises only the hardware
+attestation (probe and the default commit still use the real suspend), the `direct_commit` module
+parameter (default 0) is the run-time fallback when QEMU's suspend wedges; QEMU's `update-source`
+property is off by default and only for emulator display validation; the guest also needs deviced
+disabled and fsr_keypad unloaded. The installer's release end to end is still progressing in the
+emulator, and touch and restarting back to the stock system are not verified; real-hardware installer
+validation is still PW3-only. The reasoning, the evidence and the real-device checklist are in
 [voyage-port.en.md](docs/design/voyage-port.en.md).
 
 ## v0.1.0

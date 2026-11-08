@@ -6,14 +6,34 @@ GitHub Releases 的说明都从它来。
 
 ## 未发行
 
-**Voyage（第 7 代）的设备侧移植进了源码树，一行都没有上机。** 新增 `device/amazon/voyage/`：它继承
-pw3 的产品定义和板配置，只换产品身份（`PRODUCT_NAME`/`PRODUCT_DEVICE`/`PRODUCT_BRAND`/
-`PRODUCT_MODEL`）和板名，因为两台机器在这套系统用到的每一处硬件上都相同。helper 的机型判断从写死的
-pw3 改成由启动配置选结构体（`-DDD_PROFILE`），构建脚本多了 `--model` / `--profile` / `PW3_AOSP_PRODUCT`，
-不给就退回 pw3、构建命令一个字不用改。启动配置 `boot/profiles/voyage-5.13.6.json` 里的固件事实
-（原厂命令行、内核 build 串、四个函数体的哈希、Wi-Fi 校准与固件路径）**还是 TODO**：它们要在那台机器上
-读出来，抄错一个 token 每一台 Voyage 都会停在 E101。安装器仍然只认 PW3。依据、改到的文件和未决项见
-[voyage-port.md](docs/design/voyage-port.md)。
+**Voyage（第 7 代）的移植已经在模拟器上跑完整条启动链。** 新增 `device/amazon/voyage/`：它继承
+pw3 的产品定义和板配置，只换产品身份（`PRODUCT_NAME`/`PRODUCT_DEVICE`/`PRODUCT_BRAND`/`PRODUCT_MODEL`）
+和板名，因为两台机器在这套系统用到的每一处硬件上都相同。helper 的 stock 身份检查从写死的 PW3
+字面量改成由启动配置的 `stock_files`/`stock_cpuid` 身份表提供（`-DDD_PROFILE`），交接模块的
+target-lock 也从 profile 读 stock release/version/CPUID；`boot/profiles/voyage-5.13.6.json` 的固件
+事实（原厂命令行、内核 build 串、四个函数体哈希、四个 stock 文件的 path/bytes/sha256、Wi-Fi 校准与
+固件路径）已全部填好。构建脚本多了 `--model` / `--profile` / `PW3_AOSP_PRODUCT` / `--emulator` /
+`--kernel-source`，不给就退回 pw3、PW3 的构建命令一个字不用改。
+
+**模拟器上验到哪里（QEMU 跑原厂 5.13.6 固件，测试入口 v3）：** probe 走真实 `pm_suspend`
+（`pm_test=core`，先按 `prepare-voyage-suspend.sh` 停 UI 并卸载 `fsr_keypad`）、commit 走真实 suspend
+并 transition 到 Voyage 内核、patch 1060 让新内核绕过 QEMU 的 Cortex-A9 TLB lockdown 模型、
+handoff-init 恢复 PMIC keeper 并加载 EPDC、preinit 校验并 dm-linear 挂载 system/data、Android init
+到 `sys.boot_completed=1`；再用 QEMU `imx.epdc` 的 `update-source=on` 选项，Android 合成的桌面在
+面板上与其参考图 823,296/823,296 像素逐像素相同（75 秒后只有时钟变化）。**真机上一行都还没跑过**：
+面板灰阶/刷新、前光/VCOM、触摸校准、Wi-Fi 校准、休眠功耗、重启回原厂都要在真机上验。
+
+**内核侧：** 发行补丁序列新增第 86 个补丁（`patches/android-core/1060-…`，
+`early_param("readom.emulator")` 门控的 TLB lockdown 探测旁路，无 token 时 no-op）；发行内核已由同一
+序列重建（zImage `4384bbb5…`、uImage `0695bb0f…`），`modules.tar.gz` 与旧发行逐字节相同
+（`cb9cf419…`），因此 system 镜像/载荷/screens 不需要因内核重建。只有一套内核：测试入口的 cmdline
+末尾带 `readom.emulator=1`，发行 cmdline 永不含它。
+
+**模拟器专用开关与未完成项：** `PWS_EMULATOR` 模块只合成硬件 attestation（probe 与默认 commit 仍走
+真实 suspend），`direct_commit` 模块参数（默认 0）是 QEMU 上 suspend 卡住时的运行期兜底；QEMU 的
+`update-source` 属性默认关闭、只用于模拟器显示验证；guest 侧还要停 deviced、卸载 fsr_keypad。
+installer 发行版端到端仍在模拟器上推进，触摸与重启回原厂尚未验证；发行 installer 的真机验证仍只做过
+PW3。依据、证据与真机必测项见 [voyage-port.md](docs/design/voyage-port.md)。
 
 ## v0.1.0
 
