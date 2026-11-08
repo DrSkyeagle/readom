@@ -452,6 +452,10 @@ def main():
     virtual = receipt['module_profile'] == 2
     if virtual and a.installer:
         sys.exit('a release entry installs a system image, which is the stock profile')
+    if a.emulator and a.installer:
+        sys.exit('--emulator is for a test entry, not a release: a release never defines '
+                 'PW3_EMULATOR, and an installer-shaped emulator build would have no '
+                 'device to install to')
     if (sha(module) != receipt['modules_sha256']['pw3_first_kernel'] or sha(kernel) != receipt['kernel']['sha256'] or
             sha(public) != receipt['public_initramfs']['sha256'] or cmdline != receipt['cmdline']):
         sys.exit('the module was built for another kernel, initramfs or command line')
