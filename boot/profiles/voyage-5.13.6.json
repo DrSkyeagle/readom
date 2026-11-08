@@ -45,6 +45,31 @@
   "user_mount": "/mnt/base-us",
   "wifi_board": "/opt/ar6k/target/AR6003/hw2.1.1/bin/AR6003_wan_calfile.bin",
   "wifi_firmware": "/opt/ar6k/target/AR6003/hw2.1.1/bin/fw-4.bin",
+  "stock_cpuid": "0x412fc09a",
+  "stock_cpuid_why": "the CPU identity register (MIDR) the handoff's hardware gate reads (boot/handoff/native-handoff.h): real Wario silicon, the same i.MX 6SoloLite as the PW3, so the same value; the two models differ in firmware and panel, not in the CPU core's identity. The QEMU emulator reports 0x410fc090 instead, and only an emulator build may substitute that (boot/build_module.py --emulator), never a release",
+  "stock_files": [
+    {
+      "path": "/sbin/init",
+      "bytes": 1345,
+      "sha256": "be0537c8b049831041a33e623f6bbcc9ccef8942c7f71f1f4e8a8354cfef8914"
+    },
+    {
+      "path": "/etc/upstart/init.sh",
+      "bytes": 1345,
+      "sha256": "be0537c8b049831041a33e623f6bbcc9ccef8942c7f71f1f4e8a8354cfef8914"
+    },
+    {
+      "path": "/sbin/init.exe",
+      "bytes": 111824,
+      "sha256": "9fcbbf735c2fd4d7758ebdbf836c79c61b405867d28d4488d09315f80e21d2cf"
+    },
+    {
+      "path": "/usr/sbin/eips",
+      "bytes": 61104,
+      "sha256": "7916bee55c7ec9ab4d2da5859d5b27e3caee77dd971aa93d01fccc8b2fdd6259"
+    }
+  ],
+  "stock_files_why": "the four stock files the entry proves are this firmware's own before it runs anything from them or draws a screen through one (boot/devicedata/devicedata.c identity table). Measured on the running 5.13.6 system: /sbin/init and /etc/upstart/init.sh are the same 1,345-byte script (15 bytes shorter than the PW3's, and a different hash -- which is why this is a per-firmware fact), /sbin/init.exe is the same 111,824-byte Lab126 launcher the PW3 ships, and /usr/sbin/eips is 61,104 bytes instead of 62,176. The helper reads these numbers from the compiled struct, this file is what the build and this test read, and tools/tests/test_profile_matches_devicedata.py refuses a build whose two copies disagree",
   "stock_functions": {
     "pm_test_show": {
       "bytes": 124,

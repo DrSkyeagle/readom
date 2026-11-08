@@ -225,15 +225,33 @@ static int exact_file(const char *path, const char *expected, size_t bytes) {
     for (unsigned i = 0; i < 32; i++) snprintf(hex + i*2, 3, "%02x", result[i]);
     return total == bytes && !strcmp(hex, expected);
 }
-static int original_boot(void) {
+/* The stock files this firmware ships, from the profile the build was made for:
+ * the boot (/sbin/init, /etc/upstart/init.sh, /sbin/init.exe) and the display
+ * (/usr/sbin/eips). The paths are the same on every model -- they are where the
+ * stock system keeps them -- and the bytes and hashes come from the profile
+ * struct, so a build for another firmware refuses rather than checking its
+ * own numbers against nothing. A profile without the file is a build error the
+ * device would otherwise report as a crash: refuse instead, because this
+ * program is about to run code it could not identify. */
 #if CHECK_PROFILE == 1
-    return exact_file("/sbin/init", "ad624cbad3090bf15e65c8420a4e451ee10fd067a40b1bfe662965e82d932d0a", 1360) &&
-        exact_file("/etc/upstart/init.sh", "ad624cbad3090bf15e65c8420a4e451ee10fd067a40b1bfe662965e82d932d0a", 1360) &&
-        exact_file("/sbin/init.exe", "9fcbbf735c2fd4d7758ebdbf836c79c61b405867d28d4488d09315f80e21d2cf", 111824);
-#else
-    return 1;
-#endif
+static const struct dd_identity *identity(const char *path) {
+    for (unsigned i = 0; i < DD_PROFILE.identity_count; i++)
+        if (!strcmp(DD_PROFILE.identity[i].path, path)) return &DD_PROFILE.identity[i];
+    return NULL;
 }
+static int original_boot(void) {
+    static const char *const files[] = {"/sbin/init", "/etc/upstart/init.sh", "/sbin/init.exe"};
+    for (unsigned i = 0; i < sizeof(files) / sizeof(files[0]); i++) {
+        const struct dd_identity *file = identity(files[i]);
+        if (!file || !exact_file(file->path, file->sha256, file->bytes)) return 0;
+    }
+    return 1;
+}
+#else
+static int original_boot(void) {
+    return 1;
+}
+#endif
 static int root_readonly(void) {
 #if CHECK_PROFILE == 1
     FILE *stream = fopen("/proc/mounts", "r");
@@ -639,8 +657,12 @@ int main(int argc, char **argv) {
      * trustworthy, and it is checked first. Nothing can be drawn when it fails,
      * and the launcher's own fallback line checks the same hash and stays quiet
      * too, so this one exits 1 -- 3 would tell the launcher a reason is on the
-     * screen when none is. */
-    if (!exact_file("/usr/sbin/eips", "73eb0d2532f9c899e98fb8feacb7a085ab0652f628f1c2c7b2e2d1cefae3f4ae", 62176)) {
+     * screen when none is. The hash and size come from the profile (the same
+     * identity table original_boot uses), not from literals here: on another
+     * firmware the display is another program, and a build has to refuse it
+     * rather than draw screens through it. */
+    const struct dd_identity *eips = identity("/usr/sbin/eips");
+    if (!eips || !exact_file(eips->path, eips->sha256, eips->bytes)) {
         fprintf(stderr, "PW3_FIRST_KERNEL_CHECK_FAIL check=display_identity errno=%d checks=%u\n", errno, ++checks);
         exit(1);
     }
@@ -758,7 +780,11 @@ int main(int argc, char **argv) {
     if (dd_archive("/", &DD_PROFILE, &build, &archive, &why)) { device_data_failed(&why, "device_archive"); }
     static const unsigned char zeros[4];
     const uint32_t padding = (4u - PUBLIC_INITRAMFS_BYTES % 4u) % 4u;
-    require(archive.size <= 16u << 20, "device_archive_size");
+    /* The profile's own limit, which is also what the module pins from the same
+     * JSON (TARGET_DEVICE_ARCHIVE_MAX): one fact, so the helper cannot hand over
+     * an archive the module would refuse, and the release cannot ship two
+     * different ceilings that drift apart. */
+    require(archive.size <= DD_PROFILE.device_archive_max, "device_archive_size");
     const uint32_t initramfs_bytes = PUBLIC_INITRAMFS_BYTES + padding + (uint32_t)archive.size;
     if (dd_atags("/", &DD_PROFILE, BUILD_CMDLINE, INITRD_START, initramfs_bytes, &atags, &why)) { device_data_failed(&why, "device_atags"); }
     const struct piece slots[PWS_SLOTS][3] = {

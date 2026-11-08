@@ -45,6 +45,31 @@
   "footprint_profile": "pw3",
   "module_kernel_source": "/home/builder/pw3-build/linux-stock",
   "module_kernel_output": "/home/builder/loader-candidate-kernel-out",
+  "stock_cpuid": "0x412fc09a",
+  "stock_cpuid_why": "the CPU identity register (MIDR) the handoff's hardware gate reads (boot/handoff/native-handoff.h): real Wario silicon, as the stock kernel's own MIDR check reports it. The QEMU emulator reports 0x410fc090 instead, and only an emulator build may substitute that (boot/build_module.py --emulator); a release build's gate must be the device's number or it is not the device it says",
+  "stock_files": [
+    {
+      "path": "/sbin/init",
+      "bytes": 1360,
+      "sha256": "ad624cbad3090bf15e65c8420a4e451ee10fd067a40b1bfe662965e82d932d0a"
+    },
+    {
+      "path": "/etc/upstart/init.sh",
+      "bytes": 1360,
+      "sha256": "ad624cbad3090bf15e65c8420a4e451ee10fd067a40b1bfe662965e82d932d0a"
+    },
+    {
+      "path": "/sbin/init.exe",
+      "bytes": 111824,
+      "sha256": "9fcbbf735c2fd4d7758ebdbf836c79c61b405867d28d4488d09315f80e21d2cf"
+    },
+    {
+      "path": "/usr/sbin/eips",
+      "bytes": 62176,
+      "sha256": "73eb0d2532f9c899e98fb8feacb7a085ab0652f628f1c2c7b2e2d1cefae3f4ae"
+    }
+  ],
+  "stock_files_why": "the four stock files the entry proves are the firmware's own before it runs anything from them or draws a screen through one (boot/devicedata/devicedata.c identity table): /sbin/init and /etc/upstart/init.sh are the same 1,360-byte script here, /sbin/init.exe the Lab126 launcher, and /usr/sbin/eips every screen. The helper reads these numbers from the compiled struct, this file is what the build and this test read, and tools/tests/test_profile_matches_devicedata.py refuses a build whose two copies disagree",
   "stock_functions": {
     "pm_test_show": {
       "bytes": 124,

@@ -35,6 +35,14 @@ PORT = HERE.parent
 # The profile every build used before --profile existed: one model, one firmware,
 # and the one this project has run on a device (docs/design/porting-to-other-models.md).
 PROFILE = HERE / 'profiles/pw3-5.16.2.1.1.json'
+# The four stock files the helper checks by content on every model: the boot the
+# stock system came up with and the display every screen goes through. The paths
+# are the same everywhere; the sizes and hashes are what the profile's firmware
+# ships, and boot/devicedata/devicedata.c carries the same four entries. The
+# script's fallback line checks the display's hash before it draws through it,
+# which is why this build needs that one hash even though the helper does the
+# same check itself: it runs when the helper could not.
+STOCK_FILES = ('/sbin/init', '/etc/upstart/init.sh', '/sbin/init.exe', '/usr/sbin/eips')
 MUSL = '/home/builder/toolchains/musl-arm/bin/musl-gcc'
 READELF = '/home/builder/toolchains/aosp-arm-gcc49/bin/arm-linux-androideabi-readelf'
 INITRD_START = 0x84000000   # PHYS_OFFSET + 64 MiB: the module's initramfs destination
@@ -212,6 +220,43 @@ def stock_identity(profile):
         sys.exit('device_data_profile names %s, which boot/devicedata/devicedata.h does not '
                  'declare: the profile and the struct have to be written together' % name)
     return ['-DDD_PROFILE=' + name]
+
+
+def stock_file_hash(profile, path):
+    """The sha256 of one stock file, from the profile this build was given.
+
+    The launcher template's fallback line checks /usr/sbin/eips before it draws
+    through it, at the one moment the helper could not show a reason itself, so
+    the hash in the script has to be this firmware's. It is the same number the
+    helper's identity table carries (boot/devicedata/devicedata.c) and the same
+    one the profile JSON carries; the test in tools/tests/ holds the last two
+    together, and this reads the JSON because the script is written here.
+
+    A virtual profile (module_profile 2) is a QEMU fixture that never reaches a
+    Kindle: it has no stock firmware, so its script keeps the PW3's hash, which
+    is what every launcher carried before --profile existed. The fallback line
+    cannot draw on such a machine in any case.
+    """
+    files = profile.get('stock_files')
+    if files is None:
+        files = json.loads(PROFILE.read_text()).get('stock_files')
+    if not isinstance(files, list) or not files:
+        sys.exit('%s carries no stock_files: the display hash the launcher checks cannot '
+                 'be written, and a build made without it would draw screens through a '
+                 'program it has not identified' % profile.get('description', 'the profile'))
+    by_path = {}
+    for entry in files:
+        if not isinstance(entry, dict) or not isinstance(entry.get('path'), str):
+            sys.exit('stock_files entries must be objects with a path: %r' % (entry,))
+        by_path[entry['path']] = entry
+    missing = [name for name in STOCK_FILES if name not in by_path]
+    if missing:
+        sys.exit('the profile does not carry %s, which the helper checks before it runs '
+                 'anything: a build for it cannot start a device' % ', '.join(missing))
+    value = by_path[path].get('sha256')
+    if not isinstance(value, str) or not re.fullmatch(r'[0-9a-f]{64}', value):
+        sys.exit('stock_files[%r].sha256 is not a sha256: %r' % (path, value))
+    return value
 
 
 def build_incremental(image, expect_sha256):
@@ -495,6 +540,14 @@ def main():
     if 'INTERP' in elf or 'ARM' not in elf:
         sys.exit('the helper is not a static ARM executable')
     template = (HERE / 'launcher/launcher-template.sh').read_text()
+    # The display's hash for the script's fallback line, from the profile's own
+    # identity table: the helper checks the same bytes before it draws anything,
+    # and this line runs when the helper could not -- so it has to be this
+    # firmware's program, not a number copied into the template.
+    eips_sha256 = stock_file_hash(profile, '/usr/sbin/eips')
+    if template.count('@EIPS_HASH@') != 1:
+        sys.exit('launcher-template.sh no longer carries @EIPS_HASH@ exactly once, so '
+                 'the fallback line would check the display against a stale hash')
     encoded = base64.b64encode(helper.read_bytes()).decode()
     encoded = '\n'.join(encoded[i:i + 76] for i in range(0, len(encoded), 76))
     # The same two strings the helper was compiled with (PW3_OUTPUT_PREFIX in
@@ -527,12 +580,15 @@ def main():
               .replace(self_from, 'SELF=/mnt/us/documents/' + a.name)
               .replace('@STOPPED_MESSAGE@', stopped)
               .replace('@LOGPREFIX@', prefix).replace('@LOGPARENT@', prefix.rsplit('/', 1)[0])
+              .replace('@EIPS_HASH@', eips_sha256)
               .replace('@HELPER_HASH@', sha(helper.read_bytes())).replace('@BASE64@', encoded))
     head = script.split('\n__PW3_FIRST_KERNEL_HELPER_BASE64__\n', 1)[0]
     if '@LOG' in head:
         sys.exit('the launcher script still has a log placeholder in it')
     if '@STOPPED_MESSAGE@' in head:
         sys.exit('the launcher script still has the stopped-message placeholder in it')
+    if '@EIPS_HASH@' in head:
+        sys.exit('the launcher script still has the display-hash placeholder in it')
     if ('\nSELF=/mnt/us/documents/' + a.name + '\n') not in head:
         sys.exit('the launcher script does not point at the name it is written under: ' + a.name)
     assert base64.b64decode(script.split('\n__PW3_FIRST_KERNEL_HELPER_BASE64__\n', 1)[1]) == helper.read_bytes()

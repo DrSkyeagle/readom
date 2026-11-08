@@ -31,7 +31,7 @@ finish() {
     fallback_shown=0
     if [ "$helper_exit" != 0 ] && [ "$helper_exit" != 3 ]; then
         eips_hash=$("$B" sha256sum /usr/sbin/eips 2>/dev/null | "$B" cut -d ' ' -f 1)
-        if [ "$eips_hash" = 73eb0d2532f9c899e98fb8feacb7a085ab0652f628f1c2c7b2e2d1cefae3f4ae ]; then
+        if [ "$eips_hash" = @EIPS_HASH@ ]; then
             /usr/sbin/eips 1 1 '@STOPPED_MESSAGE@' && fallback_shown=1 || true
         fi
     fi

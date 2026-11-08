@@ -45,13 +45,21 @@ HEADER = ROOT / 'boot/devicedata/devicedata.h'
 HELPER = ROOT / 'boot/launcher/helper.c'
 
 # The struct's fields, in the order devicedata.h declares them, with the key the
-# profile JSON keeps the same fact under.
+# profile JSON keeps the same fact under. The struct carries more than these six
+# strings -- the stock files' identity table and the device archive ceiling --
+# and those are checked below from the same initialiser.
 FIELDS = [('stock_cmdline', 'cmdline_base'),
           ('user_mount', 'user_mount'),
           ('wifi_board', 'wifi_board'),
           ('wifi_firmware', 'wifi_firmware'),
           ('kernel_release', 'stock_kernel_release'),
           ('kernel_version', 'stock_kernel_version')]
+
+# The four stock files every supported firmware has, in the order the helper
+# checks them: the boot the stock system came up with, then the display every
+# screen goes through. The paths are the same on every model; only the sizes and
+# hashes differ, which is why the profile has to say them.
+STOCK_FILES = ('/sbin/init', '/etc/upstart/init.sh', '/sbin/init.exe', '/usr/sbin/eips')
 
 checks = 0
 failures = []
@@ -90,15 +98,53 @@ def c_strings(initialiser):
 
 
 def structs(text):
-    """Every `const struct dd_profile <name> = { ... };` with its strings."""
+    """Every `const struct dd_profile <name> = { ... };`, with its parts.
+
+    The strings are the six facts above; after them the struct names its stock
+    file identity array and gives its length and the device archive ceiling,
+    which are what the helper runs its content checks from and what it refuses a
+    too-large archive with. All of them are read out of the same initialiser in
+    source order, so a struct that grows a field shows up here rather than as a
+    wrong comparison on a device.
+    """
     found = {}
     for match in re.finditer(r'const struct dd_profile (\w+)\s*=\s*\{', text):
         end = text.find('};', match.end())
         if end < 0:
             continue
-        strings = c_strings(text[match.end():end])
-        if strings is not None:
-            found[match.group(1)] = strings
+        initialiser = text[match.end():end]
+        strings = c_strings(initialiser)
+        if strings is None:
+            continue
+        parts = {'strings': strings, 'identity': None, 'count': None, 'archive_max': None}
+        tail = re.search(r'"\s*,\s*([A-Za-z_]\w*)\s*,\s*(\d+)u?\s*,\s*(\d+)u?\s*,?\s*\Z',
+                         initialiser, re.S)
+        if tail:
+            parts['identity'] = tail.group(1)
+            parts['count'] = int(tail.group(2))
+            parts['archive_max'] = int(tail.group(3))
+        found[match.group(1)] = parts
+    return found
+
+
+def identities(text):
+    """Every `static const struct dd_identity <name>[] = { ... };`, as entries."""
+    found = {}
+    for match in re.finditer(r'static const struct dd_identity (\w+)\[\]\s*=\s*\{', text):
+        end = text.find('};', match.end())
+        if end < 0:
+            continue
+        entries = []
+        for chunk in re.finditer(r'\{([^{}]*)\}', text[match.end():end]):
+            part = chunk.group(1)
+            strings = c_strings(part)
+            size = re.search(r',\s*(\d+)u?\s*,', part)
+            if strings is None or len(strings) != 2 or size is None:
+                entries = None
+                break
+            entries.append({'path': strings[0], 'bytes': int(size.group(1)), 'sha256': strings[1]})
+        if entries is not None:
+            found[match.group(1)] = entries
     return found
 
 
@@ -119,6 +165,7 @@ def main():
     if failures:
         return report()
     declared = structs(DEVICEDATA.read_text(encoding='utf-8'))
+    arrays = identities(DEVICEDATA.read_text(encoding='utf-8'))
     header = HEADER.read_text(encoding='utf-8')
     stock = profiles()
     check(bool(stock), 'no stock profile in boot/profiles; the reader is wrong')
@@ -159,7 +206,7 @@ def main():
         named.setdefault(selected, []).append(name)
         if selected not in declared:
             continue
-        strings = declared[selected]
+        strings = declared[selected]['strings']
         check(len(strings) == len(FIELDS),
               '%s holds %d strings and the profile has %d facts; the struct and '
               'FIELDS here disagree about what one profile is'
@@ -177,6 +224,60 @@ def main():
                   'changed without the other: the profile is what the boot module and '
                   'the E101 screen are built from, the struct is what the device is '
                   'checked against' % (name, key, profile[key], value))
+        # The stock files the helper checks by content, and the archive ceiling it
+        # enforces before the handover. The C is the struct the helper was compiled
+        # with, the JSON is what the build and the E101 screen read; a build with
+        # one changed and not the other either refuses a firmware it was made for
+        # or runs code it has not identified.
+        identity_name = declared[selected]['identity']
+        check(identity_name is not None,
+              '%s does not name a stock-file identity array: a build for it would run '
+              'the boot and draw screens through programs it never checked' % selected)
+        entries = []
+        if identity_name is not None:
+            check(identity_name in arrays,
+                  '%s names %s, which devicedata.c does not define[]' % (selected, identity_name))
+            entries = arrays.get(identity_name, [])
+            check(declared[selected]['count'] == len(entries),
+                  '%s says its identity array has %r entries and it has %d'
+                  % (selected, declared[selected]['count'], len(entries)))
+            paths = [entry['path'] for entry in entries]
+            check(sorted(paths) == sorted(STOCK_FILES),
+                  '%s carries stock files %s; the helper checks exactly %s'
+                  % (selected, paths, list(STOCK_FILES)))
+            check(len(paths) == len(set(paths)),
+                  '%s names a stock file twice: %s' % (selected, paths))
+            listed = profile.get('stock_files')
+            check(isinstance(listed, list),
+                  '%s has no stock_files: the build would have no display hash to put '
+                  'into the launcher' % name)
+            if isinstance(listed, list):
+                by_path = {entry.get('path'): entry for entry in listed if isinstance(entry, dict)}
+                check(sorted(by_path) == sorted(STOCK_FILES),
+                      '%s lists stock files %s and the helper checks %s'
+                      % (name, sorted(by_path), list(STOCK_FILES)))
+                for entry in entries:
+                    got = by_path.get(entry['path'])
+                    check(got is not None,
+                          '%s has no stock_files entry for %s, which devicedata.c checks'
+                          % (name, entry['path']))
+                    if got is None:
+                        continue
+                    check(got.get('bytes') == entry['bytes'] and got.get('sha256') == entry['sha256'],
+                          '%s says %s is %r bytes %r and devicedata.c has %r bytes %r. '
+                          'One of the two was changed without the other: the helper '
+                          'would refuse the firmware this profile is for'
+                          % (name, entry['path'], got.get('bytes'), got.get('sha256'),
+                             entry['bytes'], entry['sha256']))
+            archive = declared[selected]['archive_max']
+            check(archive == profile.get('device_archive_max'),
+                  '%s says device_archive_max is %r and devicedata.c has %r: the helper '
+                  'and the boot module would refuse archives of different sizes'
+                  % (name, profile.get('device_archive_max'), archive))
+        cpuid = profile.get('stock_cpuid')
+        check(isinstance(cpuid, str) and re.fullmatch(r'0x[0-9a-f]{8}', cpuid) is not None,
+              '%s has no stock_cpuid (0x followed by eight lower-case hex digits): the '
+              'handoff module would have no CPU identity to pin' % name)
 
     for selected, users in sorted(named.items()):
         check(len(users) == 1,

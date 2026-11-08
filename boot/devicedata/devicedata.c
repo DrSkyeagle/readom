@@ -12,6 +12,18 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+/* The stock files of PW3 firmware 5.16.2.1.1. The helper checks these before
+ * it runs anything from them or draws through the display: the program is
+ * started by tapping a file that arrived with the jailbreak, so what it is
+ * about to execute has to be the firmware's own. The four paths are the same
+ * on every model; the sizes and hashes are this firmware's. */
+static const struct dd_identity dd_identity_pw3_5_16_2_1_1[] = {
+    {"/sbin/init", 1360u, "ad624cbad3090bf15e65c8420a4e451ee10fd067a40b1bfe662965e82d932d0a"},
+    {"/etc/upstart/init.sh", 1360u, "ad624cbad3090bf15e65c8420a4e451ee10fd067a40b1bfe662965e82d932d0a"},
+    {"/sbin/init.exe", 111824u, "9fcbbf735c2fd4d7758ebdbf836c79c61b405867d28d4488d09315f80e21d2cf"},
+    {"/usr/sbin/eips", 62176u, "73eb0d2532f9c899e98fb8feacb7a085ab0652f628f1c2c7b2e2d1cefae3f4ae"},
+};
+
 /* PW3 (Wario), stock firmware 5.16.2.1.1: its /proc/cmdline, user FAT mount
  * and the Wi-Fi files its startup script selects (/etc/upstart/wifim; the
  * running ath6kl_sdio board_data_file parameter names the same file). */
@@ -22,6 +34,23 @@ const struct dd_profile dd_pw3_5_16_2_1_1 = {
     "/opt/ar6k/target/AR6003/hw2.1.1/bin/fw-4.bin",
     "3.0.35-lab126",
     "#8 PREEMPT Tue Aug 1 12:49:59 UTC 2023",
+    dd_identity_pw3_5_16_2_1_1,
+    4u,
+    12582912u,
+};
+
+/* The stock files of Voyage firmware 5.13.6, in the same order: the boot the
+ * stock system came up with, then the display. Read off the running 5.13.6
+ * system, not copied from the PW3 -- and they are this firmware's own numbers,
+ * which is the point: `init` is 15 bytes smaller and `eips` 1,072 bytes smaller
+ * than the PW3's, and on 5.16.2.1.1 the same check would pass only the model
+ * that firmware belongs to. init.exe happens to be the same bytes on both (the
+ * same Lab126 launcher), but it is measured here rather than assumed. */
+static const struct dd_identity dd_identity_voyage_5_13_6[] = {
+    {"/sbin/init", 1345u, "be0537c8b049831041a33e623f6bbcc9ccef8942c7f71f1f4e8a8354cfef8914"},
+    {"/etc/upstart/init.sh", 1345u, "be0537c8b049831041a33e623f6bbcc9ccef8942c7f71f1f4e8a8354cfef8914"},
+    {"/sbin/init.exe", 111824u, "9fcbbf735c2fd4d7758ebdbf836c79c61b405867d28d4488d09315f80e21d2cf"},
+    {"/usr/sbin/eips", 61104u, "7916bee55c7ec9ab4d2da5859d5b27e3caee77dd971aa93d01fccc8b2fdd6259"},
 };
 
 /* Voyage (Wario, machine 4091), stock firmware 5.13.6: the same board family
@@ -38,11 +67,12 @@ const struct dd_profile dd_pw3_5_16_2_1_1 = {
  * of the per-variant facts recorded in docs/design/voyage-port.md's open items,
  * because the profile is per model and firmware and the file is chosen per unit.
  *
- * The profile JSON (boot/profiles/voyage-5.13.6.json) carries the same six
- * strings, and tools/tests/test_profile_matches_devicedata.py keeps the two in
- * step: this struct is what the helper was compiled with, the JSON is what the
- * boot module and the E101 screen were built from, and a build that has one
- * without the other is a device that refuses to start for no stated reason.
+ * The profile JSON (boot/profiles/voyage-5.13.6.json) carries the same facts --
+ * the six strings, the four stock files and the device archive limit -- and
+ * tools/tests/test_profile_matches_devicedata.py keeps the two in step: this
+ * struct is what the helper was compiled with, the JSON is what the boot module
+ * and the E101 screen were built from, and a build that has one without the
+ * other is a device that refuses to start for no stated reason.
  * tools/fill-voyage-profile.py is the one writer of both. */
 const struct dd_profile dd_voyage_5_13_6 = {
     "log_pos_goal=0x8fff0000 console=ttymxc0,115200 ro ip=off quiet video=mxcepdcfb:E60,bpp=8,x_mem=3M",
@@ -51,6 +81,9 @@ const struct dd_profile dd_voyage_5_13_6 = {
     "/opt/ar6k/target/AR6003/hw2.1.1/bin/fw-4.bin",
     "3.0.35-lab126",
     "#2 PREEMPT Thu Apr 8 09:39:57 UTC 2021",
+    dd_identity_voyage_5_13_6,
+    4u,
+    12582912u,
 };
 
 void dd_free(struct dd_buf *b) { free(b->data); b->data = NULL; b->size = b->cap = 0; }

@@ -26,6 +26,18 @@
 struct dd_buf { unsigned char *data; size_t size, cap; };
 void dd_free(struct dd_buf *b);
 
+/* One stock file the helper proves is untouched before it runs it or draws
+ * through it: the path it knows, and this firmware's size and sha256. The four
+ * paths are the same on every Kindle this project supports -- the boot the
+ * stock system came up with (/sbin/init, /etc/upstart/init.sh, /sbin/init.exe)
+ * and the display every screen goes through (/usr/sbin/eips) -- while the bytes
+ * and hashes are what that model's firmware happens to ship. */
+struct dd_identity {
+    const char *path;
+    unsigned int bytes;
+    const char *sha256;          /* lower-case hex, 64 digits */
+};
+
 /* What one supported model on one stock firmware fixes. */
 struct dd_profile {
     const char *stock_cmdline;   /* /proc/cmdline without root= and rootwait */
@@ -40,6 +52,19 @@ struct dd_profile {
      * (tools/tests/test_profile_matches_devicedata.py). */
     const char *kernel_release;  /* uname -r, and what /proc/version names */
     const char *kernel_version;  /* uname -v: the build number, date and time */
+    /* The stock files this firmware ships, in the order the helper checks them:
+     * the boot and the display. The helper names each path and takes the bytes
+     * and hash from here, so a build for one firmware cannot check another one's
+     * -- or skip the check because the numbers were left in the source. */
+    const struct dd_identity *identity;
+    unsigned int identity_count;
+    /* The largest device archive (boot/devicedata/devicedata.c's dd_archive) a
+     * start can hand the kernel for this profile. The build's module pins the
+     * same number from the profile JSON (target-lock.h TARGET_DEVICE_ARCHIVE_MAX),
+     * and the helper refuses a bigger one before the handover. It comes from the
+     * profile so that the envelope's own limits (devicedata.c) and what a start
+     * may carry are one number, not two that can drift apart. */
+    unsigned int device_archive_max;
 };
 extern const struct dd_profile dd_pw3_5_16_2_1_1;
 extern const struct dd_profile dd_voyage_5_13_6;
