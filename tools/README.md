@@ -22,6 +22,9 @@ python3 tools/run-tests.py            # 跑能跑的
 |---|---|
 | 准备源码树、应用补丁系列 | `prepare-aosp-device.sh`、`verify-tree-matches-series.py` |
 | 机型与启动配置 | `fill-voyage-profile.py`（把从设备读出的事实写进机型 profile，并把 `devicedata.c` 里的结构体一起改写） |
+| Voyage preinit 独立构建 | `build-preinit.py`（输入 `device/amazon/pw3/preinit/PreInit.c` 与 musl 工具链，输出静态 ARM 的 `pw3-testfile-init`；脱离 AOSP 单独交叉编译，SHA-256 用仓库自有实现，供 Voyage 的公开 initramfs 打包） |
+| Voyage 发行物 bootstrap | `build-voyage-release.py`（输入官方 v0.1.0 的 system.img 与 data 模板、Voyage 内核模块，输出 Voyage 的 system.img/data.img 与 manifest 草稿；只做镜像部分，入口构建在后续阶段接上） |
+| Voyage 模拟器验证 | `emulator/`（生成合成面板/波形并启动 QEMU 真固件，仅开发验证用，不进入发行链路） |
 | 构建与导出系统镜像 | `run-aosp-build-job.sh`（**一律经它**）、`build-aosp-system.sh`、`export-aosp-images.py`、`inspect-system-image.py` |
 | 构建内核 | `build-kernel.sh`（Readom 的那棵）、`build-loader-stage-kernel.sh`（QEMU 夹具的第一级）、`build-kernel-smoke.sh`、`make-test-kernel-config.py` |
 | 取第三方预构建件 | `fetch-prebuilts.py`（按 `source-lock.json` 的哈希） |
