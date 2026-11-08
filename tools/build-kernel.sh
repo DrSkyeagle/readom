@@ -24,20 +24,35 @@ case "$MODEL" in
   *) echo 'Unknown kernel model' >&2; exit 2 ;;
 esac
 MODEL_CONFIG="/mnt/port/config/models/$MODEL.config"
+# The stock source this model is built from, and the GPL package it comes in.
+# pw3 (and duet, which is the same 3.0.35 tree) is the 5.16.2.1.1 release that
+# source-lock.json pins; Voyage is its own 5.13.6 package
+# (Kindle_src_5.13.6_3731990038.tar.gz, sha256 4a01245d...), whose member
+# gplrelease/linux-3.0.35.tar.gz hashes to the number below. The build VM keeps
+# the extracted member under /mnt/kernel-inputs/<firmware>/; a machine that
+# extracted it elsewhere points PW3_KERNEL_INPUTS_ROOT at that directory.
+case "$MODEL" in
+  voyage) KERNEL_FIRMWARE=5.13.6
+          KERNEL_MEMBER_SHA256=a66a58b80869c65aedd5e1bb5b49a5f064731fab4997c5294c400570245144b0 ;;
+  *)      KERNEL_FIRMWARE=5.16.2.1.1
+          KERNEL_MEMBER_SHA256='' ;;   # the pinned source-lock.json value
+esac
+KERNEL_INPUTS_ROOT="${PW3_KERNEL_INPUTS_ROOT:-/mnt/kernel-inputs}"
+KERNEL_ARCHIVE="$KERNEL_INPUTS_ROOT/amazon-$KERNEL_FIRMWARE/linux-3.0.35.tar.gz"
 BUILD_ROOT=/home/builder/pw3-build
 SOURCE_ROOT="$BUILD_ROOT/linux-$PROFILE"
 OUTPUT_ROOT="$BUILD_ROOT/out-$PROFILE$suffix"
 ARTIFACT_ROOT="/mnt/build-share/$PROFILE-kernel$suffix"
 TOOLCHAIN=/home/builder/toolchains/aosp-arm-gcc49
-KERNEL_ARCHIVE=/mnt/kernel-inputs/amazon-5.16.2.1.1/linux-3.0.35.tar.gz
 COMPILER_ARCHIVE=/mnt/build-share/toolchains/aosp-arm-gcc49-0390252.tar.gz
 mkdir -p "$BUILD_ROOT" /mnt/build-share/logs "$ARTIFACT_ROOT"
-python3 - "$KERNEL_ARCHIVE" "$COMPILER_ARCHIVE" <<'PY'
+python3 - "$KERNEL_ARCHIVE" "$COMPILER_ARCHIVE" "$KERNEL_MEMBER_SHA256" <<'PY'
 import hashlib, json, sys
 from pathlib import Path
 lock = json.loads(Path('/mnt/port/source-lock.json').read_text())
+expected_member = sys.argv[3] or lock['kernel']['member_sha256']
 for filename, expected in [
-    (sys.argv[1], lock['kernel']['member_sha256']),
+    (sys.argv[1], expected_member),
     (sys.argv[2], lock['cross_compiler']['archive_sha256']),
 ]:
     h = hashlib.sha256()
@@ -122,7 +137,7 @@ kernel_release=$(cat "$OUTPUT_ROOT/include/config/kernel.release")
 cp "$OUTPUT_ROOT/include/config/kernel.release" "$ARTIFACT_ROOT/kernel.release"
 rm -f "$module_stage/lib/modules/$kernel_release/build" "$module_stage/lib/modules/$kernel_release/source"
 tar -czf "$ARTIFACT_ROOT/modules.tar.gz" -C "$module_stage" lib
-python3 - "$PROFILE" "$ARTIFACT_ROOT" "${patch_files[@]}" <<'PY'
+python3 - "$PROFILE" "$ARTIFACT_ROOT" "$MODEL" "$KERNEL_FIRMWARE" "${patch_files[@]}" <<'PY'
 import hashlib, json, datetime
 import sys
 from pathlib import Path
@@ -134,10 +149,16 @@ for name in ['uImage', 'zImage', 'kernel.config', 'kernel.release', 'Module.symv
 result = {
     'compiled_at_utc': datetime.datetime.now(datetime.timezone.utc).isoformat(),
     'profile': sys.argv[1],
+    # Which model and which stock firmware this kernel is for. The artifact
+    # directory and the image's modules are per model; the receipt is what says
+    # which Amazon source it came from (the cross-compiler is one for every
+    # model, so its lock entry is not duplicated).
+    'model': sys.argv[3],
+    'firmware': sys.argv[4],
     'kcflags': '-fno-pic -fno-pie',
     'source_lock': json.loads(Path('/mnt/port/source-lock.json').read_text()),
     'artifacts': files,
-    'patches': {str(Path(name).relative_to('/mnt/port')): hashlib.sha256(Path(name).read_bytes()).hexdigest() for name in sys.argv[3:]},
+    'patches': {str(Path(name).relative_to('/mnt/port')): hashlib.sha256(Path(name).read_bytes()).hexdigest() for name in sys.argv[5:]},
     'device_flashing_performed': False,
     'device_boot_verified': False,
     'android_runtime_verified': False,

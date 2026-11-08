@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
-"""Export completed AOSP image files and receipts inside the isolated build VM."""
+"""Export completed AOSP image files and receipts inside the isolated build VM.
+
+The product is the one tools/build-aosp-system.sh was given in
+PW3_AOSP_PRODUCT (default pw3): it names the output directory, and its device
+directories are the ones whose copies in the AOSP tree are checked against this
+repository. A second model inherits pw3's device tree and adds its own beside it,
+so both are hashed; the kernel component is the one that model's kernel build left
+under /mnt/build-share/android-core-kernel (with the model suffix for a second
+model), because the modules in the image must be that kernel's.
+"""
 import argparse
 import fcntl
 import hashlib
@@ -8,6 +17,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -26,14 +36,23 @@ def sha(path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', required=True, type=Path)
+    parser.add_argument('--product', default='pw3',
+                        help='the AOSP product to export (PW3_AOSP_PRODUCT): lower-case letters, '
+                             'digits and "-"; default pw3, the one this project ships')
     args = parser.parse_args()
     if platform.node() != 'lima-pw3' or os.geteuid() == 0:
         raise RuntimeError('Run as builder inside the project VM')
+    if not re.fullmatch(r'[a-z0-9][a-z0-9-]*', args.product):
+        raise RuntimeError('--product: the device directory name (lower-case letters, digits, "-")')
     output = args.output.resolve()
     if output.exists():
         raise RuntimeError('Refusing to overwrite an export')
     source = Path('/home/builder/android-src')
-    product = source / 'out/target/product/pw3'
+    product = source / 'out/target/product' / args.product
+    # The kernel build leaves its artifacts under the same suffix rule as its
+    # model (tools/build-kernel.sh ARTIFACT_ROOT): pw3 keeps the plain name, and
+    # any other model gets its own directory.
+    model_suffix = '' if args.product == 'pw3' else '-' + args.product
     share = Path('/mnt/build-share')
     port = Path('/mnt/port')
     with Path('/home/builder/pw3-build/aosp-build.lock').open('a') as lock:
@@ -86,7 +105,11 @@ def main():
                 raise RuntimeError('Missing platform keyboard file: ' + name)
         component = source / 'vendor/amazon/pw3-hardware'
         manifest = json.loads((component / 'component-manifest.json').read_text())
-        kernel_hash = sha(share / 'android-core-kernel/build-result.json')
+        kernel_receipt = share / ('android-core-kernel' + model_suffix) / 'build-result.json'
+        if not kernel_receipt.is_file():
+            raise RuntimeError('Missing kernel receipt: ' + str(kernel_receipt) +
+                               ' (build the kernel for --product ' + args.product + ' first)')
+        kernel_hash = sha(kernel_receipt)
         if manifest['build_receipt_sha256'] != kernel_hash:
             raise RuntimeError('The image component uses a different kernel build')
         spec = importlib.util.spec_from_file_location(
@@ -113,14 +136,23 @@ def main():
                                    + relative + '\n  ' + '\n  '.join(problems))
             patches[relative] = recorded
         device_files = {}
-        for path in sorted((port / 'device/amazon/pw3').rglob('*')):
-            if path.is_file():
-                relative = path.relative_to(port / 'device/amazon/pw3')
-                digest = sha(path)
-                copied = source / 'device/amazon/pw3' / relative
-                if not copied.is_file() or sha(copied) != digest:
-                    raise RuntimeError('Device sources changed since synchronization: ' + str(relative))
-                device_files[str(relative)] = digest
+        # pw3 is always read: a second model inherits its product and the build
+        # copies both device trees (tools/prepare-aosp-device.sh). The default
+        # model keeps the keys it has always had; with a second one the model is
+        # part of the key, so the two trees cannot hash into one set.
+        models = ['pw3'] if args.product == 'pw3' else ['pw3', args.product]
+        for model in models:
+            root = port / 'device/amazon' / model
+            for path in sorted(root.rglob('*')):
+                if path.is_file():
+                    relative = path.relative_to(root)
+                    digest = sha(path)
+                    copied = source / 'device/amazon' / model / relative
+                    if not copied.is_file() or sha(copied) != digest:
+                        raise RuntimeError('Device sources changed since synchronization: '
+                                           + str(Path('device/amazon') / model / relative))
+                    key = str(relative) if args.product == 'pw3' else 'device/amazon/%s/%s' % (model, relative)
+                    device_files[key] = digest
         output.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix='.pw3-image-export-', dir=output.parent) as temp:
             stage = Path(temp) / 'images'
@@ -188,8 +220,8 @@ def main():
                 # number (ro.build.display.id). It is the only release name any
                 # file in the image carries, and the one a reader can read out.
                 'build_version': job.get('build_version'),
-                'scope': 'AOSP pw3-%s files; not installable firmware or a device boot'
-                         % (job.get('variant') or 'userdebug'),
+                'scope': 'AOSP %s-%s files; not installable firmware or a device boot'
+                         % (args.product, job.get('variant') or 'userdebug'),
                 'private_firmware_injected': False, 'ramdisk_structure_verified': True,
                 'aosp_patches': patches,
                 'device_source_sha256': device_files,
