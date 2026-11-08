@@ -34,6 +34,9 @@ KEEP = {
     'pw3-report-area': 'whether the report area was written and, when it was not, why:'
                        ' fixed strings, a path of ours and strerror()'
                        ' (BootReport.cpp, KernelLine())',
+    'pw3-first-kernel': "the handoff module's own line before an emulator-only direct commit:"
+                        ' fixed text and the two physical destinations, in an emulator build'
+                        ' only (native-handoff.h, PWS_EMULATOR)',
 }
 FREE_TEXT = {
     'pw3-boot-report': 'not named in the whitelist, and since 2026-10-29 it reaches no kernel log '
