@@ -1,0 +1,3 @@
+# Voyage PagePress: the readers page on the volume keys, not PAGE_UP/PAGE_DOWN.
+key 104   VOLUME_UP
+key 109   VOLUME_DOWN

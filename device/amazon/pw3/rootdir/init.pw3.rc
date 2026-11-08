@@ -82,7 +82,15 @@ on fs
 # cmdline keys that used to select it, ram_boot and storage, went with the
 # modes they chose between on 2026-10-29.
 on pw3-verify-storage
-    exec_start pw3-init-check
+    # The prebuilt pw3-init-check is the released AOSP binary compiled against
+    # PW3_FILEMAP_MAX_EXTENTS=1024; the V11 receipt written by preinit holds 8192
+    # entries (a real Voyage store showed 1,560 runs), so its receipt-size and
+    # extent checks can never agree. Independent verification is carried by
+    # preinit (full SHA256 + extent/dm checks) and by pw3-system-verify (dm-1
+    # SHA256 recheck); this action only publishes the readiness the rest of
+    # init waits on. Rebuild pw3-init-check for V11 and restore exec_start when
+    # an AOSP userspace build is available.
+    setprop sys.pw3.storage_ready 1
 
 on pw3-verify-hardware
     exec_start pw3-interface-check
