@@ -44,3 +44,4 @@
 | `design/diagnostics.md` | 发行版自己的诊断通道：报告区、日志目录、原厂侧怎么读 |
 | `design/release-build.md` | 发行清单 14 步、`user` 构建、签名密钥的保管与轮换代价、安全复核 |
 | `design/porting-to-other-models.md` | 逐机型的调研与工作量清点：按原厂内核版本分组，不是按 SoC |
+| `design/voyage-port.md` | 第二个机型 Voyage：和 PW3 差在哪、改了哪些文件、还差哪些要在机器上读的事实 |

@@ -534,7 +534,7 @@ static void install_prepare(void) {
      * that a Kindle this release cannot be installed on is told so rather than
      * having a lock file left on its user store. */
     struct dd_why why = {{0}, 0};
-    if (dd_device_matches("/", &dd_pw3_5_16_2_1_1, &why)) {
+    if (dd_device_matches("/", &DD_PROFILE, &why)) {
         fprintf(stderr, "PW3_DEVICE_DATA %s\n", why.text);
         stop_now(why.other_device ? PW3_SCREEN_E101 : PW3_SCREEN_STOPPED);
     }
@@ -656,7 +656,16 @@ int main(int argc, char **argv) {
     open_screens();
 #endif
 #if CHECK_PROFILE == 1
-    if (strcmp(u.release, "3.0.35-lab126") || strcmp(u.version, "#8 PREEMPT Tue Aug 1 12:49:59 UTC 2023") ||
+    /* The same two facts the device data will check again at the handover
+     * (dd_device_matches), asked here first because this is the earliest point
+     * at which the answer is known and the cheapest at which it is useful. They
+     * come from the profile this build was made for -- one struct in
+     * devicedata.c, chosen by boot/build_launcher.py from the profile JSON --
+     * rather than from literals here: a second copy of them is a second thing
+     * to forget, and forgetting it means a build for one firmware that runs on
+     * it and then refuses it, or worse, one that starts the handover against
+     * another firmware's kernel. */
+    if (strcmp(u.release, DD_PROFILE.kernel_release) || strcmp(u.version, DD_PROFILE.kernel_version) ||
         strcmp(u.machine, "armv7l")) {
         fprintf(stderr, "PW3_FIRST_KERNEL_CHECK_FAIL check=stock_profile errno=%d checks=%u\n", errno, ++checks);
         /* Not this Kindle, or not this firmware: the same answer the device data
@@ -746,12 +755,12 @@ int main(int argc, char **argv) {
      * then the ATAGs that name the whole initramfs. */
     static const struct dd_build build = {BUILD_CMDLINE, BUILD_PREINIT_CONF, BUILD_DATA_PATH, BUILD_DATA_SIZE};
     struct dd_buf archive = {0}, atags = {0}; struct dd_why why = {{0}, 0};
-    if (dd_archive("/", &dd_pw3_5_16_2_1_1, &build, &archive, &why)) { device_data_failed(&why, "device_archive"); }
+    if (dd_archive("/", &DD_PROFILE, &build, &archive, &why)) { device_data_failed(&why, "device_archive"); }
     static const unsigned char zeros[4];
     const uint32_t padding = (4u - PUBLIC_INITRAMFS_BYTES % 4u) % 4u;
     require(archive.size <= 16u << 20, "device_archive_size");
     const uint32_t initramfs_bytes = PUBLIC_INITRAMFS_BYTES + padding + (uint32_t)archive.size;
-    if (dd_atags("/", &dd_pw3_5_16_2_1_1, BUILD_CMDLINE, INITRD_START, initramfs_bytes, &atags, &why)) { device_data_failed(&why, "device_atags"); }
+    if (dd_atags("/", &DD_PROFILE, BUILD_CMDLINE, INITRD_START, initramfs_bytes, &atags, &why)) { device_data_failed(&why, "device_atags"); }
     const struct piece slots[PWS_SLOTS][3] = {
         {{kernel_payload, KERNEL_BYTES}},
         {{atags.data, (uint32_t)atags.size}},

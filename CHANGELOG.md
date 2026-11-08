@@ -4,6 +4,17 @@
 上跑出来的；没上机的照原样标出来，不含糊过去。这份文件是仓库里的那一份记录，官网的更新日志和
 GitHub Releases 的说明都从它来。
 
+## 未发行
+
+**Voyage（第 7 代）的设备侧移植进了源码树，一行都没有上机。** 新增 `device/amazon/voyage/`：它继承
+pw3 的产品定义和板配置，只换产品身份（`PRODUCT_NAME`/`PRODUCT_DEVICE`/`PRODUCT_BRAND`/
+`PRODUCT_MODEL`）和板名，因为两台机器在这套系统用到的每一处硬件上都相同。helper 的机型判断从写死的
+pw3 改成由启动配置选结构体（`-DDD_PROFILE`），构建脚本多了 `--model` / `--profile` / `PW3_AOSP_PRODUCT`，
+不给就退回 pw3、构建命令一个字不用改。启动配置 `boot/profiles/voyage-5.13.6.json` 里的固件事实
+（原厂命令行、内核 build 串、四个函数体的哈希、Wi-Fi 校准与固件路径）**还是 TODO**：它们要在那台机器上
+读出来，抄错一个 token 每一台 Voyage 都会停在 E101。安装器仍然只认 PW3。依据、改到的文件和未决项见
+[voyage-port.md](docs/design/voyage-port.md)。
+
 ## v0.1.0
 
 **状态：2026-11-04 发行，11-05 摘掉预发行标记、成为正式版。** 线上（GitHub Release `v0.1.0`、`readom.app/dl/v0.1.0/`、官网）的入口

@@ -90,6 +90,12 @@ TESTS = [
     # image half can only answer for the variant that happens to be staged,
     # and the staged tree after the userdebug smoke step is not a release.
     ('device-packages', 'python', ['tools/check-image-references.py', '--packages-only'], False),
+    # A model's stock firmware is written down twice: in its boot profile, which
+    # the build reads, and in one struct in devicedata.c, which the compiled
+    # helper checks the device against. A build that has one without the other
+    # is a Kindle that installs and then refuses to start, so the two are held
+    # to each other before that.
+    ('profile-devicedata', 'python', ['tools/tests/test_profile_matches_devicedata.py'], False),
     # And the check that keeps this list honest: a test file that is in the
     # tree and in nothing's list of what to run is a hole in a green suite,
     # which is how a wrong assertion about the refresh policy survived a day

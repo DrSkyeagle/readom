@@ -32,7 +32,7 @@
 
 <br>
 
-<p align="center">演示、下载和图文安装教程都在官网：<b><a href="https://readom.app">readom.app</a></b><br>暂时只支持 Kindle Paperwhite 3（第 7 代），同时保留 Kindle 原厂系统。</p>
+<p align="center">演示、下载和图文安装教程都在官网：<b><a href="https://readom.app">readom.app</a></b><br>目前只在 Kindle Paperwhite 3（第 7 代）上验证过；Voyage（第 7 代）的移植已经在源码里，还没有上机。两种机器都保留 Kindle 原厂系统。</p>
 
 <br>
 
@@ -170,7 +170,7 @@ Readom 不刷机，整套系统由下面几块拼起来：
   `system.img` 和 `data.img` 放在 Kindle 盘上，开机时由 Readom 自己的启动程序找到、校验并挂载。
 
 - **Android 8.1（AOSP）**<br>
-  一个设备目录 `device/amazon/pw3/`，加上对 AOSP 各项目的补丁系列。
+  设备目录 `device/amazon/pw3/`，加上对 AOSP 各项目的补丁系列。第二个机型 Voyage 用继承，只多一个 `device/amazon/voyage/`。
 
 - **墨水屏显示**<br>
   没有 GPU，界面由 CPU 合成；自己写的显示部分决定刷哪一块、用哪种波形、16 级灰阶怎么映射，直接驱动 i.MX 的 EPDC 屏幕控制器。
@@ -191,7 +191,7 @@ Readom 现在只跑在 PW3 上，但大部分代码和机型无关：内核补�
 
 | 机型 | 离 PW3 多远 |
 |---|---|
-| Voyage | 最近：亚马逊给它和 PW3 用同一份内核配置，内核已经能编出来 |
+| Voyage | 最近：亚马逊给它和 PW3 用同一份内核配置，内核已经能编出来；设备目录、启动配置和构建接线已经在源码里，还没上机 |
 | Oasis 1 | 内核已经能编出来，差 Wi‑Fi 驱动 |
 | Kindle 8、PW4 等 | 要换内核，显示部分能复用 |
 | PW5、Kindle 11 代、Scribe 等联发科机型 | 显示、Wi‑Fi、电源都要重写 |

@@ -17,28 +17,60 @@ so the Kindle needs one decoder and 8 MiB of memory for it.
 The data image is made here, from an empty directory, by the tool and with the arguments
 the build uses for userdata.img. Run this on the tree that produced the export.
 
-Usage: build_payload.py --export DIR --data-format N --version VERSION --output DIR
+Usage: build_payload.py --export DIR --data-format N --version VERSION --output DIR [--model MODEL]
   --export       export-aosp-images.py output (system.raw.img)
   --data-format  what Android keeps in /data and how big it is: a release keeps an existing
                  data image only of its own format (1: Android 8.1, 1.75 GiB)
+  --model        the device directory under device/amazon/ whose BoardConfig.mk says how big
+                 the data image is, and the AOSP product directory that was built from it.
+                 Default: pw3, the only model this project has run on a device
 """
 import argparse, datetime, hashlib, json, os, platform, re, struct, subprocess, sys, tempfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 PORT = HERE.parent
-BOARD_CONFIG = PORT / 'device/amazon/pw3/BoardConfig.mk'
 # The build tree (tools/build-aosp-system.sh): the host tool that makes every ext4 image
 # here, and the labels it gives them. The x86 host binaries run in the arm VM under its
-# interpreter, as they do in the build.
+# interpreter, as they do in the build. Both paths carry the product's name, which is
+# also the name of its directory under device/amazon/.
 AOSP_OUT = Path('/home/builder/android-src/out')
-PRODUCT = AOSP_OUT / 'target/product/pw3'
 MAKE_EXT4FS = AOSP_OUT / 'host/linux-x86/bin/make_ext4fs'
-FILE_CONTEXTS = PRODUCT / 'obj/ETC/file_contexts.bin_intermediates/file_contexts.bin'
 # What an ext4 holds when nothing has been put in it: inodes 1 to 10 are ext4's own and
 # 11 is lost+found. One more means a file, and a file here reaches every device.
 EMPTY_INODES = 11
 WINDOW = 8 << 20
+
+
+def board_configs(model):
+    """The BoardConfig.mk files that decide this model's image sizes, in order.
+
+    A model's own BoardConfig.mk inherits the pw3 one (`include device/amazon/
+    pw3/BoardConfig.mk`, which is what device/amazon/voyage does), and the sizes
+    are stated in the file that owns them. The include is followed rather than
+    the number copied into a second file, so there is one place a size can be
+    changed. Includes written with a make variable (`$(PW3_USB_COMPONENT_ROOT)/
+    ...`) are skipped: they cannot be resolved here, and none of them states a
+    size.
+    """
+    root = PORT / 'device/amazon' / model / 'BoardConfig.mk'
+    seen, found, todo = set(), [], [root]
+    while todo:
+        path = todo.pop(0)
+        if path in seen or not path.is_file():
+            continue
+        seen.add(path)
+        found.append(path)
+        for line in path.read_text().splitlines():
+            included = re.match(r'\s*include\s+([A-Za-z0-9_./-]+\.mk)\s*$', line)
+            if included:
+                todo.append(PORT / included.group(1))
+    return found
+
+
+def product(model):
+    """The AOSP product directory a build of that device directory writes."""
+    return AOSP_OUT / 'target/product' / model
 
 
 def sha_file(path):
@@ -57,15 +89,17 @@ def compress(raw, out):
         sys.exit('%s needs a %d byte window; pw3-unpack accepts at most %d' % (out.name, window, WINDOW))
 
 
-def data_bytes():
+def data_bytes(model):
     """The size of the data image, from the configuration the system was built with."""
-    found = re.search(r'^BOARD_USERDATAIMAGE_PARTITION_SIZE\s*:=\s*(\d+)\s*$', BOARD_CONFIG.read_text(), re.M)
-    if not found:
-        sys.exit('no BOARD_USERDATAIMAGE_PARTITION_SIZE in ' + str(BOARD_CONFIG))
-    return int(found.group(1))
+    for config in board_configs(model):
+        found = re.search(r'^BOARD_USERDATAIMAGE_PARTITION_SIZE\s*:=\s*(\d+)\s*$', config.read_text(), re.M)
+        if found:
+            return int(found.group(1))
+    sys.exit('no BOARD_USERDATAIMAGE_PARTITION_SIZE for %s (looked in %s)'
+             % (model, ', '.join(str(p) for p in board_configs(model))))
 
 
-def empty_data_image(out, size):
+def empty_data_image(out, size, model):
     """An empty data image, made the way the build makes userdata.img.
 
     AOSP's own userdata.img is not an empty data image: `make userdataimage` packs whatever
@@ -79,12 +113,14 @@ def empty_data_image(out, size):
     arguments are otherwise the build's (mkuserimg.sh): fixed timestamps, the labels of this
     build, the label and size of the data partition.
     """
-    for tool in (MAKE_EXT4FS, FILE_CONTEXTS):
+    built = product(model)
+    contexts = built / 'obj/ETC/file_contexts.bin_intermediates/file_contexts.bin'
+    for tool in (MAKE_EXT4FS, contexts):
         if not tool.exists():
             sys.exit('%s is not there; build the system first (tools/build-aosp-system.sh)' % tool)
     with tempfile.TemporaryDirectory() as empty:
-        subprocess.run([str(MAKE_EXT4FS), '-T', '-1', '-S', str(FILE_CONTEXTS), '-L', 'data',
-                        '-l', str(size), '-a', 'data', str(out), empty, str(PRODUCT / 'system')],
+        subprocess.run([str(MAKE_EXT4FS), '-T', '-1', '-S', str(contexts), '-L', 'data',
+                        '-l', str(size), '-a', 'data', str(out), empty, str(built / 'system')],
                        check=True, stdout=subprocess.DEVNULL)
     with open(out, 'rb') as f:
         f.seek(1024)
@@ -113,9 +149,14 @@ def main():
     ap.add_argument('--data-format', type=int, required=True)
     ap.add_argument('--version', required=True)
     ap.add_argument('--output', type=Path, required=True)
+    ap.add_argument('--model', default='pw3',
+                    help='device/amazon/<model>: whose BoardConfig.mk states the data size, and '
+                         'whose AOSP product directory the build wrote. Default: pw3')
     a = ap.parse_args()
     if platform.node() != 'lima-pw3' or os.geteuid() == 0:
         sys.exit('Run as the builder in the build VM.')
+    if not re.fullmatch(r'[a-z0-9][a-z0-9-]*', a.model):
+        sys.exit('--model is the device directory name: lower-case letters, digits, "-"')
     export = json.loads((a.export / 'build-result.json').read_text())
     system = a.export / 'system.raw.img'
     if sha_file(system) != export['files']['system.raw.img']['sha256']:
@@ -127,7 +168,7 @@ def main():
     packed_system = a.output / ('readom-system-%s.img.zst' % a.version)
     packed_data = a.output / ('readom-data-%s.img.zst' % a.version)
     raw_data = a.output / ('readom-data-%s.img' % a.version)
-    empty_data_image(raw_data, data_bytes())
+    empty_data_image(raw_data, data_bytes(a.model), a.model)
     compress(system, packed_system)
     compress(raw_data, packed_data)
     manifest = {

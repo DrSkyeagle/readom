@@ -7,11 +7,15 @@ to a device; the helper adds the device's part on the device (devicedata/).
 
 Usage: build_launcher.py --module DIR --kernel ZIMAGE --public-initramfs FILE --cmdline TEXTFILE
                          --preinit-conf FILE [--data PATH:BYTES] --name FILE.sh --title TITLE --output DIR
+                         [--profile PROFILE]
                          [--installer DIR --screens DIR --system-image FILE --release-url URL
                           --ca-bundle FILE --zstd-archive FILE]
   --module         output of build_module.py for the same kernel, initramfs and command line
   --preinit-conf   pw3-preinit.conf without the device's fat_* and block= lines
   --data           data image (relative to the user FAT) and its size, for pw3-testdata.conf
+  --profile        the model's boot profile (boot/profiles/*.json): which stock firmware the
+                   helper checks for, and which model the installer's screens name. Default:
+                   the PW3's, which is the only one this project has run on a device
   --installer      installer/build_payload.py output for the same system image: the entry
                    installs it first (installer/install/), from documents/ or downloaded
                    from --release-url/<payload name>; the system image must be
@@ -28,6 +32,9 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 PORT = HERE.parent
+# The profile every build used before --profile existed: one model, one firmware,
+# and the one this project has run on a device (docs/design/porting-to-other-models.md).
+PROFILE = HERE / 'profiles/pw3-5.16.2.1.1.json'
 MUSL = '/home/builder/toolchains/musl-arm/bin/musl-gcc'
 READELF = '/home/builder/toolchains/aosp-arm-gcc49/bin/arm-linux-androideabi-readelf'
 INITRD_START = 0x84000000   # PHYS_OFFSET + 64 MiB: the module's initramfs destination
@@ -179,6 +186,34 @@ def release_asset_url(directory, name):
     return url
 
 
+def stock_identity(profile):
+    """The -D that tells the helper which stock firmware it is for.
+
+    `boot/devicedata/devicedata.c` holds one `struct dd_profile` per supported
+    model and firmware -- the stock command line, the user store's mount, the two
+    Wi-Fi file paths, and the kernel release and version -- and the helper asks
+    the running system against it twice: once before anything is downloaded or
+    written, and again at the handover. Which struct it reads is a build-time
+    choice (`DD_PROFILE`, defaulting in devicedata.h to the PW3's), because one
+    helper binary serves one model on one firmware.
+
+    The name comes from the profile JSON, so that the same file that says what
+    the E101 screen says also says which facts the device is checked against.
+    A profile without the key builds exactly what it built before the key
+    existed, which is what keeps the PW3's entry unchanged.
+    """
+    name = profile.get('device_data_profile')
+    if name is None:
+        return []
+    if not isinstance(name, str) or not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', name):
+        sys.exit('device_data_profile is not a C identifier: %r' % (name,))
+    header = (HERE / 'devicedata/devicedata.h').read_text()
+    if not re.search(r'^extern const struct dd_profile %s;' % re.escape(name), header, re.M):
+        sys.exit('device_data_profile names %s, which boot/devicedata/devicedata.h does not '
+                 'declare: the profile and the struct have to be written together' % name)
+    return ['-DDD_PROFILE=' + name]
+
+
 def build_incremental(image, expect_sha256):
     """ro.build.version.incremental of that system image, read out of the image.
 
@@ -258,7 +293,7 @@ def installer_inputs(a, conf, data_path, data_size):
     # E101 names the model and firmware this build is for, and a screen that
     # named another one would send someone looking for the wrong thing. The
     # names come from the profile both sides read (boot/profiles/).
-    profile = json.loads((HERE / 'profiles/pw3-5.16.2.1.1.json').read_text())
+    profile = json.loads(a.profile.read_text())
     if screens.get('supported') != [profile['supported_zh'], profile['supported_en']]:
         sys.exit('the screens were rendered for another model: ' + str(screens.get('supported')))
     # --release-url is the directory the asset sits in; the payload's own name is
@@ -323,6 +358,8 @@ def main():
     for name in ['module', 'kernel', 'public-initramfs', 'cmdline', 'preinit-conf', 'output']:
         ap.add_argument('--' + name, type=Path, required=True)
     ap.add_argument('--data')
+    ap.add_argument('--profile', type=Path, default=PROFILE,
+                    help='the model\'s boot profile (boot/profiles/*.json); default: the PW3\'s')
     for name in ['installer', 'screens', 'system-image', 'ca-bundle', 'zstd-archive']:
         ap.add_argument('--' + name, type=Path)
     ap.add_argument('--release-url', action='append', default=[],
@@ -334,6 +371,7 @@ def main():
         sys.exit('Run as the builder in the build VM.')
     if not re.fullmatch(r'[A-Za-z0-9._-]+\.sh', a.name) or not re.fullmatch(r'[A-Za-z0-9 ._-]+', a.title):
         sys.exit('name: ASCII file name ending in .sh; title: ASCII letters, digits, spaces')
+    profile = json.loads(a.profile.read_text())
     receipt = json.loads((a.module / 'build-result.json').read_text())
     module = (a.module / 'pw3_first_kernel.ko').read_bytes()
     kernel, public = a.kernel.read_bytes(), a.public_initramfs.read_bytes()
@@ -396,7 +434,8 @@ def main():
     # does not ask for PW3_ANDROID_FIRST_BOOT.
     command = [MUSL, '-std=gnu11', '-static', '-O2', '-Wall', '-Wextra', '-Werror',
                '-DCHECK_PROFILE=%d' % receipt['module_profile']] + \
-              ([] if virtual else ['-DPW3_ANDROID_FIRST_BOOT']) + [
+              ([] if virtual else ['-DPW3_ANDROID_FIRST_BOOT']) + \
+              stock_identity(profile) + [
                '-I', str(out), '-I', str(HERE / 'launcher'), '-I', str(HERE / 'handoff'), '-I', str(HERE / 'devicedata'),
                '-I', str(PORT / 'device/amazon/pw3/report'),
                str(HERE / 'launcher/helper.c'), str(HERE / 'launcher/userlog.c'),
@@ -508,6 +547,7 @@ def main():
     result = {'schema': 1, 'launcher': a.name, 'launcher_bytes': launcher.stat().st_size, 'launcher_sha256': sha(launcher.read_bytes()),
               'helper_sha256': sha(helper.read_bytes()), 'module_receipt_sha256': sha((a.module / 'build-result.json').read_bytes()),
               'kernel_sha256': sha(kernel), 'public_initramfs_sha256': sha(public), 'cmdline': cmdline,
+              'profile': a.profile.name, 'device_data_profile': profile.get('device_data_profile'),
               'data_path': data_path, 'data_size': data_size, 'installer': installer_receipt, 'contains_device_data': False}
     (out / 'build-result.json').write_text(json.dumps(result, indent=2) + '\n')
     print(json.dumps(result, indent=1))

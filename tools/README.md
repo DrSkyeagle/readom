@@ -21,6 +21,7 @@ python3 tools/run-tests.py            # 跑能跑的
 | 做什么 | 脚本 |
 |---|---|
 | 准备源码树、应用补丁系列 | `prepare-aosp-device.sh`、`verify-tree-matches-series.py` |
+| 机型与启动配置 | `fill-voyage-profile.py`（把从设备读出的事实写进机型 profile，并把 `devicedata.c` 里的结构体一起改写） |
 | 构建与导出系统镜像 | `run-aosp-build-job.sh`（**一律经它**）、`build-aosp-system.sh`、`export-aosp-images.py`、`inspect-system-image.py` |
 | 构建内核 | `build-kernel.sh`（Readom 的那棵）、`build-loader-stage-kernel.sh`（QEMU 夹具的第一级）、`build-kernel-smoke.sh`、`make-test-kernel-config.py` |
 | 取第三方预构建件 | `fetch-prebuilts.py`（按 `source-lock.json` 的哈希） |

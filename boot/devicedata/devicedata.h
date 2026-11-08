@@ -42,6 +42,17 @@ struct dd_profile {
     const char *kernel_version;  /* uname -v: the build number, date and time */
 };
 extern const struct dd_profile dd_pw3_5_16_2_1_1;
+extern const struct dd_profile dd_voyage_5_13_6;
+
+/* Which of the profiles above this build is for. One helper binary serves one
+ * model on one firmware, and boot/build_launcher.py sets this from the profile
+ * JSON it was given ("device_data_profile"); the default is the one this
+ * project has run on a device. A build for another model therefore cannot
+ * silently keep checking the PW3's facts -- it either names a struct that
+ * exists or it does not compile. */
+#ifndef DD_PROFILE
+#define DD_PROFILE dd_pw3_5_16_2_1_1
+#endif
 
 /* What the build fixes. */
 struct dd_build {

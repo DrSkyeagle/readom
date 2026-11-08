@@ -24,6 +24,35 @@ const struct dd_profile dd_pw3_5_16_2_1_1 = {
     "#8 PREEMPT Tue Aug 1 12:49:59 UTC 2023",
 };
 
+/* Voyage (Wario, machine 4091), stock firmware 5.13.6: the same board family
+ * and the same kernel configuration as the PW3, but its own firmware, so its
+ * own /proc/cmdline, its own kernel build string and its own Wi-Fi file
+ * selection.
+ *
+ * Every value was read off a running 5.13.6 system (the emulator's real
+ * firmware), not copied from the PW3: the command line happens to be identical
+ * and the user store mount is the same kind of vfat-on-loop0, but the kernel
+ * version string and the Wi-Fi calibration path are this firmware's own, and
+ * the calibration path is the WAN file because that is the one this board's
+ * ath6kl_sdio names. A Wi-Fi-only unit names the WFO file instead; that is one
+ * of the per-variant facts recorded in docs/design/voyage-port.md's open items,
+ * because the profile is per model and firmware and the file is chosen per unit.
+ *
+ * The profile JSON (boot/profiles/voyage-5.13.6.json) carries the same six
+ * strings, and tools/tests/test_profile_matches_devicedata.py keeps the two in
+ * step: this struct is what the helper was compiled with, the JSON is what the
+ * boot module and the E101 screen were built from, and a build that has one
+ * without the other is a device that refuses to start for no stated reason.
+ * tools/fill-voyage-profile.py is the one writer of both. */
+const struct dd_profile dd_voyage_5_13_6 = {
+    "log_pos_goal=0x8fff0000 console=ttymxc0,115200 ro ip=off quiet video=mxcepdcfb:E60,bpp=8,x_mem=3M",
+    "/mnt/base-us",
+    "/opt/ar6k/target/AR6003/hw2.1.1/bin/AR6003_wan_calfile.bin",
+    "/opt/ar6k/target/AR6003/hw2.1.1/bin/fw-4.bin",
+    "3.0.35-lab126",
+    "#2 PREEMPT Thu Apr 8 09:39:57 UTC 2021",
+};
+
 void dd_free(struct dd_buf *b) { free(b->data); b->data = NULL; b->size = b->cap = 0; }
 
 static int fail(struct dd_why *why, const char *format, ...) {

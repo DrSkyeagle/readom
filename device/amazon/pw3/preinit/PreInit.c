@@ -237,6 +237,22 @@ static bool sysnum(const char *name, const char *field, uint64_t *value) {
     if (snprintf(path, sizeof(path), "/sys/class/block/%s/%s", name, field) >= (int)sizeof(path)) return false;
     return read_text(path, buf, sizeof(buf)) && decimal(buf, value);
 }
+/* The kernel this storage entry is built for names itself after its model
+ * (CONFIG_LOCALVERSION="-lab126-pw3-android81" and "-lab126-voyage-android81").
+ * The board name is the product's, and the product's device directory sets
+ * TARGET_BOOTLOADER_BOARD_NAME (device/amazon/voyage/BoardConfig.mk); the
+ * preinit Android.mk passes it here. One source therefore keeps one check per
+ * product: an image built for one model still refuses a kernel built for the
+ * other, which is the whole point of this line. The default is the only model
+ * this project has run on a device. */
+#ifndef PW3_BOARD_NAME
+#define PW3_BOARD_NAME "pw3"
+#endif
+static bool release_is_this_board(const char *s) {
+    char expected[40];
+    int n = snprintf(expected, sizeof(expected), "-%s-android81", PW3_BOARD_NAME);
+    return n > 0 && (size_t)n < sizeof(expected) && strstr(s, expected) != NULL;
+}
 static bool parse_config(const char *path, struct config *cfg) {
     char data[MAX_CONF], *save = NULL, *line;
     memset(cfg, 0, sizeof(*cfg));
@@ -251,7 +267,7 @@ static bool parse_config(const char *path, struct config *cfg) {
         else if (!strcmp(line, "system_sha256")) { bit = 8U; if (!hex_sha(eq, cfg->system_sha)) return false; }
         else if (!strcmp(line, "init_sha256")) { bit = 16U; if (!hex_sha(eq, cfg->init_sha)) return false; }
         else if (!strcmp(line, "cmdline_sha256")) { bit = 32U; if (!hex_sha(eq, cfg->cmdline_sha)) return false; }
-        else if (!strcmp(line, "kernel_release")) { bit = 64U; if (!safe_release(eq) || strlen(eq) >= sizeof(cfg->release) || !strstr(eq, "-pw3-android81")) return false; strcpy(cfg->release, eq); }
+        else if (!strcmp(line, "kernel_release")) { bit = 64U; if (!safe_release(eq) || strlen(eq) >= sizeof(cfg->release) || !release_is_this_board(eq)) return false; strcpy(cfg->release, eq); }
         else if (!strcmp(line, "fat_offset")) { bit = 128U; if (!decimal(eq, &cfg->offset) || cfg->offset % 512) return false; }
         else if (!strcmp(line, "fat_sizelimit")) { bit = 256U; if (!decimal(eq, &cfg->sizelimit) || cfg->sizelimit % 512) return false; }
         else if (!strcmp(line, "adb_key_sha256")) { bit = 512U; cfg->adb_key = strcmp(eq, "none") != 0; if (cfg->adb_key && !hex_sha(eq, cfg->adb_sha)) return false; }

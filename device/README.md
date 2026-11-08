@@ -1,6 +1,8 @@
 # 设备树
 
-AOSP 的约定：`device/<厂商>/<板子>/`。这里只有一块板子——`amazon/pw3/`，Kindle Paperwhite 3。
+AOSP 的约定：`device/<厂商>/<板子>/`。这里有两块板子——`amazon/pw3/`（Kindle Paperwhite 3）和
+`amazon/voyage/`（Kindle Voyage）。后者只有四个文件：它继承 pw3 的产品定义和板配置，只换产品身份，
+因为两台机器在这套系统用到的每一处硬件上都相同（[voyage-port.md](../docs/design/voyage-port.md)）。
 它和 `../patches/` 是分工的两头：**凡是能写成"这台机器自己的东西"的，都放这里；非改 AOSP
 本体不可的，才去那边写成补丁**。移植到别的机型，照着再写一份兄弟目录，补丁系列大多能沿用
 （[../docs/design/porting-to-other-models.md](../docs/design/porting-to-other-models.md)）。
@@ -15,6 +17,8 @@ AOSP 的约定：`device/<厂商>/<板子>/`。这里只有一块板子——`am
 | `amazon/pw3/BoardConfig.mk` | 板子：armv7-a-neon／Cortex-A9、分区、SELinux、内核 |
 | `amazon/pw3/system.prop` | 进 `build.prop` 的属性，每一条上面写着为什么 |
 | `amazon/pw3/manifest.xml` | 这台机器声明提供的 HIDL 接口 |
+| `amazon/voyage/voyage.mk` | Voyage 的产品定义：继承 `pw3.mk`，只覆盖四个产品身份变量 |
+| `amazon/voyage/BoardConfig.mk` | 继承 pw3 的板配置，只覆盖 `TARGET_BOOTLOADER_BOARD_NAME` |
 
 其余子目录按它们负责的那一块分：显示（`epdc`、`gralloc`、`composer`）、电源与休眠
 （`power`、`sleep`、`health`、`fuelgauge`、`lights`）、启动与自检（`preinit`、`initcheck`、

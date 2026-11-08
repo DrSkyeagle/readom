@@ -19,12 +19,15 @@ watched one can use.
 Usage: build_entry.py --export DIR --kernel DIR --system-path PATH --data PATH:BYTES
                       --installer DIR --screens DIR --release-url URL [--release-url URL] --ca-bundle FILE
                       --zstd-archive FILE
-                      --name FILE.sh --title TITLE --output DIR
+                      --name FILE.sh --title TITLE --output DIR [--profile PROFILE]
   --export       export-aosp-images.py output (ramdisk.img, system.raw.img)
   --kernel       build-kernel.sh android-core output (zImage, modules.tar.gz, kernel.release);
                  every kernel module in the system image must be this kernel's, byte for byte
   --system-path  the system image on the user store, e.g. pw3-android/system.img
   --data         the data image on the user store and its size
+  --profile      the model's boot profile (boot/profiles/*.json): the stock command line the
+                 entry appends to, and the model the E101 screen names. Default: the PW3's,
+                 the only one this project has run on a device
   --installer …  the system image the entry installs first (build_launcher.py); all
                  five are required, because an entry that installs nothing is not
                  one this project makes. build_launcher.py can still build the
@@ -36,6 +39,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 PORT = HERE.parent
+# The profile every entry used before --profile existed.
 PROFILE = HERE / 'profiles/pw3-5.16.2.1.1.json'
 KERNEL_SOURCE = Path('/home/builder/pw3-build/linux-android-core')   # tools/build-kernel.sh android-core
 TOOLS = '/home/builder/toolchains/aosp-arm-gcc49/bin/arm-linux-androideabi-'
@@ -76,6 +80,12 @@ MUSL = '/home/builder/toolchains/musl-arm/bin/musl-gcc'
 # next start -- which is how this panic was read at all. And a restart cannot
 # loop, because it boots the stock Kindle: Android only starts when the reader
 # taps the library entry.
+# androidboot.hardware names the init rc files, not the product: init looks up
+# /init.${ro.hardware}.rc, and the files this product installs are the pw3 ones
+# (device/amazon/pw3/initialization.mk, inherited by device/amazon/voyage). A
+# second model therefore keeps this word even when its product name differs --
+# changing it here without renaming those files leaves a system that boots and
+# finds no init rc at all.
 CMDLINE_ANDROID = ['loglevel=1', 'panic=5', 'rdinit=/pw3-testfile-init', 'androidboot.hardware=pw3',
                    'androidboot.init_rc=/init.pw3-main.rc']
 # Never in a public initramfs: they are made on the device (devicedata/) or are a person's.
@@ -124,6 +134,8 @@ def main():
         ap.add_argument('--' + name, type=Path, required=True)
     ap.add_argument('--release-url', action='append', default=[], required=True,
                     help='the directory the payload sits in; repeat it for a second origin, in the order the installer tries them')
+    ap.add_argument('--profile', type=Path, default=PROFILE,
+                    help='the model\'s boot profile (boot/profiles/*.json); default: the PW3\'s')
     a = ap.parse_args()
     if platform.node() != 'lima-pw3' or os.geteuid() == 0:
         sys.exit('Run as the builder in the build VM (tools/vm.sh shell).')
@@ -135,7 +147,17 @@ def main():
         sys.exit('invalid --system-path')
     if a.system_path.rsplit('/', 1)[0] != a.data.rsplit('/', 1)[0]:
         sys.exit('--system-path and --data must be in one directory of the user store')
-    profile = json.loads(PROFILE.read_text())
+    profile = json.loads(a.profile.read_text())
+    # A profile with a TODO in it is one whose facts nobody has read off the
+    # device yet. It would build: the command line would be a sentence, the
+    # kernel version a sentence, and the entry would refuse every Kindle it is
+    # copied to with an E101 that names the right model. The build is the cheap
+    # place to find that out, and this is the only place that can tell.
+    unfinished = sorted(set(re.findall(r'TODO\([a-z-]+\)', json.dumps(profile))))
+    if unfinished:
+        sys.exit('%s still has %s in it: those facts are read off the device, and an entry '
+                 'built without them cannot start the device it names'
+                 % (a.profile.name, ', '.join(unfinished)))
     spec = importlib.util.spec_from_file_location('pack', PORT / 'tools/preinit-pack/pack.py')
     pack = importlib.util.module_from_spec(spec); sys.modules['pack'] = pack; spec.loader.exec_module(pack)
 
@@ -218,7 +240,7 @@ def main():
     (out / 'pw3-preinit.conf').write_text(conf)
     shutil.copyfile(a.kernel / 'zImage', out / 'zImage')
 
-    run([sys.executable, str(HERE / 'build_module.py'), str(PROFILE), '--kernel', str(out / 'zImage'),
+    run([sys.executable, str(HERE / 'build_module.py'), str(a.profile), '--kernel', str(out / 'zImage'),
          '--public-initramfs', str(out / 'public-initramfs.cpio.gz'), '--cmdline', str(out / 'cmdline.txt'),
          '--output', str(out / 'module')])
     run([sys.executable, str(HERE / 'handoff/audit_cache_boundary.py'), '--module', str(out / 'module/pw3_first_kernel.ko'),
@@ -229,7 +251,7 @@ def main():
     run([sys.executable, str(HERE / 'build_launcher.py'), '--module', str(out / 'module'), '--kernel', str(out / 'zImage'),
          '--public-initramfs', str(out / 'public-initramfs.cpio.gz'), '--cmdline', str(out / 'cmdline.txt'),
          '--preinit-conf', str(out / 'pw3-preinit.conf'), '--data', a.data, '--name', a.name, '--title', a.title,
-         '--output', str(out / 'launcher'),
+         '--profile', str(a.profile), '--output', str(out / 'launcher'),
          '--installer', str(a.installer), '--screens', str(a.screens),
          *[arg for u in a.release_url for arg in ('--release-url', u)],
          '--system-image', str(a.export / 'system.raw.img'), '--ca-bundle', str(a.ca_bundle),

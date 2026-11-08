@@ -34,7 +34,7 @@
 
 <br>
 
-<p align="center">The demo, the download and an illustrated install guide are on the website: <b><a href="https://readom.app">readom.app</a></b><br>For now it runs on the Kindle Paperwhite 3 (7th generation) only, and the Kindle's own system stays.</p>
+<p align="center">The demo, the download and an illustrated install guide are on the website: <b><a href="https://readom.app">readom.app</a></b><br>It has only been verified on the Kindle Paperwhite 3 (7th generation); the Voyage (7th generation) port is in the sources and has not run on one. Both keep the Kindle's own system.</p>
 
 <br>
 
@@ -174,7 +174,7 @@ Readom does not flash anything. The whole system is made of these pieces:
   `system.img` and `data.img` sit on the Kindle drive, and Readom's own start program finds, checks and mounts them at boot.
 
 - **Android 8.1 (AOSP)**<br>
-  one device directory, `device/amazon/pw3/`, and a patch series for each AOSP project it changes.
+  one device directory, `device/amazon/pw3/`, and a patch series for each AOSP project it changes. The second model, the Voyage, inherits it: one more directory, `device/amazon/voyage/`.
 
 - **The e-ink display**<br>
   there is no GPU, so the interface is composed on the CPU; our own display code decides which area to refresh, with which waveform, and how 16 grey levels map, and drives the i.MX EPDC display controller directly.
@@ -195,7 +195,7 @@ Readom runs on the PW3 only for now, but most of it does not depend on the model
 
 | Model | How far from the PW3 |
 |---|---|
-| Voyage | Closest: Amazon builds it with the same kernel configuration as the PW3, and the kernel already builds |
+| Voyage | Closest: Amazon builds it with the same kernel configuration as the PW3 and the kernel already builds; its device directory, boot profile and build wiring are in the sources, and have not run on one |
 | Oasis 1 | The kernel already builds; the Wi-Fi driver is missing |
 | Kindle 8, PW4 and others | A different kernel, but the display side can be reused |
 | PW5, Kindle 11th generation, Scribe and other MediaTek models | Display, Wi-Fi and power all have to be rewritten |

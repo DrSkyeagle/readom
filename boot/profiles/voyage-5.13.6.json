@@ -1,0 +1,68 @@
+{
+  "description": "Kindle Voyage (Wario, machine 4091) on stock firmware 5.13.6: the stock kernel the handoff module loads into, and the physical plan of the jump",
+  "supported_zh": "Kindle Voyage（第 7 代，2014 年款），固件 5.13.6",
+  "supported_en": "Kindle Voyage (7th generation, 2014), firmware 5.13.6",
+  "supported_why": "what the E101 screen tells someone whose Kindle this build refuses (installer/screens/render_screens.py). Amazon's own name for the model, not the board's: the person reading it knows what they bought. The generation and the year are there for the same reason as on the pw3 profile, and the firmware because the handover runs that kernel's own code (stock_kernel_why)",
+  "module_profile": 1,
+  "machine": 4091,
+  "boot_ram_base": "0x80000000",
+  "identity_limit": "0xbf000000",
+  "identity_limit_why": "the upper bound of the one-to-one region of the page table the handoff runs under, which the module builds in the half this kernel leaves to user space. Voyage is 3G/1G like the PW3 -- same imx60_wario_defconfig, same 512 MiB -- so PAGE_OFFSET (0xc0000000) and PHYS_OFFSET (0x80000000) differ, the kernel's lowmem mapping is not one to one, and the window has to be made; the value is the PW3's for that reason, not because it was copied (docs/design/porting-to-other-models.md section 6)",
+  "cmdline_base": "log_pos_goal=0x8fff0000 console=ttymxc0,115200 ro ip=off quiet video=mxcepdcfb:E60,bpp=8,x_mem=3M",
+  "cmdline_base_why": "the stock command line without root= and rootwait (devicedata.c checks the running system's against it); the console, the EPDC's video mode and the log position have to be the ones that firmware actually boots with. Read off the running 5.13.6 system, and it is the PW3's line exactly -- what the shared imx60_wario_defconfig and the same panel predict -- but it is the device's answer rather than an assumption: a line that differs by one token makes every Voyage refuse to start (E101)",
+  "stock_kernel_release": "3.0.35-lab126",
+  "stock_kernel_version": "#2 PREEMPT Thu Apr 8 09:39:57 UTC 2021",
+  "stock_kernel_why": "the stock kernel this firmware ships, as /proc/version and uname report it. The handover runs that kernel's own pm_test_show and L2 cache functions and checks their bodies against stock_functions, so another build of it cannot be used; devicedata.c refuses it as another firmware and the screen says so (E101) rather than leaving someone to restart and tap again for ever. The release is the same 3.0.35-lab126 as the PW3's (the porting notes record that both boards are built from one configuration); the version string is per build and is not",
+  "ram": [
+    [
+      "0x80000000",
+      "0x20000000"
+    ]
+  ],
+  "forbidden": [
+    [
+      "0x88000000",
+      "0x18000000"
+    ]
+  ],
+  "forbidden_why": "payload destinations stay in the low 128 MiB, below anything the stock system may still have in use above it. Same rule as the PW3's: Voyage has the same 512 MiB at 0x80000000, and the stock system keeps the same things above the low 128 MiB",
+  "atag_kinds": [
+    "0x54410001",
+    "0x54410002",
+    "0x54410007",
+    "0x54410009",
+    "0x5441000b",
+    "0x5441000d",
+    "0x5441000f",
+    "0x54420005"
+  ],
+  "device_archive_max": 12582912,
+  "footprint_profile": "pw3",
+  "footprint_profile_why": "the decompressor footprint is a function of the kernel image and its configuration, and Voyage is built from the same imx60_wario_defconfig on the same 3G/1G layout, so the PW3 envelope rule applies. The numbers are still derived from the Voyage kernel's own build files at build time (boot/handoff/derive_kernel_footprint.py reads /home/builder/pw3-build/out-android-core, which this port points at the Voyage kernel build); what this key picks is the layout rule, not the numbers",
+  "module_kernel_source": "/home/builder/pw3-build/linux-stock",
+  "module_kernel_output": "/home/builder/pw3-build/loader-candidate-kernel-out",
+  "device_data_profile": "dd_voyage_5_13_6",
+  "user_mount": "/mnt/base-us",
+  "wifi_board": "/opt/ar6k/target/AR6003/hw2.1.1/bin/AR6003_wan_calfile.bin",
+  "wifi_firmware": "/opt/ar6k/target/AR6003/hw2.1.1/bin/fw-4.bin",
+  "stock_functions": {
+    "pm_test_show": {
+      "bytes": 124,
+      "sha256": "71025c707238a74117fc7a7065546f17efa057bb3084f17bdfe048d878543074"
+    },
+    "l2x0_flush_all": {
+      "bytes": 116,
+      "sha256": "5879a00e18ecd63fcb974d2a93a3d193092213037d2a10cb64a381a8f7350131"
+    },
+    "l2x0_disable": {
+      "bytes": 124,
+      "sha256": "2fb38c26df26f978137ab7e84c60f57af8ff41e25170af0a6dc09be17e0dd9f9"
+    },
+    "l2x0_inv_all": {
+      "bytes": 152,
+      "sha256": "b38adb741635cfd2ddf38549cbf23c1d7246073b403528539335d72d2fe3368a"
+    }
+  },
+  "stock_functions_source": "function bodies of the stock 3.0.35-lab126 kernel (image sha256 add9b0a29a769c241144bf245de2b94848d24aabb5765662714d0afde5a9ca32, 3,143,520 bytes, dumped from the device's own storage and read out of the running system's memory); only their sizes and hashes are kept",
+  "wifi_board_why": "the stock path of the AR6003 calibration file. Read from the running 5.13.6 system, whose ath6kl_sdio board_data_file parameter names the WAN file on this board; a Wi-Fi-only unit names the WFO file in the same directory, so this is one of the per-variant facts a port cannot settle without the unit itself (docs/design/voyage-port.md, open items)"
+}

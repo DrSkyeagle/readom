@@ -13,6 +13,11 @@
   "stock_kernel_release": "3.0.35-lab126",
   "stock_kernel_version": "#8 PREEMPT Tue Aug 1 12:49:59 UTC 2023",
   "stock_kernel_why": "the stock kernel this firmware ships, as /proc/version and uname report it. The handover runs that kernel's own pm_test_show and L2 cache functions and checks their bodies against stock_functions, so another build of it cannot be used; devicedata.c refuses it as another firmware and the screen says so (E101) rather than leaving someone to restart and tap again for ever",
+  "device_data_profile": "dd_pw3_5_16_2_1_1",
+  "device_data_profile_why": "the struct in boot/devicedata/devicedata.c that carries the same facts as this file for the compiled helper, which is what the device is actually checked against. boot/build_launcher.py passes it as -DDD_PROFILE, and tools/tests/test_profile_matches_devicedata.py refuses a build whose two halves disagree -- the JSON is what the boot module and the E101 screen are made from, the struct is what the check on the device reads, and one without the other is a device that refuses to start for no stated reason",
+  "user_mount": "/mnt/base-us",
+  "wifi_board": "/opt/ar6k/target/AR6003/hw2.1.1/bin/AR6003_wfo_calfile.bin",
+  "wifi_firmware": "/opt/ar6k/target/AR6003/hw2.1.1/bin/fw-4.bin",
   "ram": [
     [
       "0x80000000",

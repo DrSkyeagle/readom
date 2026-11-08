@@ -5,6 +5,21 @@ on that one Kindle Paperwhite 3; anything that was not says so plainly rather th
 over. This file is the repository's own record — the website's changelog and the GitHub Release
 notes are written from it.
 
+## Unreleased
+
+**The Voyage (7th generation) device side is in the sources, and not one line of it has run on a
+Voyage.** `device/amazon/voyage/` is new: it inherits the pw3 product and board configuration and
+replaces only the product identity (`PRODUCT_NAME`/`PRODUCT_DEVICE`/`PRODUCT_BRAND`/`PRODUCT_MODEL`)
+and the board name, because the two machines are the same part in every place this system touches.
+The helper's model check no longer names the pw3 struct but takes it from the boot profile
+(`-DDD_PROFILE`); the build scripts gained `--model` / `--profile` / `PW3_AOSP_PRODUCT`, and without
+them everything falls back to pw3 with the build command unchanged. The firmware facts in
+`boot/profiles/voyage-5.13.6.json` — the stock command line, the kernel's build string, the four
+function bodies' hashes, the Wi-Fi calibration and firmware paths — **are still TODO**: they are read
+off that machine, and one wrong token stops every Voyage at E101. The installer still knows only the
+PW3. The reasoning, the files touched and what is outstanding are in
+[voyage-port.en.md](docs/design/voyage-port.en.md).
+
 ## v0.1.0
 
 **Status: released on 2026-11-04, and a full release since 11-05 (it was marked a pre-release until then).** What is online (the GitHub Release `v0.1.0`, `readom.app/dl/v0.1.0/`,

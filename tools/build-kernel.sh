@@ -19,6 +19,7 @@ case "$PROFILE" in stock|android-core) ;; *) echo 'Unknown kernel profile' >&2; 
 MODEL="${PW3_KERNEL_MODEL:-pw3}"
 case "$MODEL" in
   pw3)  DEFCONFIG=imx60_wario_defconfig; suffix='' ;;
+  voyage) DEFCONFIG=imx60_wario_defconfig; suffix="-voyage" ;;
   duet) DEFCONFIG=imx60_duet_defconfig; suffix="-$MODEL" ;;
   *) echo 'Unknown kernel model' >&2; exit 2 ;;
 esac

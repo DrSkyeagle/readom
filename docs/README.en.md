@@ -47,3 +47,4 @@ index on top of that would be one layer too many.
 | `design/diagnostics.en.md` | The release's own diagnostic channel: the report area, the log folders, how the stock side reads them |
 | `design/release-build.en.md` | The fourteen release steps, the `user` build, keeping and rotating the signing keys, the security review |
 | `design/porting-to-other-models.en.md` | Model-by-model research and an inventory of the work, grouped by stock kernel version rather than by SoC |
+| `design/voyage-port.en.md` | The Voyage, the second model: where it differs from the PW3, which files changed, and which facts are still to be read off the machine |

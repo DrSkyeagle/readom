@@ -26,7 +26,9 @@ export PW3_BUILD_DATETIME="$build_datetime"
 # reporting a problem reads out this one line.
 build_version=${PW3_BUILD_VERSION:-}
 export PW3_BUILD_VERSION="$build_version"
-PRODUCT=/home/builder/android-src/out/target/product/pw3
+# The product tools/build-aosp-system.sh will lunch, and therefore the output
+# directory this receipt hashes. Same default and same rule as there.
+PRODUCT=/home/builder/android-src/out/target/product/${PW3_AOSP_PRODUCT:-pw3}
 # The images this build made, named by their contents. A time cannot say which
 # build an image came from: output trees are swapped by renaming and restored
 # from copies, both of which keep an image's timestamp, so a receipt newer than

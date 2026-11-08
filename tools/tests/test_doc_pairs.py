@@ -76,7 +76,10 @@ STRICT = [('README.md', 'README.en.md'),
           ('docs/design/release-build.md', 'docs/design/release-build.en.md'),
           ('docs/design/performance.md', 'docs/design/performance.en.md'),
           ('docs/design/porting-to-other-models.md',
-           'docs/design/porting-to-other-models.en.md')]
+           'docs/design/porting-to-other-models.en.md'),
+          # The second model's own record: what it shares with the PW3, what was
+          # changed, and what is still a TODO read off a device.
+          ('docs/design/voyage-port.md', 'docs/design/voyage-port.en.md')]
 PAIRS = STRICT
 PAIRED = {name for pair in PAIRS for name in pair}
 
