@@ -717,6 +717,28 @@ the power button only interrupts it.
 - **The installer end to end passed in the emulator, but has not run on hardware**: release-v2 completed the install (artifact hashes as expected, report area created, payload deleted), the strict module was correctly refused at the emulator's hardware gate and cleaned up, and the installed images booted to `boot_completed=1` through the v3 chain; a device install, the HTTPS download route and device watchdog/FSP timing are still untested.
 - **Large writes under TCG trip the imx2 watchdog during an install**: the kernel timer feeds it every 15 s, but the FSP/vfat write load can starve the timer softirq for long stretches. The emulator-only workaround is `devmem 0x020bc000 16 0xFF3D` (WCR timeout 60 s to 128 s) plus a user-space WSR feed every 4 s while the guest writes the 2.3 GiB; the device's eMMC path does not need it.
 
+## Voyage: the pw3-init-check storage service is disabled (v8.2)
+
+The prebuilt `pw3-init-check` binary was compiled against
+`PW3_FILEMAP_MAX_EXTENTS=1024`; the V11 receipt this port writes holds 8192 entries
+(a real Voyage `system.img` showed 1,560 runs, the emulator 1,575), so the old
+receipt-size and extent checks can never agree, and this build machine has no AOSP
+userspace toolchain to rebuild the binary. From v8.2 the `on pw3-verify-storage`
+action no longer starts that service; independent storage verification is carried
+by preinit's full SHA/extent/dm checks and by `pw3-system-verify`'s dm-1 SHA256
+recheck, while the ffs/interface checks are unaffected. Rebuild the binary with V11
+semantics and restore `exec_start` once an AOSP build is available.
+
+### Update (v8.3): the storage action only publishes readiness
+
+Commenting out the service alone left `sys.pw3.storage_ready` unset, so every
+trigger in the Android second half (post-fs/late-fs/post-fs-data/zygote-start/boot)
+stalled after `security.perf_harden=1` with the panel on "starting Android". v8.3
+turns the action into `setprop sys.pw3.storage_ready 1`; the emulator then reaches
+`boot_completed`. PagePress run time (the actual page-turn direction) can only be
+verified on hardware, and Android suspend must not be exercised in the emulator
+(the fsr_i2c_poweroff path waits on the unmodelled kl05 mutex; the device has kl05).
+
 ## Voyage device results, and the boundary of this verification (v8.3)
 
 **Verified on hardware** (Kindle Voyage 7th generation, firmware 5.13.6): after copying
