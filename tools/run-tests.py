@@ -96,6 +96,17 @@ TESTS = [
     # is a Kindle that installs and then refuses to start, so the two are held
     # to each other before that.
     ('profile-devicedata', 'python', ['tools/tests/test_profile_matches_devicedata.py'], False),
+    # The Voyage port's build tools, added with the port: the storage entry
+    # built without AOSP, the bootstrap image re-identification and the
+    # synthetic emulator panel. Each checks the rules its tool applies to what
+    # it writes -- the NIST SHA-256 vectors and the board gate for preinit, the
+    # ext4/vermagic/build.prop rules for the bootstrap images, the WBF/envelope
+    # rules the stock display stack and readom's device data impose -- because a
+    # tool whose output is only ever read by QEMU is one whose mistakes are
+    # found by a boot that hangs with no reason on the panel.
+    ('build-preinit', 'python', ['tools/tests/test_build_preinit.py'], False),
+    ('voyage-release', 'python', ['tools/tests/test_build_voyage_release.py'], False),
+    ('emulator-panel', 'python', ['tools/tests/test_emulator_panel.py'], False),
     # And the check that keeps this list honest: a test file that is in the
     # tree and in nothing's list of what to run is a hole in a green suite,
     # which is how a wrong assertion about the refresh policy survived a day
