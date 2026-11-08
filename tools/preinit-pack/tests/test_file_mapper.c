@@ -116,10 +116,10 @@ int main(void){
   * first sector here is 1000. */
  CHECK(pw3_file_mapping_read(11,system_bytes,16000000,1001,&maps.map[PW3_FILE_SYSTEM])==PW3_FILEMAP_HOLE_OR_BOUNDS);
  CHECK(pw3_file_mapping_read(11,system_bytes,16000000,1000,&maps.map[PW3_FILE_SYSTEM])==PW3_FILEMAP_OK);
- desired=1024;CHECK(pw3_file_mapping_read(11,system_bytes,16000000,0,&maps.map[PW3_FILE_SYSTEM])==PW3_FILEMAP_OK);
- CHECK(maps.map[PW3_FILE_SYSTEM].count==1024);
+ desired=PW3_FILEMAP_MAX_EXTENTS;CHECK(pw3_file_mapping_read(11,system_bytes,16000000,0,&maps.map[PW3_FILE_SYSTEM])==PW3_FILEMAP_OK);
+ CHECK(maps.map[PW3_FILE_SYSTEM].count==PW3_FILEMAP_MAX_EXTENTS);
  CHECK(pw3_file_mapping_read(12,data_bytes,16000000,0,&maps.map[PW3_FILE_DATA])==PW3_FILEMAP_OK);
- CHECK(maps.map[PW3_FILE_DATA].count==1024);
+ CHECK(maps.map[PW3_FILE_DATA].count==PW3_FILEMAP_MAX_EXTENTS);
  /* A receipt with no report area is what an installation from before there was
   * one leaves, and what the installer leaves when the store has no room or the
   * name is taken by somebody's file. It is accepted; a missing image is not. */
@@ -176,7 +176,7 @@ int main(void){
  SIZED((576ULL<<20)+512,2048ULL<<20,false);
  SIZED(576ULL<<20,(2048ULL<<20)-512,false);
  system_bytes=576ULL<<20;data_bytes=2048ULL<<20;
- desired=1025;CHECK(pw3_file_mapping_read(11,system_bytes,16000000,0,&maps.map[PW3_FILE_SYSTEM])==PW3_FILEMAP_EXTENT_LIMIT);
+ desired=PW3_FILEMAP_MAX_EXTENTS+1;CHECK(pw3_file_mapping_read(11,system_bytes,16000000,0,&maps.map[PW3_FILE_SYSTEM])==PW3_FILEMAP_EXTENT_LIMIT);
  desired=1;CHECK(pw3_file_mapping_read(11,system_bytes,16000000,0,&maps.map[PW3_FILE_SYSTEM])==PW3_FILEMAP_OK);
  maps.map[PW3_FILE_SYSTEM].extents[1].start=99;CHECK(!pw3_file_mapping_bounds(&maps.map[PW3_FILE_SYSTEM],system_bytes,16000016));
  static const enum pw3_file_map_error expected[]={PW3_FILEMAP_OK,PW3_FILEMAP_METADATA,PW3_FILEMAP_METADATA,PW3_FILEMAP_METADATA,PW3_FILEMAP_FILESYSTEM,PW3_FILEMAP_READONLY,PW3_FILEMAP_BLOCK_SIZE,PW3_FILEMAP_QUERY,PW3_FILEMAP_HOLE_OR_BOUNDS,PW3_FILEMAP_HOLE_OR_BOUNDS,PW3_FILEMAP_OVERLAP,PW3_FILEMAP_CLUSTER,PW3_FILEMAP_CLUSTER,PW3_FILEMAP_CLUSTER};
