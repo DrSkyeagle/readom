@@ -11,6 +11,7 @@
 #include <sys/stat.h>
 #include <sys/statfs.h>
 #include <sys/statvfs.h>
+#include <sys/syscall.h>
 #include <sys/sysmacros.h>
 #include <sys/utsname.h>
 #include <dirent.h>
@@ -393,4 +394,176 @@ static bool mounted_readonly(const char *path, unsigned long magic, bool noexec,
    on 2026-10-29, and with them lock_physical, cmdline_ok, loop_name and
    attach_loop, which nothing else called. Everything above is shared with
    the entry below and stays. */
+
+static bool preinit_cmdline_has(const char *token);
+
+/* Readom O6: hand the stock store to Android read-write.
+ *
+ * This runs as PID 1 before /init execs, so the Android SELinux policy -- which
+ * is loaded from inside /init -- is not in force yet. That is why a plain
+ * read-write vfat mount is possible here: the init-domain restrictions that
+ * would refuse context=/bind/remount in an rc file do not apply, and the mount
+ * keeps genfscon's vfat label, which AOSP already lets the app domains write.
+ * The android/ directory is then covered by an empty read-only tmpfs: apps see
+ * a directory they cannot enter, and the mapped system/data/report files are
+ * not reachable as files at all.
+ *
+ * nls_utf8 is a module (CONFIG_NLS_UTF8=m) and no Android rc loads it before
+ * the app-facing mount is useful, so the read-only initramfs carries it and
+ * PID 1 loads it here, while module loading is still unrestricted.
+ */
+static bool pw3_load_nls_utf8(void) {
+    int fd = open("/nls_utf8.ko", O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+    struct stat st; unsigned char *bytes; ssize_t got; bool ok;
+    if (fd < 0) return false;
+    if (fstat(fd, &st) || !S_ISREG(st.st_mode) || st.st_size <= 0 || st.st_size > (1 << 20)) {
+        close(fd); return false;
+    }
+    bytes = (unsigned char *)malloc((size_t)st.st_size);
+    if (!bytes) { close(fd); return false; }
+    got = read(fd, bytes, (size_t)st.st_size);
+    close(fd);
+    if (got != (ssize_t)st.st_size) { free(bytes); return false; }
+    ok = syscall(SYS_init_module, bytes, (unsigned long)st.st_size, "") == 0;
+    report(ok ? "nls_utf8 loaded for UTF-8 FAT names"
+              : "nls_utf8 could not be loaded; the store uses ISO-8859-1 names");
+    free(bytes);
+    return ok;
+}
+
+static bool testfile_handover_store(const char *fat) {
+    bool utf8;
+    const char *options;
+    if (umount(FAT_MOUNT)) {
+        int umount_errno = errno;
+        char line[128];
+        snprintf(line, sizeof(line),
+                 "PW3_STORE rw_mount=-1 umount_errno=%d; the store stays read-only and this "
+                 "start will probably return to the stock system", umount_errno);
+        report(line);
+        return false;
+    }
+    utf8 = pw3_load_nls_utf8();
+    options = utf8
+        ? "uid=0,gid=0,umask=0022,utf8=1,codepage=437,shortname=mixed"
+        : "uid=0,gid=0,umask=0022,codepage=437,iocharset=iso8859-1";
+    if (!mkdir_ram("/kindle-us", 0755) ||
+        mount(fat, "/kindle-us", "vfat", MS_NOSUID | MS_NODEV | MS_NOEXEC, options)) {
+        report("the read-write hand-over FAT mount failed; the store is not shared");
+        return false;
+    }
+    /* An empty read-only tmpfs covers android/: system.img, data.img,
+     * report.bin and state cannot be opened, let alone changed. */
+    if (mount("tmpfs", "/kindle-us/android", "tmpfs", MS_RDONLY | MS_NOSUID | MS_NODEV,
+              "size=64k,nr_inodes=8")) {
+        report("the android/ cover could not be mounted; the store is not shared");
+        umount("/kindle-us");
+        return false;
+    }
+    /* Test entry only: prove the rw mount by a real write/read-back while the
+     * SELinux policy is not loaded (the release entry never writes). */
+    if (preinit_cmdline_has("readom.emulator=1")) {
+        const char *path = "/kindle-us/readom-write-test.txt";
+        char back[16] = {0};
+        int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+        int write_rc = -1, read_rc = -1;
+        if (fd >= 0) {
+            write_rc = write(fd, "hello\n", 6) == 6 ? 0 : -1;
+            close(fd);
+        }
+        fd = open(path, O_RDONLY | O_CLOEXEC);
+        if (fd >= 0) {
+            ssize_t got = read(fd, back, sizeof(back) - 1);
+            read_rc = got > 0 && !strcmp(back, "hello\n") ? 0 : -1;
+            close(fd);
+        }
+        char line[96];
+        snprintf(line, sizeof(line), "PW3_STORE rw_mount=0 umount_errno=0 write=%d readback=%d",
+                 write_rc, read_rc);
+        report(line);
+    }
+    report("hand-over store mounted read-write at /kindle-us; android/ covered by read-only tmpfs");
+    return true;
+}
+
+
+/* Readom PagePress (qemu-research task-29 spec).
+ *
+ * The Android rc files load neither module, and the keys do nothing until the
+ * keypad misc device has its event generation enabled and its key mapping set
+ * (left page up, right page down). This runs after /system is mounted and
+ * checked, before execve("/init"), so the modules can be read from the checked
+ * image and loaded while module loading is still unrestricted. Best effort:
+ * every failure is one report() line and boot continues. readom.no-fsr=1 skips
+ * the whole block (the emulator's kl05 I2C is absent and its suspend path can
+ * wait on a mutex; the touch/power/display paths must stay clean).
+ */
+static bool preinit_cmdline_has(const char *token) {
+    char buf[1024];
+    ssize_t n;
+    int fd = open("/proc/cmdline", O_RDONLY | O_CLOEXEC);
+    if (fd < 0) return false;
+    n = read(fd, buf, sizeof(buf) - 1);
+    close(fd);
+    if (n <= 0) return false;
+    buf[n] = 0;
+    for (char *p = strtok(buf, " \t\n"); p; p = strtok(NULL, " \t\n"))
+        if (!strcmp(p, token)) return true;
+    return false;
+}
+
+static int preinit_init_module(const char *path) {
+    int fd = open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+    struct stat st;
+    unsigned char *bytes;
+    ssize_t got;
+    int rc;
+    if (fd < 0) return -1;
+    if (fstat(fd, &st) || !S_ISREG(st.st_mode) || st.st_size <= 0 || st.st_size > (1 << 20)) {
+        close(fd); return -1;
+    }
+    bytes = (unsigned char *)malloc((size_t)st.st_size);
+    if (!bytes) { close(fd); return -1; }
+    got = read(fd, bytes, (size_t)st.st_size);
+    close(fd);
+    if (got != (ssize_t)st.st_size) { free(bytes); return -1; }
+    rc = (int)syscall(SYS_init_module, bytes, (unsigned long)st.st_size, "");
+    free(bytes);
+    return rc;
+}
+
+static void testfile_pagepress(void) {
+    int haptics = -1, fsr = -1, node = -1, event_enable = -1, keymap = -1, mode_ok = -1;
+    char line[160];
+    if (strcmp(PW3_BOARD_NAME, "voyage")) return;
+    if (preinit_cmdline_has("readom.no-fsr=1")) {
+        report("PW3_PAGEPRESS skipped by command line (readom.no-fsr=1)");
+        return;
+    }
+    /* fsr_keypad depends on symbols exported by drv26xx_haptics: order matters. */
+    haptics = preinit_init_module("/system/vendor/lib/modules/drv26xx_haptics.ko");
+    fsr = preinit_init_module("/system/vendor/lib/modules/fsr_keypad.ko");
+    if (!node_from_sysfs("/sys/class/misc/keypad/dev", "/dev/keypad", S_IFCHR)) node = -1;
+    else {
+        int fd;
+        node = 0;
+        fd = open("/dev/keypad", O_RDWR | O_CLOEXEC);
+        if (fd >= 0) {
+            unsigned enable = 1;
+            event_enable = ioctl(fd, 0x40044203, &enable) == 0 ? 0 : -1;
+            close(fd);
+        }
+        fd = open("/sys/devices/platform/fsr_keypad.0/key_mapping", O_WRONLY | O_CLOEXEC);
+        if (fd >= 0) {
+            keymap = write(fd, "2\n", 2) == 2 ? 0 : -1;
+            close(fd);
+        }
+    }
+    /* mode_ok cannot be observed without the kl05 controller; -1 means unknown. */
+    snprintf(line, sizeof(line),
+             "PW3_PAGEPRESS haptics=%d fsr=%d node=%d event_enable=%d keymap=%d mode_ok=%d",
+             haptics, fsr, node, event_enable, keymap, mode_ok);
+    report(line);
+}
+
 #include "TestFileInit.h"

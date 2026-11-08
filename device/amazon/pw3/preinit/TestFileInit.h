@@ -208,7 +208,12 @@ static void testfile_drop_shadowed_apps(void) {
     }
 }
 static const char testfile_contract[] __attribute__((used)) =
-    "PW3_TESTFILE_INIT_V10_DM_CLUSTER_EXTENTS_FAT_RO_KEPT_DATA_SIZED_IMAGES_SYSTEM_STAMP_BACKGROUND_RECHECK_FAT_CROSSLINK_OPTIONAL_REPORT_AREA_IMAGE_OWNS_APP_CODE_THREE_KEY_CMDLINE_NO_PARTITIONING";
+    "PW3_TESTFILE_INIT_V11_DM_CLUSTER_EXTENTS_FAT_READONLY_VERIFY_THEN_RW_ANDROID_TMPFS_COVERED_DATA_SIZED_IMAGES_SYSTEM_STAMP_BACKGROUND_RECHECK_FAT_CROSSLINK_OPTIONAL_REPORT_AREA_IMAGE_OWNS_APP_CODE_THREE_KEY_CMDLINE_NO_PARTITIONING";
+/* In .bss and not on the stack: at PW3_FILEMAP_MAX_EXTENTS = 8192 one
+ * pw3_file_maps is ~575 KiB, which PID 1 must not put on its (small) stack.
+ * File scope here is the same single translation unit; the host tests that
+ * include these headers get their own copy per binary. */
+static struct pw3_file_maps maps;
 int main(void) {
     struct config cfg; struct pw3_test_data data; struct statfs root;
     struct stat before, after; uint64_t p4_size = 0, effective, actual;
@@ -350,7 +355,8 @@ int main(void) {
             close(reportfd); reportfd = -1;
         }
     }
-    struct pw3_file_maps maps; memset(&maps, 0, sizeof(maps)); maps.magic = PW3_FILEMAP_MAGIC;
+    memset(&maps, 0, sizeof(maps)); maps.magic = PW3_FILEMAP_MAGIC;
+    char map_message[192];
     /* No part of either image may be mapped before the FAT's data area; the
      * boot sector was accepted by pw3_fat_bounds above, so this is its own. */
     const uint64_t data_start = pw3_fat_data_start(sector);
@@ -358,10 +364,12 @@ int main(void) {
     report("verifying the clusters and bounded extents of the system file");
     enum pw3_file_map_error map_error = pw3_file_mapping_read(systemfd, cfg.system_size, effective / 512,
                                                               data_start, &maps.map[PW3_FILE_SYSTEM]);
-    if (map_error != PW3_FILEMAP_OK) stop(pw3_file_map_error_text(map_error));
+    if (map_error != PW3_FILEMAP_OK)
+        stop(pw3_file_map_error_message(map_error, PW3_FILE_SYSTEM, map_message, sizeof(map_message)));
     report("verifying the clusters and bounded extents of the data file");
     map_error = pw3_file_mapping_read(datafd, data.size, effective / 512, data_start, &maps.map[PW3_FILE_DATA]);
-    if (map_error != PW3_FILEMAP_OK) stop(pw3_file_map_error_text(map_error));
+    if (map_error != PW3_FILEMAP_OK)
+        stop(pw3_file_map_error_message(map_error, PW3_FILE_DATA, map_message, sizeof(map_message)));
     if (reportfd >= 0) {
         report("verifying the clusters and bounded extents of the report area");
         map_error = pw3_file_mapping_read(reportfd, PW3_REPORT_BYTES, effective / 512, data_start,
@@ -370,7 +378,7 @@ int main(void) {
             /* Its clusters could not be measured, which for a diagnostic is a
              * reason to leave it alone rather than to stop a start. The mapping
              * goes back to absent so nothing downstream sees a half-measured one. */
-            report(pw3_file_map_error_text(map_error));
+            report(pw3_file_map_error_message(map_error, PW3_FILE_REPORT, map_message, sizeof(map_message)));
             memset(&maps.map[PW3_FILE_REPORT], 0, sizeof(maps.map[PW3_FILE_REPORT]));
             close(reportfd); reportfd = -1;
         }
@@ -495,10 +503,19 @@ int main(void) {
     if (!pw3_ext4_clean(sb, cfg.system_size))
         stop("test system image format rejected");
     close(systemfd);
+    /* O6: every FAT read is done (extent mapping, cross-check, system SHA256,
+     * record) and systemfd -- the last fd under /pw3-user -- is closed, so the
+     * read-only FAT mount can be released; hand the store to Android read-write
+     * before the exec, while the SELinux policy is not loaded yet. */
+    if (!testfile_handover_store(fat))
+        report("the read-write hand-over store is not available this start");
     if (!mkdir_ram("/system", 0755) || mount(system, "/system", "ext4", MS_RDONLY | MS_NODEV, "noload,errors=remount-ro") ||
         !mounted_readonly("/system", 0xef53, false, false) || !hash_regular("/init", cfg.init_sha) ||
         (cfg.adb_key && !hash_regular("/adb_keys", cfg.adb_sha)) || !testfile_physical(&cfg))
         stop("test system, AOSP init, authentication or protected-area check failed");
+    /* PagePress keys: load the two modules from the checked /system and
+     * enable the keypad's event generation before the exec. */
+    testfile_pagepress();
     int receipt = open(PW3_FILEMAP_PATH, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0400);
     if (receipt < 0 || fchmod(receipt, 0400) || fchown(receipt, 0, 0) ||
         write(receipt, &maps, sizeof(maps)) != (ssize_t)sizeof(maps) || close(receipt))
