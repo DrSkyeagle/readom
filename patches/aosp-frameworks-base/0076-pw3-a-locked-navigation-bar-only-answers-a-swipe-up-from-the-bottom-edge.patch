@@ -38,7 +38,7 @@ it only on this model (`nav=hide` in readom.conf), so a build of this patch for 
 behaves exactly as it does today.
 
 Not run on a device yet when this patch was written; the verification list is in
-`readom-port/reports/t09-nav-impl.md`.
+`../../../readom-port/reports/t09-nav-impl.md`.
 
 diff --git a/services/core/java/com/android/server/policy/PhoneWindowManager.java b/services/core/java/com/android/server/policy/PhoneWindowManager.java
 --- a/services/core/java/com/android/server/policy/PhoneWindowManager.java

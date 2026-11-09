@@ -19,7 +19,7 @@ patch 0076, and the policy side writes the setting and applies it, so there is o
 place that owns the state.
 
 Not run on a device yet when this patch was written; the verification list is in
-`readom-port/reports/t09-nav-impl.md`.
+`../../../readom-port/reports/t09-nav-impl.md`.
 
 diff --git a/packages/SystemUI/res/values/config.xml b/packages/SystemUI/res/values/config.xml
 --- a/packages/SystemUI/res/values/config.xml
