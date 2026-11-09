@@ -408,6 +408,8 @@ PRODUCT_COPY_FILES += \
     $(LOCAL_PATH)/input/max77696-onkey.kl:system/usr/keylayout/max77696-onkey.kl \
     $(LOCAL_PATH)/input/cyttsp4_mt.idc:system/usr/idc/cyttsp4_mt.idc \
     $(LOCAL_PATH)/input/fsr_keypad.kl:system/vendor/usr/keylayout/fsr_keypad.kl
+    $(LOCAL_PATH)/input/haptics/haptics0.config:system/vendor/usr/haptics/haptics0.config \
+    $(LOCAL_PATH)/input/haptics/haptics1.config:system/vendor/usr/haptics/haptics1.config
 
 # First validation image uses bounded RAM data and read-only eMMC.
 $(call inherit-product, $(LOCAL_PATH)/initialization.mk)
