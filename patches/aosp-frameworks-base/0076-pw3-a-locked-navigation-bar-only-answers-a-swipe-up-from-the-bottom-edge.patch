@@ -171,13 +171,12 @@ diff --git a/services/core/java/com/android/server/policy/PhoneWindowManager.jav
  
          mVibrator = (Vibrator)context.getSystemService(Context.VIBRATOR_SERVICE);
          mLongPressVibePattern = getLongIntArray(mContext.getResources(),
-@@ -2367,6 +2444,19 @@
+@@ -2367,6 +2444,18 @@
          }
          synchronized (mWindowManagerFuncs.getWindowManagerLock()) {
              PolicyControl.reloadFromSetting(mContext);
-+            final boolean readomNavLocked = Settings.Global.getIntForUser(
-+                    mContext.getContentResolver(), READOM_NAV_LOCKED, 0,
-+                    UserHandle.USER_CURRENT) != 0;
++            final boolean readomNavLocked = Settings.Global.getInt(
++                    mContext.getContentResolver(), READOM_NAV_LOCKED, 0) != 0;
 +            if (readomNavLocked != mReadomNavLock) {
 +                mReadomNavLock = readomNavLocked;
 +                if (readomNavLocked) {
@@ -191,7 +190,7 @@ diff --git a/services/core/java/com/android/server/policy/PhoneWindowManager.jav
          }
          if (updateRotation) {
              updateRotation(true);
-@@ -6618,17 +6708,72 @@
+@@ -6618,17 +6707,72 @@
                      return;
                  }
                  mPendingPanicGestureUptime = SystemClock.uptimeMillis();
@@ -265,7 +264,7 @@ diff --git a/services/core/java/com/android/server/policy/PhoneWindowManager.jav
                  return;
              }
              boolean sb = mStatusBarController.checkShowTransientBarLw();
-@@ -8086,12 +8231,14 @@
+@@ -8086,12 +8230,14 @@
                          && (hideStatusBarWM || (hideStatusBarSysui && immersiveSticky))));
  
          final boolean transientNavBarAllowed = mNavigationBar != null
