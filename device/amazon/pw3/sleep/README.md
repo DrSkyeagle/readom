@@ -41,7 +41,7 @@
   | `debug.pw3.sleepwall.enabled` | `true` | `false`：完全回到镜像自带的图 |
   | `debug.pw3.sleepwall.dir` | `/kindle-us/sleepwall` | 换一个文件夹（例如调试时 `/data/local/tmp/sleepwall`） |
   该属性读不到时还会再看 `/system/usr/share/pw3/sleepwall/`（装机/构建时预置的副本），两处都没有才回退到 PGM。
-- **权限**：`/kindle-us` 是 `vfat` 标签，SurfaceFlinger 的域默认读不到；`sepolicy/pw3_sleepwall.te` 加了只读的两行 allow。没有这条策略（例如只把 `gralloc.pw3.so` 注入现有 system.img、没重建 ramdisk 里的 policy）时，HAL 打一行 `sleep wallpaper: no .png`（实际是 EACCES）然后读内置目录 `/system/usr/share/pw3/sleepwall/`（`system_file`，策略本来放行）；内置目录也没有才回退 PGM——功能关闭，但不会坏。发行镜像**不含**内置目录，只在"只注入 HAL"的镜像里用它放用户/测试图（换图要重注入）。
+- **权限与内核**：`/kindle-us` 挂的是 vfat，SurfaceFlinger 的域默认既不能读 store 上的文件、也不能沿路径走进这个目录；方案是给自己的类型打标签：`sepolicy/pw3_sleepwall.te` 里 `pw3_sleepwall_file` + `genfscon vfat /sleepwall` + 3 行 allow，**并依赖内核补丁 1061**（vfat 加入 `SE_SBGENFS`，否则 genfscon 路径规则在本内核不生效）。两者缺一（例如只把 `gralloc.pw3.so` 注入现有 system.img），HAL 会打一行 `sleep wallpaper: no .png`（实际是 EACCES）然后读内置目录 `/system/usr/share/pw3/sleepwall/`（`system_file`，策略本来放行）；内置目录也没有才回退 PGM——功能关闭，但不会坏。发行镜像**不含**内置目录，只在"只注入 HAL"的镜像里用它放用户/测试图（换图要重注入）。真机自检：`ls -Z /kindle-us/sleepwall` 应是 `u:object_r:pw3_sleepwall_file:s0`，`dmesg | grep 'avc.*pw3_sleepwall_file'` 不应有 denied。
 - **代价**：每次熄屏要解一张 PNG 再缩放（Cortex-A9 上约 100–300 ms，6 MB 左右临时内存），发生在按电源键之后、面板断电之前；屏幕已经关了，用户看不到，但关机动画会稍慢一点。图片超大时会先被尺寸上限挡掉。
 
 ## 刷新
