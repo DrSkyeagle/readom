@@ -1,7 +1,7 @@
 #!/bin/bash
 # Same patch series, a VExpress board config, and no physical device access.
 set -euo pipefail
-[[ "$(uname -s)" == Linux && "$(hostname)" == lima-pw3 ]] || exit 1
+[[ "$(uname -s)" == Linux && "$(hostname)" == ${READOM_BUILD_HOST:-lima-pw3} ]] || exit 1
 ROOT=/home/builder/pw3-build
 SRC="$ROOT/linux-smoke"
 OUT="$ROOT/out-smoke"

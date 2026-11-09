@@ -2,7 +2,7 @@
 # VExpress test kernel with an emulated SD reader for a read-only system image.
 # Does not replace the diskless interface-test kernel or the PW3 device kernel.
 set -euo pipefail
-[[ $(uname -s) == Linux && $(hostname) == lima-pw3 ]] || exit 77
+[[ $(uname -s) == Linux && $(hostname) == ${READOM_BUILD_HOST:-lima-pw3} ]] || exit 77
 ROOT=/home/builder/pw3-build
 SRC="$ROOT/linux-aosp-runtime"
 OUT="$ROOT/out-aosp-runtime"

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Build file images only. No USB commands, flashing, or partition operations.
 set -euo pipefail
-[[ "$(uname -s)" == Linux && "$(hostname)" == lima-pw3 ]] || exit 1
+[[ "$(uname -s)" == Linux && "$(hostname)" == ${READOM_BUILD_HOST:-lima-pw3} ]] || exit 1
 # Options come from the environment only. An argument of 1 once meant installclean and is now
 # ignored silently by everything below; V49's first build lost its installclean that way.
 (( $# == 0 )) || { echo 'No arguments: set PW3_AOSP_INSTALLCLEAN, PW3_BUILD_VARIANT, PW3_RELEASE_KEY_DIR, PW3_AOSP_PRODUCT.' >&2; exit 2; }

@@ -59,7 +59,7 @@ def main():
     parser.add_argument('--image', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
-    require(platform.node() == 'lima-pw3' and os.geteuid() == 0,
+    require(platform.node() == (os.environ.get('READOM_BUILD_HOST') or 'lima-pw3') and os.geteuid() == 0,
             'Run only as root in the project build VM')
     require(args.image.is_file() and not args.image.is_symlink(), 'Expected a regular raw image')
     require(not args.output.exists(), 'Refusing to overwrite an inspection')

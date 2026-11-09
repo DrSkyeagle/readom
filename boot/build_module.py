@@ -96,7 +96,7 @@ def main():
                          'build_launcher.py refuses an --emulator module without an --emulator '
                          'launcher and the reverse')
     a = ap.parse_args()
-    if platform.node() != 'lima-pw3' or os.geteuid() == 0:
+    if platform.node() != (os.environ.get('READOM_BUILD_HOST') or 'lima-pw3') or os.geteuid() == 0:
         sys.exit('Run as the builder in the build VM (tools/vm.sh shell).')
     profile = json.loads(a.profile.read_text())
     if a.emulator and profile['module_profile'] != 1:

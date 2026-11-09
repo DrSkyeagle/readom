@@ -29,7 +29,7 @@ def main():
     for name in ['unpack', 'screens', 'ca-bundle', 'zstd-archive', 'output']:
         ap.add_argument('--' + name, type=Path, required=True)
     a = ap.parse_args()
-    if platform.node() != 'lima-pw3' or os.geteuid() == 0:
+    if platform.node() != (os.environ.get('READOM_BUILD_HOST') or 'lima-pw3') or os.geteuid() == 0:
         sys.exit('Run as the builder in the build VM.')
     lock = json.loads((ROOT / 'source-lock.json').read_text())
     ca = a.ca_bundle.read_bytes()

@@ -25,7 +25,7 @@ def elf_sections(p):
 def main():
     ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('--output',type=Path,required=True)
     ap.add_argument('--profile',choices=['pw3','vexpress'],default='pw3');a=ap.parse_args()
-    require(platform.node()=='lima-pw3' and os.geteuid()!=0,'Use project VM builder')
+    require(platform.node()==(os.environ.get('READOM_BUILD_HOST') or 'lima-pw3') and os.geteuid()!=0,'Use project VM builder')
     virtual=a.profile=='vexpress';flavor='loader-stage' if virtual else 'android-core'
     out=Path('/home/builder/pw3-build/out-'+flavor);source=Path('/home/builder/pw3-build/linux-'+flavor)
     export=Path('/mnt/build-share/'+flavor+'-kernel');prefix='/home/builder/toolchains/aosp-arm-gcc49/bin/arm-linux-androideabi-'

@@ -153,7 +153,7 @@ def main():
                     help='device/amazon/<model>: whose BoardConfig.mk states the data size, and '
                          'whose AOSP product directory the build wrote. Default: pw3')
     a = ap.parse_args()
-    if platform.node() != 'lima-pw3' or os.geteuid() == 0:
+    if platform.node() != (os.environ.get('READOM_BUILD_HOST') or 'lima-pw3') or os.geteuid() == 0:
         sys.exit('Run as the builder in the build VM.')
     if not re.fullmatch(r'[a-z0-9][a-z0-9-]*', a.model):
         sys.exit('--model is the device directory name: lower-case letters, digits, "-"')

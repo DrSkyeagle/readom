@@ -1,7 +1,7 @@
 #!/bin/bash
 # Standalone userspace compile only. Does not edit or build the kernel tree.
 set -euo pipefail
-[[ "$(uname -s)" == Linux && "$(hostname)" == lima-pw3 ]] || { echo 'Requires existing lima-pw3 build VM' >&2; exit 1; }
+[[ "$(uname -s)" == Linux && "$(hostname)" == ${READOM_BUILD_HOST:-lima-pw3} ]] || { echo 'Requires existing lima-pw3 build VM' >&2; exit 1; }
 network_smoke_dir=$(cd -- "$(dirname -- "$0")" && pwd)
 network_smoke_cc=${NETWORK_SMOKE_CC:-/home/builder/toolchains/musl-arm/bin/musl-gcc}
 network_smoke_out=${NETWORK_SMOKE_OUT:-"$network_smoke_dir/build"}

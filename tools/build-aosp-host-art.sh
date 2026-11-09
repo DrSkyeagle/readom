@@ -2,7 +2,7 @@
 # Rebuild the host ART compiler and its ARM boot image regression only.
 # Does not prepare hardware, install firmware, or claim a full system build.
 set -euo pipefail
-[[ $(uname -s) == Linux && $(hostname) == lima-pw3 ]] || exit 77
+[[ $(uname -s) == Linux && $(hostname) == ${READOM_BUILD_HOST:-lima-pw3} ]] || exit 77
 exec 9>/home/builder/pw3-build/aosp-build.lock
 flock -n 9 || { echo 'Another AOSP build is active.' >&2; exit 1; }
 bash /mnt/port/tools/provision-native-clang.sh

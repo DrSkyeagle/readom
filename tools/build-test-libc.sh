@@ -1,7 +1,7 @@
 #!/bin/bash
 # Static ARM utilities must run on Linux 3.0, below Ubuntu glibc's kernel floor.
 set -euo pipefail
-[[ "$(uname -s)" == Linux && "$(hostname)" == lima-pw3 ]] || exit 1
+[[ "$(uname -s)" == Linux && "$(hostname)" == ${READOM_BUILD_HOST:-lima-pw3} ]] || exit 1
 ARCHIVE=/mnt/build-share/toolchains/musl-1.2.5.tar.gz
 echo "a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4  $ARCHIVE" | sha256sum -c -
 BUILD=/home/builder/pw3-build/test-libc

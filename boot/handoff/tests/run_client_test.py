@@ -103,7 +103,7 @@ def main():
     ap.add_argument('--module', type=Path)
     ap.add_argument('--output', type=Path, required=True)
     a = ap.parse_args()
-    if platform.node() != 'lima-pw3' or os.geteuid() == 0:
+    if platform.node() != (os.environ.get('READOM_BUILD_HOST') or 'lima-pw3') or os.geteuid() == 0:
         sys.exit('Run as the builder in the build VM.')
     if subprocess.run(['pgrep', '-x', 'qemu-system-arm'], stdout=subprocess.DEVNULL).returncode == 0:
         sys.exit('Another qemu-system-arm is running.')

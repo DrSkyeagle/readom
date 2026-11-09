@@ -1,6 +1,6 @@
 #!/bin/bash
 set -euo pipefail
-[[ "$(uname -s)" == Linux && "$(hostname)" == lima-pw3 ]] || exit 1
+[[ "$(uname -s)" == Linux && "$(hostname)" == ${READOM_BUILD_HOST:-lima-pw3} ]] || exit 1
 ART=/mnt/build-share/kernel-smoke
 # Do not execute a mixture left by an interrupted kernel/userspace rebuild.
 python3 - "$ART" <<'VERIFY'

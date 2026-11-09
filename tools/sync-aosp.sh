@@ -1,8 +1,8 @@
 #!/bin/bash
 # Download the fixed public Android baseline inside the Linux build filesystem.
 set -euo pipefail
-if [[ "$(uname -s)" != Linux || "$(hostname)" != lima-pw3 ]]; then
-  echo 'Run inside the lima-pw3 build VM.' >&2
+if [[ "$(uname -s)" != Linux || "$(hostname)" != ${READOM_BUILD_HOST:-lima-pw3} ]]; then
+  echo 'Run inside the build VM (READOM_BUILD_HOST, default lima-pw3).' >&2
   exit 1
 fi
 AOSP_ROOT=/home/builder/android-src

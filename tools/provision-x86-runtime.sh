@@ -1,7 +1,7 @@
 #!/bin/bash
 # Run only in this project's ARM64 Lima guest. Needed by AOSP's pinned GCC 4.9.
 set -euo pipefail
-if [[ "$(uname -s)" != Linux || "$(hostname)" != lima-pw3 || "$(id -u)" != 0 ]]; then
+if [[ "$(uname -s)" != Linux || "$(hostname)" != ${READOM_BUILD_HOST:-lima-pw3} || "$(id -u)" != 0 ]]; then
   echo 'Run with sudo inside the lima-pw3 build VM.' >&2
   exit 1
 fi

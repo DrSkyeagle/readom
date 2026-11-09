@@ -1,7 +1,7 @@
 #!/bin/bash
 # Verify the current owned kernel patch set before importing public modules.
 set -euo pipefail
-[[ $(uname -s) == Linux && $(hostname) == lima-pw3 ]] || exit 77
+[[ $(uname -s) == Linux && $(hostname) == ${READOM_BUILD_HOST:-lima-pw3} ]] || exit 77
 # The same model rule as tools/build-kernel.sh: the default model keeps the
 # directory name it has always had, and both halves of the configuration are
 # checked. Passing only the base would verify 144 of the 147 options and say
