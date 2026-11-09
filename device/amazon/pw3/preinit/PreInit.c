@@ -398,6 +398,7 @@ static bool mounted_readonly(const char *path, unsigned long magic, bool noexec,
 
 static void testfile_documents_bind(void);
 static void testfile_kindle_root_view(void);
+static void testfile_sleepwall_dir(void);
 static void testfile_nav_marker(void);
 static void preinit_nav_settings(void);
 static bool preinit_cmdline_has(const char *token);
@@ -489,6 +490,7 @@ static bool testfile_handover_store(const char *fat) {
     }
     testfile_documents_bind();
     testfile_kindle_root_view();
+    testfile_sleepwall_dir();
     testfile_nav_marker();
     report("hand-over store mounted read-write at /kindle-us; android/ covered by read-only tmpfs");
     return true;
@@ -727,6 +729,21 @@ static void testfile_kindle_root_view(void) {
              "PW3_STORAGE root_view=%d mkdir=%d bind=%d cover=%d ro=%d errno=%d",
              (mkdir_rc == 0 && bind_rc == 0 && cover_rc == 0 && ro_rc == 0) ? 0 : -1,
              mkdir_rc, bind_rc, cover_rc, ro_rc, saved_errno);
+    report(line);
+}
+
+
+/* Readom sleep wallpaper (T10): an empty folder for the user's own PNGs, which
+ * the display HAL reads when the screen goes off
+ * (device/amazon/pw3/sleep/README.md). Made here because this is the only point
+ * where the store is mounted read-write and nothing needs a permission to
+ * create it. On vfat the mode is not stored: the mount's umask=0022 is what the
+ * directory ends up with (0755, root:root). Best effort -- the HAL falls back to
+ * the picture that ships in the image, so a failure is one log line. */
+static void testfile_sleepwall_dir(void) {
+    char line[64];
+    snprintf(line, sizeof(line), "PW3_SLEEPWALL mkdir=%d",
+             mkdir_ram("/kindle-us/sleepwall", 0775) ? 0 : -1);
     report(line);
 }
 
