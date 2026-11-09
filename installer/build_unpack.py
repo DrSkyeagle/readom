@@ -28,7 +28,7 @@ def main():
     ap.add_argument('--zstd-archive', type=Path, required=True)
     ap.add_argument('--output', type=Path, required=True)
     a = ap.parse_args()
-    if platform.node() != 'lima-pw3' or os.geteuid() == 0:
+    if platform.node() != (os.environ.get('READOM_BUILD_HOST') or 'lima-pw3') or os.geteuid() == 0:
         sys.exit('Run as the builder in the build VM.')
     lock = json.loads((ROOT / 'source-lock.json').read_text())['installer_zstd']
     if sha(a.zstd_archive) != lock['archive_sha256']:

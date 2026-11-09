@@ -56,7 +56,7 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--timeout', type=int, default=120)
     args = parser.parse_args()
-    assert platform.node() == 'lima-pw3' and os.geteuid() != 0
+    assert platform.node() == (os.environ.get('READOM_BUILD_HOST') or 'lima-pw3') and os.geteuid() != 0
     assert args.system_image.is_file() and not args.system_image.is_symlink()
     assert 30 <= args.timeout <= 600
     args.output.mkdir(exist_ok=False)

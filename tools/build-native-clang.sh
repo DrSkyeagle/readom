@@ -1,7 +1,7 @@
 #!/bin/bash
 # Optional host compiler for the ARM64 build VM; never changes target ABI.
 set -euo pipefail
-[[ $(uname -s) == Linux && $(hostname) == lima-pw3 && $(uname -m) == aarch64 ]] || exit 77
+[[ $(uname -s) == Linux && $(hostname) == ${READOM_BUILD_HOST:-lima-pw3} && $(uname -m) == aarch64 ]] || exit 77
 ROOT=/home/builder/pw3-native-clang
 LOG=/mnt/build-share/native-clang
 command -v cmake >/dev/null && command -v ninja >/dev/null && command -v g++ >/dev/null || {

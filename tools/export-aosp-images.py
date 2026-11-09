@@ -40,7 +40,7 @@ def main():
                         help='the AOSP product to export (PW3_AOSP_PRODUCT): lower-case letters, '
                              'digits and "-"; default pw3, the one this project ships')
     args = parser.parse_args()
-    if platform.node() != 'lima-pw3' or os.geteuid() == 0:
+    if platform.node() != (os.environ.get('READOM_BUILD_HOST') or 'lima-pw3') or os.geteuid() == 0:
         raise RuntimeError('Run as builder inside the project VM')
     if not re.fullmatch(r'[a-z0-9][a-z0-9-]*', args.product):
         raise RuntimeError('--product: the device directory name (lower-case letters, digits, "-")')

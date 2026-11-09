@@ -32,7 +32,7 @@ Usage: build-preinit.py --output DIR [--board BOARD ...]
   --board   a board name to build for; repeatable; default: voyage. pw3 builds
             the control whose only difference is -DPW3_BOARD_NAME.
 
-Run as builder in the build VM (hostname lima-pw3), the same rule as every other
+Run as builder in the build VM (hostname READOM_BUILD_HOST, default lima-pw3), the same rule as every other
 build script in this tree. The musl toolchain is the one tools/build-test-libc.sh
 installs.
 """
@@ -396,8 +396,8 @@ def main():
                           help='ARM kernel headers, added with -idirafter (default: %(default)s)')
     a = argument.parse_args()
 
-    if platform.node() != 'lima-pw3' or os.geteuid() == 0:
-        sys.exit('Run as builder in the build VM (hostname lima-pw3).')
+    if platform.node() != (os.environ.get('READOM_BUILD_HOST') or 'lima-pw3') or os.geteuid() == 0:
+        sys.exit('Run as builder in the build VM (hostname READOM_BUILD_HOST, default lima-pw3).')
     boards = a.board or ['voyage']
     for board in boards:
         if not re.fullmatch(r'[a-z][a-z0-9-]*', board):

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Linux VM only. Keep legacy x86 AOSP host tools separate from the ARM64 OS.
 set -euo pipefail
-[[ "$(uname -s)" == Linux && "$(hostname)" == lima-pw3 ]] || exit 1
+[[ "$(uname -s)" == Linux && "$(hostname)" == ${READOM_BUILD_HOST:-lima-pw3} ]] || exit 1
 ROOT=/srv/aosp-x86
 [[ -x "$ROOT/bin/bash" ]] || { echo 'Bootstrap the pinned Ubuntu Jammy amd64 root first.' >&2; exit 1; }
 for item in dev proc sys; do

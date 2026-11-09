@@ -487,7 +487,7 @@ def main():
     for name in ['manifest', 'profile', 'cjk-font', 'latin-font', 'latin-title-font', 'output']:
         ap.add_argument('--' + name, type=Path, required=True)
     a = ap.parse_args()
-    if platform.node() != 'lima-pw3' or os.geteuid() == 0:
+    if platform.node() != (os.environ.get('READOM_BUILD_HOST') or 'lima-pw3') or os.geteuid() == 0:
         sys.exit('Run as the builder in the build VM.')
     manifest = json.loads(a.manifest.read_text())
     payload_mb = round(manifest['files']['system']['bytes'] / 1e6)

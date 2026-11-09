@@ -1,7 +1,7 @@
 #!/bin/bash
 # Copy only this project's owned product, then apply its pinned AOSP changes.
 set -euo pipefail
-[[ "$(uname -s)" == Linux && "$(hostname)" == lima-pw3 ]] || exit 1
+[[ "$(uname -s)" == Linux && "$(hostname)" == ${READOM_BUILD_HOST:-lima-pw3} ]] || exit 1
 SRC=/home/builder/android-src
 # Which product the build is for. The name is the device directory's under
 # device/amazon/ and the product's in the AOSP tree (tools/build-aosp-system.sh

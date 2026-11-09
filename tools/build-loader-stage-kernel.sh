@@ -12,7 +12,7 @@
 # three tests stopped running for weeks and nothing said so. This is that build,
 # written down.
 set -euo pipefail
-[[ "$(uname -s)" == Linux && "$(hostname)" == lima-pw3 ]] || exit 1
+[[ "$(uname -s)" == Linux && "$(hostname)" == ${READOM_BUILD_HOST:-lima-pw3} ]] || exit 1
 ROOT=/home/builder/pw3-build
 SRC="$ROOT/linux-loader-stage"
 OUT="$ROOT/out-loader-stage"

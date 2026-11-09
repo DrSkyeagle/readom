@@ -421,7 +421,7 @@ def main():
     ap.add_argument('--name', required=True)
     ap.add_argument('--title', required=True)
     a = ap.parse_args()
-    if platform.node() != 'lima-pw3' or os.geteuid() == 0:
+    if platform.node() != (os.environ.get('READOM_BUILD_HOST') or 'lima-pw3') or os.geteuid() == 0:
         sys.exit('Run as the builder in the build VM.')
     if not re.fullmatch(r'[A-Za-z0-9._-]+\.sh', a.name) or not re.fullmatch(r'[A-Za-z0-9 ._-]+', a.title):
         sys.exit('name: ASCII file name ending in .sh; title: ASCII letters, digits, spaces')

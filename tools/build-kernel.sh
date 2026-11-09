@@ -1,8 +1,8 @@
 #!/bin/bash
 # Compile a named PW3 kernel profile on Linux. Never flash.
 set -euo pipefail
-if [[ "$(uname -s)" != Linux || "$(hostname)" != lima-pw3 ]]; then
-  echo 'Run inside the lima-pw3 build VM.' >&2
+if [[ "$(uname -s)" != Linux || "$(hostname)" != ${READOM_BUILD_HOST:-lima-pw3} ]]; then
+  echo 'Run inside the build VM (READOM_BUILD_HOST, default lima-pw3).' >&2
   exit 1
 fi
 PROFILE="${1:-stock}"

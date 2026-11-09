@@ -30,7 +30,7 @@ value.
 Usage: build-voyage-release.py --system release/system.img --modules out-artifacts/modules.tar.gz \\
         --data-template release/pw3_data_template.bin --output readom-port/build-voyage [options]
 
-Run as builder in the build VM (hostname lima-pw3), like every other build script in this
+Run as builder in the build VM (hostname READOM_BUILD_HOST, default lima-pw3), like every other build script in this
 tree. Requires debugfs/e2fsck/dumpe2fs (e2fsprogs), zstd and mke2fs.
 """
 import argparse
@@ -389,8 +389,8 @@ def main():
                           help='skip making a second data image with mke2fs to prove the recipe')
     a = argument.parse_args()
 
-    if platform.node() != 'lima-pw3' or os.geteuid() == 0:
-        sys.exit('Run as builder in the build VM (hostname lima-pw3).')
+    if platform.node() != (os.environ.get('READOM_BUILD_HOST') or 'lima-pw3') or os.geteuid() == 0:
+        sys.exit('Run as builder in the build VM (hostname READOM_BUILD_HOST, default lima-pw3).')
     if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,47}', a.version):
         sys.exit('version: ASCII letters, digits, ".", "_", "-" (at most 48)')
     if a.data_format < 1:

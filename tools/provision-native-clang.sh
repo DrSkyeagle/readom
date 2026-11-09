@@ -1,7 +1,7 @@
 #!/bin/bash
 # Optional verified host-native compiler. A missing activation keeps stock tools.
 set -euo pipefail
-[[ $(uname -s) == Linux && $(hostname) == lima-pw3 ]] || exit 77
+[[ $(uname -s) == Linux && $(hostname) == ${READOM_BUILD_HOST:-lima-pw3} ]] || exit 77
 ACTIVATION=/mnt/build-share/native-clang/activation.json
 CHROOT=/srv/aosp-x86
 if [[ ! -f "$ACTIVATION" ]]; then

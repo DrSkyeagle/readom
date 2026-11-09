@@ -3,7 +3,15 @@
 # The Jack server, host javac and Doclava/javadoc use this runtime. Other AOSP Java tools retain
 # the bundled x86 JVM and JNI libraries, with interpreted host bytecode.
 set -euo pipefail
-[[ "$(uname -s)" == Linux && "$(hostname)" == lima-pw3 ]] || exit 1
+[[ "$(uname -s)" == Linux && "$(hostname)" == ${READOM_BUILD_HOST:-lima-pw3} ]] || exit 1
+# On an amd64 host the chroot already runs the AOSP tree's own x86 Java 8
+# (prebuilts/jdk/jdk8/linux-x86), so there is nothing to borrow from outside
+# the root. The ARM64 bind below exists only because the maintainer's build VM
+# is arm64, where the amd64 chroot has no JVM of its own.
+if [[ "$(uname -m)" != aarch64 ]]; then
+  echo 'amd64 host: the build chroot runs Java natively; nothing to bind for Jack.'
+  exit 0
+fi
 root=/srv/aosp-x86
 jdk=/usr/lib/jvm/java-8-openjdk-arm64
 test -x "$jdk/bin/java" || {

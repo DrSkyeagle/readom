@@ -1,7 +1,7 @@
 #!/bin/bash
 # Rebuild diskless test userspace against the already-built VExpress kernel.
 set -euo pipefail
-[[ "$(uname -s)" == Linux && "$(hostname)" == lima-pw3 ]] || exit 1
+[[ "$(uname -s)" == Linux && "$(hostname)" == ${READOM_BUILD_HOST:-lima-pw3} ]] || exit 1
 ROOT=/home/builder/pw3-build
 SRC="$ROOT/linux-smoke"
 OUT="$ROOT/out-smoke"

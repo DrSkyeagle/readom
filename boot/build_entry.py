@@ -153,7 +153,7 @@ def main():
                     help='the kernel source tree whose UAPI headers the boot programs are built '
                          'against; default: %s (tools/build-kernel.sh android-core)' % KERNEL_SOURCE)
     a = ap.parse_args()
-    if platform.node() != 'lima-pw3' or os.geteuid() == 0:
+    if platform.node() != (os.environ.get('READOM_BUILD_HOST') or 'lima-pw3') or os.geteuid() == 0:
         sys.exit('Run as the builder in the build VM (tools/vm.sh shell).')
     if not (a.kernel_source / 'Makefile').is_file():
         sys.exit('--kernel-source is not a kernel tree: %s' % a.kernel_source)

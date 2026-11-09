@@ -1,7 +1,7 @@
 #!/bin/bash
 # Linux VM systemd job entry: preserve a terminal-independent exit receipt.
 set -euo pipefail
-[[ $(uname -s) == Linux && $(hostname) == lima-pw3 && $(id -un) == builder ]] || exit 77
+[[ $(uname -s) == Linux && $(hostname) == ${READOM_BUILD_HOST:-lima-pw3} && $(id -un) == builder ]] || exit 77
 ulimit -c 0
 LOG=/mnt/build-share/logs/aosp-system-build.log
 RECEIPT=/mnt/build-share/logs/aosp-system-job.json
