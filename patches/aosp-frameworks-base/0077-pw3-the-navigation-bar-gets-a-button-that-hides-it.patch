@@ -1,0 +1,181 @@
+From: PW3 Android port
+Subject: [PW3] The navigation bar gets a button that hides it, and a long press that brings it back
+
+The bar can now be locked hidden (patch 0076), but the reader has no way to ask for
+it. This patch gives the bar one more key: a chevron pointing down onto a line, at
+the right-hand end of the bar, next to Recents. A tap hides the bar and locks it; a
+long press unlocks it and drops `policy_control`, so the bar stays up until the next
+boot decides again.
+
+The nav bar's layout is a string from SystemUI's own resources --
+`config_navBarLayout` in `packages/SystemUI/res/values/config.xml` -- and its keys
+are inflated from it by `NavigationBarInflaterView`, so this is a new token
+(`navlock`) and a new layout for it, not a change to framework-res: no resource ID
+that the ART boot image depends on moves. The button is a plain `ImageView` rather
+than a `KeyButtonView`, because it sends no key code.
+
+The button does not touch Settings itself: it sends the broadcast introduced by
+patch 0076, and the policy side writes the setting and applies it, so there is one
+place that owns the state.
+
+Not run on a device yet when this patch was written; the verification list is in
+`readom-port/reports/t09-nav-impl.md`.
+
+diff --git a/packages/SystemUI/res/values/config.xml b/packages/SystemUI/res/values/config.xml
+--- a/packages/SystemUI/res/values/config.xml
++++ b/packages/SystemUI/res/values/config.xml
+@@ -339,7 +339,9 @@
+     <bool name="config_quickSettingsOnFirstPull">false</bool>
+ 
+     <!-- Nav bar button default ordering/layout -->
+-    <string name="config_navBarLayout" translatable="false">left[.5W],back[1WC];home;recent[1WC],right[.5W]</string>
++    <!-- Readom: navlock is the bar's own hide button (readom_nav_key.xml). A long press
++         on it brings the bar back. -->
++    <string name="config_navBarLayout" translatable="false">left[.5W],back[1WC];home;recent[1WC],navlock[1WC],right[.5W]</string>
+ 
+     <bool name="quick_settings_show_full_alarm">false</bool>
+ 
+diff --git a/packages/SystemUI/src/com/android/systemui/statusbar/phone/NavigationBarInflaterView.java b/packages/SystemUI/src/com/android/systemui/statusbar/phone/NavigationBarInflaterView.java
+--- a/packages/SystemUI/src/com/android/systemui/statusbar/phone/NavigationBarInflaterView.java
++++ b/packages/SystemUI/src/com/android/systemui/statusbar/phone/NavigationBarInflaterView.java
+@@ -17,6 +17,7 @@
+ import android.annotation.Nullable;
+ import android.content.Context;
+ import android.content.res.Configuration;
++import android.content.Intent;
+ import android.graphics.drawable.Icon;
+ import android.util.AttributeSet;
+ import android.util.Log;
+@@ -53,6 +54,10 @@
+ 
+     private static final String TAG = "NavBarInflater";
+ 
++    private static final String READOM_NAV_ACTION = "org.readom.policy.SET_NAV_LOCK";
++    private static final String READOM_NAV_EXTRA_LOCKED = "locked";
++
++
+     public static final String NAV_BAR_VIEWS = "sysui_nav_bar";
+     public static final String NAV_BAR_LEFT = "sysui_nav_bar_left";
+     public static final String NAV_BAR_RIGHT = "sysui_nav_bar_right";
+@@ -61,6 +66,8 @@
+     public static final String BACK = "back";
+     public static final String HOME = "home";
+     public static final String RECENT = "recent";
++    // Readom: the navigation bar's own hide button (patch 0077).
++    public static final String NAVLOCK = "navlock";
+     public static final String NAVSPACE = "space";
+     public static final String CLIPBOARD = "clipboard";
+     public static final String KEY = "key";
+@@ -307,6 +314,18 @@
+         return v;
+     }
+ 
++    /**
++     * Readom: asks the policy side (patch 0076) to hide the navigation bar and keep it hidden,
++     * or, for a long press, to let it back. The policy owns the setting and the bar state; this
++     * only says what the reader asked for. Any application can send the same broadcast; all it
++     * can do is hide the bar or bring it back, both of which the reader can undo.
++     */
++    private void readomSetNavLock(boolean locked) {
++        Intent intent = new Intent(READOM_NAV_ACTION);
++        intent.putExtra(READOM_NAV_EXTRA_LOCKED, locked);
++        getContext().sendBroadcast(intent);
++    }
++
+     private View createView(String buttonSpec, ViewGroup parent, LayoutInflater inflater) {
+         View v = null;
+         String button = extractButton(buttonSpec);
+@@ -328,6 +347,21 @@
+             v = inflater.inflate(R.layout.back, parent, false);
+         } else if (RECENT.equals(button)) {
+             v = inflater.inflate(R.layout.recent_apps, parent, false);
++        } else if (NAVLOCK.equals(button)) {
++            v = inflater.inflate(R.layout.readom_nav_key, parent, false);
++            v.setOnClickListener(new View.OnClickListener() {
++                @Override
++                public void onClick(View view) {
++                    readomSetNavLock(true);
++                }
++            });
++            v.setOnLongClickListener(new View.OnLongClickListener() {
++                @Override
++                public boolean onLongClick(View view) {
++                    readomSetNavLock(false);
++                    return true;
++                }
++            });
+         } else if (MENU_IME.equals(button)) {
+             v = inflater.inflate(R.layout.menu_ime, parent, false);
+         } else if (NAVSPACE.equals(button)) {
+diff --git a/packages/SystemUI/res/layout/readom_nav_key.xml b/packages/SystemUI/res/layout/readom_nav_key.xml
+new file mode 100644
+--- /dev/null
++++ b/packages/SystemUI/res/layout/readom_nav_key.xml
+@@ -0,0 +1,33 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- Copyright (C) 2026 The PW3 port authors
++
++     Licensed under the Apache License, Version 2.0 (the "License");
++     you may not use this file except in compliance with the License.
++     You may obtain a copy of the License at
++
++          http://www.apache.org/licenses/LICENSE-2.0
++
++     Unless required by applicable law or agreed to in writing, software
++     distributed under the License is distributed on an "AS IS" BASIS,
++     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++     See the License for the specific language governing permissions and
++     limitations under the License.
++-->
++<!-- Readom: the navigation bar's own hide button. A tap locks the bar hidden (patch 0076
++     takes it away at once), a long press brings it back. The icon is drawn rather than
++     tinted from AOSP's set because this panel is a black-on-white one. -->
++<ImageView
++    xmlns:android="http://schemas.android.com/apk/res/android"
++    android:id="@+id/readom_nav_hide"
++    android:layout_width="@dimen/navigation_key_width"
++    android:layout_height="match_parent"
++    android:layout_weight="0"
++    android:background="?android:attr/selectableItemBackground"
++    android:contentDescription="Hide navigation bar"
++    android:paddingTop="15dp"
++    android:paddingBottom="15dp"
++    android:paddingStart="@dimen/navigation_key_padding"
++    android:paddingEnd="@dimen/navigation_key_padding"
++    android:scaleType="fitCenter"
++    android:src="@drawable/readom_ic_sysbar_navhide"
++    />
+diff --git a/packages/SystemUI/res/drawable/readom_ic_sysbar_navhide.xml b/packages/SystemUI/res/drawable/readom_ic_sysbar_navhide.xml
+new file mode 100644
+--- /dev/null
++++ b/packages/SystemUI/res/drawable/readom_ic_sysbar_navhide.xml
+@@ -0,0 +1,29 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- Copyright (C) 2026 The PW3 port authors
++
++     Licensed under the Apache License, Version 2.0 (the "License");
++     you may not use this file except in compliance with the License.
++     You may obtain a copy of the License at
++
++          http://www.apache.org/licenses/LICENSE-2.0
++
++     Unless required by applicable law or agreed to in writing, software
++     distributed under the License is distributed on an "AS IS" BASIS,
++     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++     See the License for the specific language governing permissions and
++     limitations under the License.
++-->
++<!-- Readom: a chevron pointing down onto a line -- "take the bar away". Black, because the
++     navigation bar on this panel is opaque white (patch 0015). -->
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="24dp"
++    android:height="24dp"
++    android:viewportWidth="24"
++    android:viewportHeight="24">
++    <path
++        android:fillColor="#FF000000"
++        android:pathData="M12,16.5L4.5,9l2.1,-2.1L12,12.3l5.4,-5.4L19.5,9z" />
++    <path
++        android:fillColor="#FF000000"
++        android:pathData="M4.5,18.5h15v2.5h-15z" />
++</vector>
