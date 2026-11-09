@@ -758,3 +758,27 @@ not an output of this repository's AOSP build chain; this machine has no AOSP us
 An upstream rebuild needs `PW3_AOSP_INSTALLCLEAN=1`, plus rebuilding `pw3-init-check` with V11
 semantics and restoring its storage `exec_start` in `init.pw3.rc` (today that action only publishes
 `sys.pw3.storage_ready=1`).
+
+## Voyage v8.7 hardware results and their boundary (2026-11-09)
+
+**Verified on hardware** (Kindle Voyage 7th generation, firmware 5.13.6): tapping
+`documents/Readom.sh` installed the images and Android 8.1 booted; Wi-Fi, display and standby are
+normal; WeRead works (1.88 recommended); the four PagePress contacts page by their top/bottom
+partition (top = previous, bottom = next); press feedback now vibrates (AAC waveform programmed);
+the stock library appears read-only as "Internal storage/documents" (visible in the Files app and
+in readers without using a second copy of the space); the navigation bar is hidden by default, a
+swipe up from the very bottom edge inside an app peeks it back temporarily, and `nav=show` in
+`documents/readom.conf` restores it permanently after a reboot; long-pressing power restarts into
+the stock system.
+
+**Boundaries and known issues**: occasional ghosting (normal e-ink range); the book-review page is
+a little slow; the navigation-bar peek needs the swipe to start at the very bottom edge inside an
+app; `/data/system/users/0/settings_global.xml.readom-bak`, when written, is owned by root; if
+`settings_global.xml` does not exist yet on the first boot, the navigation-bar write is skipped and
+takes effect on the next boot. Only the behaviour above was tested; no long-term stability testing
+was done.
+
+**The .readom-bak file and read-only semantics**: preinit backs up the settings XML once to
+`/data/system/users/0/settings_global.xml.readom-bak` (root-owned, expected) for manual rollback;
+the stock FAT library stays read-only through `umask=0022` and root ownership, so Android-side
+changes never write back to the stock store.

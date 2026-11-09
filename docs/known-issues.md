@@ -536,3 +536,21 @@ v8.2 把 `exec_start pw3-init-check` 注释掉后，`sys.pw3.storage_ready` 无�
 debugfs 注入 `/vendor/usr/keylayout/fsr_keypad.kl`），不是本仓库 AOSP 构建链的产物；本机也没有
 AOSP userspace 工具链。上游若要重建，需要 `PW3_AOSP_INSTALLCLEAN=1`，并先用 V11 语义重建
 `pw3-init-check`、再恢复 `init.pw3.rc` 里的 storage `exec_start`（当前只发布 `sys.pw3.storage_ready=1`）。
+
+## Voyage v8.7 真机验证结果与边界（2026-11-09）
+
+**真机已验证**（Kindle Voyage 第 7 代，固件 5.13.6）：点 `documents/Readom.sh` 安装后 Android 8.1
+启动；Wi-Fi、显示、待机正常；微信读书可用（建议 1.88 版）；PagePress 四个触点按上下分区翻页
+（上触点=上一页、下触点=下一页）；按压力反馈振动已编程（AAC 波形）；原厂书库以只读形式出现在
+Android 的"内部存储/documents"（系统"文件"应用与阅读器可见，不占双份空间）；导航栏默认隐藏，
+应用内从屏幕最底边上划可临时唤出，`documents/readom.conf` 写 `nav=show` 后重启永久恢复；长按电源
+可重启回原厂系统。
+
+**边界与已知问题**：偶发残影（e-ink 正常范围）；书评页略卡；导航栏唤出必须在应用内从最底边
+上划；`/data/system/users/0/settings_global.xml.readom-bak`（若生成）属主是 root；首次启动时若
+`settings_global.xml` 尚不存在则导航栏设置跳过、下一次启动生效。振动/键位/documents/导航栏均只
+覆盖到上述真机行为，未做长期稳定性测试。
+
+**.readom-bak 与只读语义**：preinit 在改 settings XML 前只备份一次到
+`/data/system/users/0/settings_global.xml.readom-bak`（属主 root，属正常），用于人工回滚；原厂
+FAT 书库借 `umask=0022`/root 属主保持只读，Android 侧的修改不会写回原厂盘。
