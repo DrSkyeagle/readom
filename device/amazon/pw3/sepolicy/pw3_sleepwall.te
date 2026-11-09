@@ -44,7 +44,6 @@
 # SurfaceFlinger open anything on the store except the wallpapers, whose type
 # grants only read.
 type pw3_sleepwall_file, file_type, data_file_type;
-genfscon vfat /sleepwall u:object_r:pw3_sleepwall_file:s0
 allow surfaceflinger vfat:dir search;
 allow surfaceflinger pw3_sleepwall_file:dir r_dir_perms;
 allow surfaceflinger pw3_sleepwall_file:file r_file_perms;

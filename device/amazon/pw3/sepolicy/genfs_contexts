@@ -16,3 +16,4 @@ genfscon sysfs /devices/platform/imx-i2c.0/i2c-0/0-003c/max77696-uic.0/power_sup
 genfscon sysfs /devices/platform/imx-i2c.0/i2c-0/0-003c/max77696-bl.0/backlight/max77696-bl/bl_power u:object_r:sysfs_pw3_bl_power:s0
 genfscon sysfs /devices/platform/imx-i2c.0/i2c-0/0-003c/max77696-adc.0/ain1 u:object_r:sysfs_pw3_fl_lot:s0
 
+genfscon vfat /sleepwall u:object_r:pw3_sleepwall_file:s0
