@@ -132,6 +132,23 @@ TESTS = [
                         'device/amazon/pw3/epdc/Picture.cpp'], False),
     ('sleep-text', 'cpp', ['-Idevice/amazon/pw3/epdc', 'device/amazon/pw3/epdc/tests/sleep_text_test.cpp',
                            'device/amazon/pw3/epdc/SleepText.cpp', 'device/amazon/pw3/epdc/Picture.cpp'], False),
+    # The sleep wallpaper is a folder of PNGs the user put on the store
+    # (epdc/SleepWallpaper.h): Png.h is the decoder for them, vendored stb_image
+    # (sleep/third_party) behind limits this project sets, and SleepWallpaper
+    # is which one is chosen, how it is fitted and what its transparent pixels
+    # leave of the frame the panel was showing.
+    ('png', 'cpp', ['-Idevice/amazon/pw3/epdc', '-Idevice/amazon/pw3/sleep/third_party',
+                    'device/amazon/pw3/epdc/tests/png_test.cpp',
+                    'device/amazon/pw3/epdc/Png.cpp'], False),
+    ('sleep-wallpaper', 'cpp', ['-Idevice/amazon/pw3/epdc', '-Idevice/amazon/pw3/sleep/third_party',
+                                'device/amazon/pw3/epdc/tests/sleep_wallpaper_test.cpp',
+                                'device/amazon/pw3/epdc/SleepWallpaper.cpp',
+                                'device/amazon/pw3/epdc/Png.cpp',
+                                'device/amazon/pw3/epdc/Dither.cpp',
+                                'device/amazon/pw3/epdc/Tone.cpp',
+                                'device/amazon/pw3/epdc/Luma.cpp',
+                                'device/amazon/pw3/epdc/SleepText.cpp',
+                                'device/amazon/pw3/epdc/Picture.cpp'], False),
     # Two more that were written, compile on a host, and were run by nobody:
     # the low-battery rule (its own header says "g++ -std=c++14 -I.."), and the
     # USB gate, which only tools/kernel-hardware/tests/run_tests.py built -- a
@@ -603,11 +620,13 @@ def main():
     if (HAL_INCLUDE / 'hardware/fb.h').is_file() and (FORMAT_INCLUDE / 'cutils/properties.h').is_file():
         tests.append((RECOVER[0], 'cpp',
                       ['-Idevice/amazon/pw3/gralloc/tests/include', '-I' + str(HAL_INCLUDE),
-                       '-I' + str(FORMAT_INCLUDE), RECOVER[1],
+                       '-I' + str(FORMAT_INCLUDE), '-Idevice/amazon/pw3/sleep/third_party', RECOVER[1],
                        'device/amazon/pw3/epdc/Panel.cpp', 'device/amazon/pw3/epdc/Tone.cpp',
                        'device/amazon/pw3/epdc/Luma.cpp', 'device/amazon/pw3/epdc/Dither.cpp',
                        'device/amazon/pw3/epdc/Picture.cpp',
-                       'device/amazon/pw3/epdc/SleepText.cpp'], True))
+                       'device/amazon/pw3/epdc/SleepText.cpp',
+                       'device/amazon/pw3/epdc/Png.cpp',
+                       'device/amazon/pw3/epdc/SleepWallpaper.cpp'], True))
     else:
         elsewhere.insert(0, RECOVER)
     if (IMAGE_PRODUCT / 'system').is_dir():
