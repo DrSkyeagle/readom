@@ -397,6 +397,7 @@ static bool mounted_readonly(const char *path, unsigned long magic, bool noexec,
    the entry below and stays. */
 
 static void testfile_documents_bind(void);
+static void testfile_kindle_root_view(void);
 static void testfile_nav_marker(void);
 static void preinit_nav_settings(void);
 static bool preinit_cmdline_has(const char *token);
@@ -487,6 +488,7 @@ static bool testfile_handover_store(const char *fat) {
         report(line);
     }
     testfile_documents_bind();
+    testfile_kindle_root_view();
     testfile_nav_marker();
     report("hand-over store mounted read-write at /kindle-us; android/ covered by read-only tmpfs");
     return true;
@@ -654,10 +656,13 @@ static void testfile_pagepress(void) {
  * is what the storage service and MediaProvider end up serving. The source is
  * the read-write vfat store mounted fmask/dmask=0022 with root ownership, so
  * apps can read and cannot write it; the FAT is not modified by Android.
+ * v8.8: the bind is remounted read-only as well. The masks are what make it
+ * read-only today, and they are a mount option somebody can change; the
+ * per-mount flag is the property the product promised.
  * Best effort: a failure is one log line and boot continues.
  */
 static void testfile_documents_bind(void) {
-    int mkdir_rc = -1, mount_rc = -1, mount_errno = 0;
+    int mkdir_rc = -1, mount_rc = -1, ro_rc = -1, mount_errno = 0;
     if (mkdir_ram("/data/media", 0775) && mkdir_ram("/data/media/0", 0775) &&
         mkdir_ram("/data/media/0/documents", 0775))
         mkdir_rc = 0;
@@ -666,10 +671,62 @@ static void testfile_documents_bind(void) {
         mount_errno = errno;
     } else {
         mount_rc = 0;
+        if (!mount(NULL, "/data/media/0/documents", NULL, MS_REMOUNT | MS_BIND | MS_RDONLY, NULL))
+            ro_rc = 0;
+        else
+            mount_errno = errno;
     }
-    char line[128];
-    snprintf(line, sizeof(line), "PW3_STORAGE documents_bind=%d mkdir=%d mount=%d errno=%d",
-             (mkdir_rc == 0 && mount_rc == 0) ? 0 : -1, mkdir_rc, mount_rc, mount_errno);
+    char line[160];
+    snprintf(line, sizeof(line), "PW3_STORAGE documents_bind=%d mkdir=%d mount=%d ro=%d errno=%d",
+             (mkdir_rc == 0 && mount_rc == 0 && ro_rc == 0) ? 0 : -1,
+             mkdir_rc, mount_rc, ro_rc, mount_errno);
+    report(line);
+}
+
+
+/* Readom v8.8: the stock store's root, visible to Android apps as
+ * /storage/emulated/0/kindle. Same mechanism as documents/ above: vold's FUSE
+ * volume serves what is under /data/media/0, and /data is mounted by now, so a
+ * bind placed there before execve is what the storage service ends up
+ * exporting. A bind mount does not carry the submounts of its source, so the
+ * empty read-only tmpfs over android/ has to be bound again into the new view:
+ * without that, system.img, data.img and state would be reachable as files.
+ * The view is then remounted read-only per mount, so the store cannot be
+ * written through it whatever the FAT masks say. Any failure withdraws the
+ * whole view -- a root view whose android/ is not covered is worse than none,
+ * and there is nothing the user asked for that a half-view would serve. */
+#define ROOT_VIEW_MOUNT "/data/media/0/kindle"
+static void testfile_kindle_root_view(void) {
+    char cover[160], line[192];
+    int mkdir_rc = -1, bind_rc = -1, cover_rc = -1, ro_rc = -1, saved_errno = 0;
+    if (mkdir_ram(ROOT_VIEW_MOUNT, 0775)) mkdir_rc = 0;
+    if (mkdir_rc != 0) {
+        saved_errno = errno;
+    } else if (mount("/kindle-us", ROOT_VIEW_MOUNT, NULL, MS_BIND, NULL)) {
+        saved_errno = errno;
+    } else {
+        bind_rc = 0;
+        if (snprintf(cover, sizeof(cover), "%s/android", ROOT_VIEW_MOUNT) < (int)sizeof(cover) &&
+            mount("/kindle-us/android", cover, NULL, MS_BIND, NULL) == 0) {
+            cover_rc = 0;
+        } else {
+            saved_errno = errno;
+        }
+        if (cover_rc == 0) {
+            if (mount(NULL, ROOT_VIEW_MOUNT, NULL, MS_REMOUNT | MS_BIND | MS_RDONLY, NULL) == 0)
+                ro_rc = 0;
+            else
+                saved_errno = errno;
+        }
+        if (cover_rc || ro_rc) {   /* fail closed: withdraw the whole view */
+            if (cover_rc == 0) umount(cover);
+            umount(ROOT_VIEW_MOUNT);
+        }
+    }
+    snprintf(line, sizeof(line),
+             "PW3_STORAGE root_view=%d mkdir=%d bind=%d cover=%d ro=%d errno=%d",
+             (mkdir_rc == 0 && bind_rc == 0 && cover_rc == 0 && ro_rc == 0) ? 0 : -1,
+             mkdir_rc, bind_rc, cover_rc, ro_rc, saved_errno);
     report(line);
 }
 

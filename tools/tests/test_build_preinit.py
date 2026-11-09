@@ -9,7 +9,7 @@ be produced while there is no AOSP tree. The script compiles the same
 `PreInit.c` with musl and a project-owned SHA-256, and proves three things
 before it calls the build good: the SHA-256 passes the NIST vectors, the board
 gate accepts this board's kernel release and refuses the other model's, and the
-output is a static ARM EABI5 executable carrying the V10 contract string.
+output is a static ARM EABI5 executable carrying the V12 contract string.
 
 Each of those is checked here again on the build machine. The first two need
 only a host C compiler; the cross build needs the musl toolchain and the ARM
@@ -32,9 +32,9 @@ MUSL = Path('/home/builder/toolchains/musl-arm/bin/musl-gcc')
 KERNEL_HEADERS = Path('/usr/arm-linux-gnueabi/include')
 # The one program contract string (preinit/TestFileInit.h, pw3_pack.py
 # CURRENT_TESTFILE_CONTRACT). A change here is a change to what PID 1 accepts.
-CONTRACT = ('PW3_TESTFILE_INIT_V11_DM_CLUSTER_EXTENTS_FAT_READONLY_VERIFY_THEN_RW_ANDROID_TMPFS_COVERED'
-            '_DATA_SIZED_IMAGES_SYSTEM_STAMP_BACKGROUND_RECHECK_FAT_CROSSLINK_OPTIONAL'
-            '_REPORT_AREA_IMAGE_OWNS_APP_CODE_THREE_KEY_CMDLINE_NO_PARTITIONING')
+CONTRACT = ('PW3_TESTFILE_INIT_V12_DM_CLUSTER_EXTENTS_FAT_READONLY_VERIFY_THEN_RW_ANDROID_TMPFS_COVERED'
+            '_KINDLE_ROOT_VIEW_READ_ONLY_DATA_SIZED_IMAGES_SYSTEM_STAMP_BACKGROUND_RECHECK'
+            '_FAT_CROSSLINK_OPTIONAL_REPORT_AREA_IMAGE_OWNS_APP_CODE_THREE_KEY_CMDLINE_NO_PARTITIONING')
 
 checks = 0
 failures = []
@@ -121,9 +121,9 @@ def cross_build(module, include, work):
     check(elf['problems'] == [], 'the tool found problems it kept: %r' % elf['problems'])
     strings = facts['strings']
     check(strings['contract'] and strings['problems'] == [],
-          'the preinit does not carry the V10 contract string: %r' % strings['problems'])
+          'the preinit does not carry the V12 contract string: %r' % strings['problems'])
     check(module.CONTRACT == CONTRACT,
-          'the build used a contract string other than the V10 one')
+          'the build used a contract string other than the V12 one')
     stripped = out / facts['stripped']['name']
     check(stripped.is_file() and stripped.stat().st_size < binary.stat().st_size,
           'the stripped copy of the preinit is missing or not smaller')
@@ -137,7 +137,7 @@ def main():
         return report()
     module = load()
     check(module.CONTRACT == CONTRACT,
-          'build-preinit.py carries a contract string other than the V10 one')
+          'build-preinit.py carries a contract string other than the V12 one')
     check('-static' in module.CROSS_FLAGS,
           'the cross build does not link statically: %r' % module.CROSS_FLAGS)
     check('-Werror' in module.CROSS_FLAGS,
