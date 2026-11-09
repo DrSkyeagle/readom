@@ -1,0 +1,21 @@
+# The sleep wallpapers (docs in sleep/README.md) are the user's own pictures:
+# they are put in a folder on the store, which preinit mounts read-write at
+# /kindle-us while the policy is not loaded yet (preinit/PreInit.c,
+# testfile_handover_store), so the folder and its files carry the vfat label.
+# The display HAL reads them when the screen goes off
+# (gralloc/framebuffer.cpp, wallpaperSleepLocked); nothing else SurfaceFlinger
+# does touches the store, so this is read-only and no wider than it has to be.
+#
+# The rule is needed, and not redundant with the base policy: the sepolicy this
+# port ships has nothing from surfaceflinger to vfat -- `sesearch -A -s
+# surfaceflinger -t vfat` over the image's own precompiled policy finds only
+# "allow domain fs_type:dir getattr". Without the rule the HAL gets EACCES,
+# falls back to the picture that ships in the image, and the feature is off.
+#
+# Coordination: this file is under device/amazon/pw3/sepolicy, which T13's AOSP
+# build compiles into the ramdisk's precompiled policy. It is a two-line
+# addition next to gralloc.pw3.so; whoever merges the wallpaper branch should
+# carry it in the same PR as the HAL change (see readom-port/reports/
+# t10-sleepwall-impl.md, "SELinux").
+allow surfaceflinger vfat:dir r_dir_perms;
+allow surfaceflinger vfat:file r_file_perms;
