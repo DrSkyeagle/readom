@@ -23,9 +23,11 @@ MAX_RAMDISK = 96 * 1024 * 1024
 # through a loop device, or formatted it fresh every boot, or wanted five
 # command-line keys; all of those went with the modes they belonged to on
 # 2026-10-29, and a ramdisk built from one of them cannot boot against the
-# command line this tree writes. Raising this to V11 is one edit here and one
-# in TestFileInit.h, and the packer refuses anything that is not it.
-CURRENT_TESTFILE_CONTRACT = b'PW3_TESTFILE_INIT_V11_DM_CLUSTER_EXTENTS_FAT_READONLY_VERIFY_THEN_RW_ANDROID_TMPFS_COVERED_DATA_SIZED_IMAGES_SYSTEM_STAMP_BACKGROUND_RECHECK_FAT_CROSSLINK_OPTIONAL_REPORT_AREA_IMAGE_OWNS_APP_CODE_THREE_KEY_CMDLINE_NO_PARTITIONING'
+# command line this tree writes. Raising this to V12 added the read-only view
+# of the stock store's root (the preinit binds it beside documents/ and covers
+# its android/ again); it is one edit here and one in TestFileInit.h, and the
+# packer refuses anything that is not it.
+CURRENT_TESTFILE_CONTRACT = b'PW3_TESTFILE_INIT_V12_DM_CLUSTER_EXTENTS_FAT_READONLY_VERIFY_THEN_RW_ANDROID_TMPFS_COVERED_KINDLE_ROOT_VIEW_READ_ONLY_DATA_SIZED_IMAGES_SYSTEM_STAMP_BACKGROUND_RECHECK_FAT_CROSSLINK_OPTIONAL_REPORT_AREA_IMAGE_OWNS_APP_CODE_THREE_KEY_CMDLINE_NO_PARTITIONING'
 TESTFILE_CONTRACTS = (CURRENT_TESTFILE_CONTRACT,)
 class Invalid(ValueError): pass
 

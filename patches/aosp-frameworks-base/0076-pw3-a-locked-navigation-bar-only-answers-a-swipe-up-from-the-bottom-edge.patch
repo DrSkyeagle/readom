@@ -1,0 +1,362 @@
+From: PW3 Android port
+Subject: [PW3] A locked navigation bar answers only a swipe up from the bottom edge
+
+`immersive.navigation=*` keeps the navigation bar hidden while a reader uses an
+application, but nothing about it is a lock. Three different things bring the bar
+back on their own:
+
+  - the swipe up from the bottom edge, whose AOSP thresholds are the status bar
+    height for start and distance alike (`SystemGesturesPointerEventListener`,
+    24 dp here) -- a scroll gesture that happens to start near the bottom edge is
+    enough, and the bar then sits on top of the reader's own bottom 90 px;
+  - the power-button panic gesture: turning the screen off and on again within
+    `config_immersive_mode_confirmation_panic` (5 s) reveals both bars;
+  - every other transient-bar request (a hovering mouse, the pending-panic path).
+
+This patch adds the state the reader can ask for: a Settings.Global entry
+`readom_nav_locked` of our own -- a literal name, not a new constant in
+`Settings.java`, because a new constant would change framework.jar and the ART
+boot image with it, and every application in /data would be recompiled at the next
+upgrade. When it is 1:
+
+  - the bottom edge swipe is tightened to 12 dp from the edge, 120 dp of travel and
+    600 ms, and is the only thing that may reveal the bar; the panic gesture, the
+    pending-panic path and every other transient request are refused;
+  - a reveal is taken away again after 2 s, and at once if the finger leaves within
+    250 ms of the reveal (a flick, not a request to use the bar);
+  - SystemUI's hide button (patch 0077) asks for the state and for the bar to go
+    away now through the broadcast `org.readom.policy.SET_NAV_LOCK`; that same
+    button's long press asks for it back, which also drops `policy_control` so the
+    bar stays up until the next boot.
+
+`BarController.hideTransientNow()` is the one new method on the policy side: a
+transient bar cannot be hidden with `setBarShowingLw(false)` alone, because its own
+state machine keeps it up until the request is denied.
+
+Everything above is inert unless `readom_nav_locked` is 1. The boot service writes
+it only on this model (`nav=hide` in readom.conf), so a build of this patch for PW3
+behaves exactly as it does today.
+
+Not run on a device yet when this patch was written; the verification list is in
+`../../../readom-port/reports/t09-nav-impl.md`.
+
+diff --git a/services/core/java/com/android/server/policy/PhoneWindowManager.java b/services/core/java/com/android/server/policy/PhoneWindowManager.java
+--- a/services/core/java/com/android/server/policy/PhoneWindowManager.java
++++ b/services/core/java/com/android/server/policy/PhoneWindowManager.java
+@@ -650,6 +650,52 @@
+     // If nonzero, a panic gesture was performed at that time in uptime millis and is still pending.
+     private long mPendingPanicGestureUptime;
+ 
++    // Readom: the navigation bar can be locked hidden. The state is a Settings.Global entry of
++    // its own rather than a new constant in Settings.java: a new constant would change
++    // framework.jar and the ART boot image with it, recompiling every application in /data at
++    // the next upgrade. Everything below is inert unless readom_nav_locked is 1, which the boot
++    // service writes on this model only.
++    private static final String READOM_NAV_LOCKED = "readom_nav_locked";
++    private static final String READOM_NAV_ACTION = "org.readom.policy.SET_NAV_LOCK";
++    private static final String READOM_NAV_EXTRA_LOCKED = "locked";
++    private static final String READOM_NAV_POLICY = "immersive.navigation=*";
++    // A locked bar is revealed only by a swipe that starts within READOM_NAV_BOTTOM_START_DP of
++    // the bottom edge and travels READOM_NAV_BOTTOM_DISTANCE_DP up within the timeout. AOSP's own
++    // bottom edge thresholds are the status bar height (24 dp) for both start and distance, small
++    // enough that a scroll gesture that happens to start near the bottom edge reveals the bar.
++    private static final int READOM_NAV_BOTTOM_START_DP = 12;
++    private static final int READOM_NAV_BOTTOM_DISTANCE_DP = 120;
++    private static final long READOM_NAV_BOTTOM_TIMEOUT_MS = 600;
++    // How long a revealed bar stays up, and what still counts as a flick (see onUpOrCancel()).
++    private static final long READOM_NAV_REVEAL_MS = 2000;
++    private static final long READOM_NAV_FLICK_MS = 250;
++
++    private boolean mReadomNavLock;
++    private boolean mReadomNavReveal;
++    private long mReadomNavRevealUptime;
++
++    private final Runnable mReadomNavHide = new Runnable() {
++        @Override
++        public void run() {
++            synchronized (mWindowManagerFuncs.getWindowManagerLock()) {
++                if (!mReadomNavReveal) return;
++                readomHideNavBarLw();
++                mWindowManagerFuncs.reevaluateStatusBarVisibility();
++            }
++        }
++    };
++
++    private final BroadcastReceiver mReadomNavReceiver = new BroadcastReceiver() {
++        @Override
++        public void onReceive(Context context, Intent intent) {
++            if (!READOM_NAV_ACTION.equals(intent.getAction())) return;
++            final boolean locked = intent.getBooleanExtra(READOM_NAV_EXTRA_LOCKED, true);
++            synchronized (mWindowManagerFuncs.getWindowManagerLock()) {
++                readomSetNavLockLw(locked);
++            }
++        }
++    };
++
+     InputConsumer mInputConsumer = null;
+ 
+     static final Rect mTmpParentFrame = new Rect();
+@@ -978,6 +1024,9 @@
+             resolver.registerContentObserver(Settings.Global.getUriFor(
+                     Settings.Global.POLICY_CONTROL), false, this,
+                     UserHandle.USER_ALL);
++            resolver.registerContentObserver(Settings.Global.getUriFor(
++                    READOM_NAV_LOCKED), false, this,
++                    UserHandle.USER_ALL);
+             updateSettings();
+         }
+ 
+@@ -1270,7 +1319,7 @@
+         boolean panic = mImmersiveModeConfirmation.onPowerKeyDown(interactive,
+                 SystemClock.elapsedRealtime(), isImmersiveMode(mLastSystemUiFlags),
+                 isNavBarEmpty(mLastSystemUiFlags));
+-        if (panic) {
++        if (panic && !mReadomNavLock) {
+             mHandler.post(mHiddenNavPanic);
+         }
+ 
+@@ -2039,6 +2088,12 @@
+         filter = new IntentFilter(Intent.ACTION_USER_SWITCHED);
+         context.registerReceiver(mMultiuserReceiver, filter);
+ 
++        // Readom: the navigation bar's own hide button (SystemUI, patch 0077) asks for the lock
++        // through this broadcast, so that a tap takes the bar away at once instead of waiting
++        // for the next re-evaluation of the system bar flags.
++        filter = new IntentFilter(READOM_NAV_ACTION);
++        context.registerReceiver(mReadomNavReceiver, filter);
++
+         // monitor for system gestures
+         mSystemGestures = new SystemGesturesPointerEventListener(context,
+                 new SystemGesturesPointerEventListener.Callbacks() {
+@@ -2051,6 +2106,17 @@
+                     @Override
+                     public void onSwipeFromBottom() {
+                         if (mNavigationBar != null && mNavigationBarPosition == NAV_BAR_BOTTOM) {
++                            if (mReadomNavLock) {
++                                // Readom: the listener only reports this gesture once it started
++                                // within the bottom edge and travelled the locked distance up, so
++                                // it is a request for the bar -- but only for a moment.
++                                synchronized (mWindowManagerFuncs.getWindowManagerLock()) {
++                                    mReadomNavReveal = true;
++                                    mReadomNavRevealUptime = SystemClock.uptimeMillis();
++                                    mHandler.removeCallbacks(mReadomNavHide);
++                                    mHandler.postDelayed(mReadomNavHide, READOM_NAV_REVEAL_MS);
++                                }
++                            }
+                             requestTransientBars(mNavigationBar);
+                         }
+                     }
+@@ -2084,6 +2150,16 @@
+                     @Override
+                     public void onUpOrCancel() {
+                         mOrientationListener.onTouchEnd();
++                        if (mReadomNavLock && mReadomNavReveal
++                                && SystemClock.uptimeMillis() - mReadomNavRevealUptime
++                                        < READOM_NAV_FLICK_MS) {
++                            // Readom: a flick that is over as soon as it is recognised is not an
++                            // attempt to use the bar; take it away again at once.
++                            synchronized (mWindowManagerFuncs.getWindowManagerLock()) {
++                                readomHideNavBarLw();
++                                mWindowManagerFuncs.reevaluateStatusBarVisibility();
++                            }
++                        }
+                     }
+                     @Override
+                     public void onMouseHoverAtTop() {
+@@ -2106,6 +2182,7 @@
+                 });
+         mImmersiveModeConfirmation = new ImmersiveModeConfirmation(mContext);
+         mWindowManagerFuncs.registerPointerEventListener(mSystemGestures);
++        applyReadomNavBottomSwipeLw();
+ 
+         mVibrator = (Vibrator)context.getSystemService(Context.VIBRATOR_SERVICE);
+         mLongPressVibePattern = getLongIntArray(mContext.getResources(),
+@@ -2367,6 +2444,19 @@
+         }
+         synchronized (mWindowManagerFuncs.getWindowManagerLock()) {
+             PolicyControl.reloadFromSetting(mContext);
++            final boolean readomNavLocked = Settings.Global.getIntForUser(
++                    mContext.getContentResolver(), READOM_NAV_LOCKED, 0,
++                    UserHandle.USER_CURRENT) != 0;
++            if (readomNavLocked != mReadomNavLock) {
++                mReadomNavLock = readomNavLocked;
++                if (readomNavLocked) {
++                    readomHideNavBarLw();
++                } else {
++                    readomForgetRevealLw();
++                }
++                applyReadomNavBottomSwipeLw();
++                mWindowManagerFuncs.reevaluateStatusBarVisibility();
++            }
+         }
+         if (updateRotation) {
+             updateRotation(true);
+@@ -6618,17 +6708,72 @@
+                     return;
+                 }
+                 mPendingPanicGestureUptime = SystemClock.uptimeMillis();
+-                if (!isNavBarEmpty(mLastSystemUiFlags)) {
++                if (!mReadomNavLock && !isNavBarEmpty(mLastSystemUiFlags)) {
+                     mNavigationBarController.showTransient();
+                 }
+             }
+         }
+     };
++
++    /** Readom: forget a reveal; the bar goes back to being hidden. Called with the lock held. */
++    private void readomForgetRevealLw() {
++        mReadomNavReveal = false;
++        mHandler.removeCallbacks(mReadomNavHide);
++    }
++
++    /** Readom: take a revealed bar away at once. Called with the window manager lock held. */
++    private void readomHideNavBarLw() {
++        readomForgetRevealLw();
++        if (mNavigationBarController != null) {
++            mNavigationBarController.hideTransientNow();
++        }
++    }
++
++    /**
++     * Readom: set the lock, persist it, and apply it to the bar now.
++     * Called with the window manager lock held.
++     */
++    private void readomSetNavLockLw(boolean locked) {
++        final ContentResolver resolver = mContext.getContentResolver();
++        Settings.Global.putInt(resolver, READOM_NAV_LOCKED, locked ? 1 : 0);
++        // The bar is hidden through policy_control, the same global the boot service writes, so
++        // the button works whether or not this start began hidden.
++        Settings.Global.putString(resolver, Settings.Global.POLICY_CONTROL,
++                locked ? READOM_NAV_POLICY : null);
++        mReadomNavLock = locked;
++        if (locked) {
++            readomHideNavBarLw();
++        } else {
++            readomForgetRevealLw();
++        }
++        applyReadomNavBottomSwipeLw();
++        mWindowManagerFuncs.reevaluateStatusBarVisibility();
++    }
++
++    /** Readom: hand the bottom edge thresholds to the gesture listener, in pixels. */
++    private void applyReadomNavBottomSwipeLw() {
++        if (mSystemGestures == null) return;
++        if (mReadomNavLock) {
++            final float density = mContext.getResources().getDisplayMetrics().density;
++            mSystemGestures.setBottomSwipeThresholds(
++                    Math.round(READOM_NAV_BOTTOM_START_DP * density),
++                    Math.round(READOM_NAV_BOTTOM_DISTANCE_DP * density),
++                    READOM_NAV_BOTTOM_TIMEOUT_MS);
++        } else {
++            mSystemGestures.resetBottomSwipeThresholds();
++        }
++    }
+ 
+     private void requestTransientBars(WindowState swipeTarget) {
+         synchronized (mWindowManagerFuncs.getWindowManagerLock()) {
+             if (!isUserSetupComplete()) {
+                 // Swipe-up for navigation bar is disabled during setup
++                return;
++            }
++            if (mReadomNavLock && swipeTarget == mNavigationBar && !mReadomNavReveal) {
++                // Readom: locked hidden. Only the swipe up from the bottom edge, which sets
++                // mReadomNavReveal before it gets here, may bring the bar back; the panic
++                // gesture, a hovering mouse and any other transient request are refused.
+                 return;
+             }
+             boolean sb = mStatusBarController.checkShowTransientBarLw();
+@@ -8086,12 +8231,14 @@
+                         && (hideStatusBarWM || (hideStatusBarSysui && immersiveSticky))));
+ 
+         final boolean transientNavBarAllowed = mNavigationBar != null
+-                && !mForceShowSystemBars && hideNavBarSysui && immersiveSticky;
++                && !mForceShowSystemBars && hideNavBarSysui && immersiveSticky
++                && (!mReadomNavLock || mReadomNavReveal);
+ 
+         final long now = SystemClock.uptimeMillis();
+         final boolean pendingPanic = mPendingPanicGestureUptime != 0
+                 && now - mPendingPanicGestureUptime <= PANIC_GESTURE_EXPIRATION;
+-        if (pendingPanic && hideNavBarSysui && !isStatusBarKeyguard() && mKeyguardDrawComplete) {
++        if (pendingPanic && hideNavBarSysui && !isStatusBarKeyguard() && mKeyguardDrawComplete
++                && !mReadomNavLock) {
+             // The user performed the panic gesture recently, we're about to hide the bars,
+             // we're no longer on the Keyguard and the screen is ready. We can now request the bars.
+             mPendingPanicGestureUptime = 0;
+diff --git a/services/core/java/com/android/server/policy/BarController.java b/services/core/java/com/android/server/policy/BarController.java
+--- a/services/core/java/com/android/server/policy/BarController.java
++++ b/services/core/java/com/android/server/policy/BarController.java
+@@ -98,6 +98,19 @@
+         }
+     }
+ 
++    /**
++     * Readom: take the bar away at once, including while it is being shown transiently.
++     * {@link #setBarShowingLw(boolean)} alone is not enough for a transient bar -- the transient
++     * state machine keeps it up until the request is denied, so the state is cleared first.
++     */
++    public void hideTransientNow() {
++        if (mWin == null) return;
++        if (mTransientBarState != TRANSIENT_BAR_NONE) {
++            setTransientBarState(TRANSIENT_BAR_NONE);
++        }
++        setBarShowingLw(false);
++    }
++
+     public boolean isTransientShowing() {
+         return mTransientBarState == TRANSIENT_BAR_SHOWING;
+     }
+diff --git a/services/core/java/com/android/server/policy/SystemGesturesPointerEventListener.java b/services/core/java/com/android/server/policy/SystemGesturesPointerEventListener.java
+--- a/services/core/java/com/android/server/policy/SystemGesturesPointerEventListener.java
++++ b/services/core/java/com/android/server/policy/SystemGesturesPointerEventListener.java
+@@ -48,6 +48,13 @@
+     private final Context mContext;
+     private final int mSwipeStartThreshold;
+     private final int mSwipeDistanceThreshold;
++    // Readom: thresholds for the swipe up from the bottom edge only. A locked navigation bar
++    // tightens them (PhoneWindowManager.applyReadomNavBottomSwipeLw) so that a scroll gesture
++    // starting near the bottom edge does not reveal the bar; the top and side gestures keep
++    // AOSP's values.
++    private int mBottomSwipeStartThreshold;
++    private int mBottomSwipeDistanceThreshold;
++    private long mBottomSwipeTimeoutMs = SWIPE_TIMEOUT_MS;
+     private final Callbacks mCallbacks;
+     private final int[] mDownPointerId = new int[MAX_TRACKED_POINTERS];
+     private final float[] mDownX = new float[MAX_TRACKED_POINTERS];
+@@ -71,8 +78,24 @@
+         mSwipeStartThreshold = checkNull("context", context).getResources()
+                 .getDimensionPixelSize(com.android.internal.R.dimen.status_bar_height);
+         mSwipeDistanceThreshold = mSwipeStartThreshold;
++        mBottomSwipeStartThreshold = mSwipeStartThreshold;
++        mBottomSwipeDistanceThreshold = mSwipeDistanceThreshold;
+         if (DEBUG) Slog.d(TAG,  "mSwipeStartThreshold=" + mSwipeStartThreshold
+                 + " mSwipeDistanceThreshold=" + mSwipeDistanceThreshold);
++    }
++
++    /** Readom: tighten the swipe up from the bottom edge, in pixels. */
++    public void setBottomSwipeThresholds(int startPx, int distancePx, long timeoutMs) {
++        mBottomSwipeStartThreshold = startPx;
++        mBottomSwipeDistanceThreshold = distancePx;
++        mBottomSwipeTimeoutMs = timeoutMs;
++    }
++
++    /** Readom: back to AOSP's thresholds for the swipe up from the bottom edge. */
++    public void resetBottomSwipeThresholds() {
++        mBottomSwipeStartThreshold = mSwipeStartThreshold;
++        mBottomSwipeDistanceThreshold = mSwipeDistanceThreshold;
++        mBottomSwipeTimeoutMs = SWIPE_TIMEOUT_MS;
+     }
+ 
+     private static <T> T checkNull(String name, T arg) {
+@@ -223,9 +246,9 @@
+                 && elapsed < SWIPE_TIMEOUT_MS) {
+             return SWIPE_FROM_TOP;
+         }
+-        if (fromY >= screenHeight - mSwipeStartThreshold
+-                && y < fromY - mSwipeDistanceThreshold
+-                && elapsed < SWIPE_TIMEOUT_MS) {
++        if (fromY >= screenHeight - mBottomSwipeStartThreshold
++                && y < fromY - mBottomSwipeDistanceThreshold
++                && elapsed < mBottomSwipeTimeoutMs) {
+             return SWIPE_FROM_BOTTOM;
+         }
+         if (fromX >= screenWidth - mSwipeStartThreshold
