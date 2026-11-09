@@ -1,0 +1,35 @@
+SELinux: let genfscon label filesystems whose behaviour is GENFS
+
+vfat has no xattrs, so files on the user store are labelled from genfscon --
+but genfscon is only consulted for a superblock marked SE_SBGENFS, and the
+3.0.35 tree marks proc, debugfs, sysfs and pstore only.  A project that needs
+one folder on the store to carry its own type (the sleep-wallpaper folder the
+display HAL reads) therefore cannot get that label.
+
+Set SE_SBGENFS whenever security_fs_use() chose SECURITY_FS_USE_GENFS.  The
+default "genfscon vfat /" still labels every other path on such a mount
+exactly as before; filesystems using xattr, mount-point or none behaviour are
+not touched.  A path with no matching genfscon entry also keeps the
+filesystem's default label.
+
+--- a/security/selinux/hooks.c
++++ b/security/selinux/hooks.c
+@@ -764,6 +764,18 @@
+ 
+ 		sbsec->def_sid = defcontext_sid;
+ 	}
++
++	/*
++	 * Filesystems without xattr support (vfat on the user store) carry
++	 * their labels from genfscon, which only applies when the superblock
++	 * is marked SE_SBGENFS.  The 3.0.35 code marks proc/debugfs/sysfs/
++	 * pstore only, so a genfscon path on vfat can never match.  Mark the
++	 * superblock whenever the filesystem's behaviour is GENFS: the default
++	 * "genfscon vfat /" still labels everything else on the mount as
++	 * before, and filesystems with another behaviour are untouched.
++	 */
++	if (sbsec->behavior == SECURITY_FS_USE_GENFS)
++		sbsec->flags |= SE_SBGENFS;
+ 
+ 	rc = sb_finish_set_opts(sb);
+ out:

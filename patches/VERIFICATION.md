@@ -44,3 +44,13 @@ been asked.** "No" is an acceptable answer as long as it is written down.
 | `aosp-frameworks-base/0074-pw3-nothing-closing-is-nothing-to-keep.patch` | Yes, for the problem: the line `keeping 0 screen(s)` in the device log of 2026-11-03 (Issue #2 a), and the loop after it turning zero times. The change is one guard; nothing about the device was assumed. | **No.** Written 2026-11-04. What to watch for: on the next image, a transition past its deadline with nothing closing logs no `PW3: the deadline passed` line at all, and the X1-X7 runs of 2026-11-04 read the same (each had a closing application). | This row; section 3a of the takeover notes for the X runs it must not change. |
 | `aosp-frameworks-base/0075-pw3-a-usb-switch-gets-the-time-this-machine-needs.patch` | Yes, for the problem: `waitForState(mtp,adb) FAILED: got none` then `Failsafe 1` in the first-boot logs of builds g, h and i (2026-11-04), and init's own lines putting the handler 1.19-2.07 s after the request, behind four `bootstat` execs. The change is one count; the multiplier is the one patch 0012 already reads. | **No.** Written 2026-11-04. What to watch for: on the next image, a boot with adb on and the cable in ends with `sys.usb.state=mtp,adb` and a computer that sees product 4EE2 with an MTP device; the log has no `waitForState` failure. | This row; section 3f of the takeover notes for the boot logs. |
 | `aosp-frameworks-opt-net-wifi/0004-wifi-idle-timer-counts-awake-time-and-yields-to-the-screen.patch` | Yes, for the problem: `dumpsys wifi` records of 2026-11-04 (CMD_DEVICE_IDLE 11:43:37.783 and CMD_SCREEN_ON .786 three milliseconds apart; the idle switch-off at 11:21:22 instead of 11:06:13) and the device log; AlarmManagerService's non-wakeup delay read in the source. | **No.** Written 2026-11-04. What to watch for: on the next image, screen off with a cable in switches Wi-Fi off after one minute (not sixteen); waking the device after a screen-off never leaves `Wi-Fi is disabled` with `curState=DeviceActiveState`; the log line `PW3: idle timer with the screen on; ignored` may appear at a wake and nothing follows it. | This row; section 3f of the takeover notes. |
+
+## Kernel patch 1061 (SELinux genfs labels for vfat)
+
+`android-core/1061-selinux-genfs-labels-for-vfat.patch` sets `SE_SBGENFS` when
+`superblock_doinit()` chose `SECURITY_FS_USE_GENFS`, so a `genfscon vfat`
+path can label the sleep-wallpaper folder on the user store. Nothing else about
+the mount changes: the default `genfscon vfat /` still labels every other path
+`vfat`, and filesystems with another behaviour are untouched. **Not run on the
+device yet (2026-11-10)**: it is built into the v8.8-exp kernel; the emulator
+label gate is the first check and no device has booted it.
