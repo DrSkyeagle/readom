@@ -399,6 +399,7 @@ static bool mounted_readonly(const char *path, unsigned long magic, bool noexec,
 static void testfile_documents_bind(void);
 static void testfile_kindle_root_view(void);
 static void testfile_sleepwall_dir(void);
+static void testfile_sleepwall_label(void);
 static void testfile_nav_marker(void);
 static void preinit_nav_settings(void);
 static bool preinit_cmdline_has(const char *token);
@@ -491,6 +492,7 @@ static bool testfile_handover_store(const char *fat) {
     testfile_documents_bind();
     testfile_kindle_root_view();
     testfile_sleepwall_dir();
+    testfile_sleepwall_label();
     testfile_nav_marker();
     report("hand-over store mounted read-write at /kindle-us; android/ covered by read-only tmpfs");
     return true;
@@ -744,6 +746,50 @@ static void testfile_sleepwall_dir(void) {
     char line[64];
     snprintf(line, sizeof(line), "PW3_SLEEPWALL mkdir=%d",
              mkdir_ram("/kindle-us/sleepwall", 0775) ? 0 : -1);
+    report(line);
+}
+
+
+/* Readom v8.8 (T10): the sleep-wallpaper folder needs its own SELinux type so
+ * the display HAL may read it in enforcing. vfat is a genfs filesystem whose
+ * genfscon does not take effect on this kernel (the vfat driver has no
+ * SE_SBGENFS), so everything under /kindle-us carries the vfat label and the
+ * HAL is refused. A second, read-only mount of the same FAT with context=
+ * gives the folder the pw3_sleepwall_file label; binding that copy over the
+ * folder in the read-write view is what the HAL ends up reading.
+ *
+ * The type is declared by device/amazon/pw3/sepolicy/pw3_sleepwall.te (T10),
+ * which the system image's policy build compiles in. Best effort: without the
+ * label the HAL falls back to the picture that ships in the image, so a failure
+ * is one log line and the boot goes on. */
+static void testfile_sleepwall_label(void) {
+    static const char options[] =
+        "context=u:object_r:pw3_sleepwall_file:s0,utf8=1,codepage=437,"
+        "shortname=mixed,uid=0,gid=0,umask=0022";
+    char line[160];
+    int mkdir_rc = -1, mount_rc = -1, bind_rc = -1, saved_errno = 0;
+    if (mkdir_ram("/kindle-us/sleepwall", 0775) && mkdir_ram("/pw3-sleepwall", 0775))
+        mkdir_rc = 0;
+    else
+        saved_errno = errno;
+    if (mkdir_rc == 0 && mount("/dev/block/dm-0", "/pw3-sleepwall", "vfat",
+                               MS_RDONLY | MS_NOSUID | MS_NODEV | MS_NOEXEC, options) == 0)
+        mount_rc = 0;
+    else if (mkdir_rc == 0)
+        saved_errno = errno;
+    if (mount_rc == 0 &&
+        mount("/pw3-sleepwall/sleepwall", "/kindle-us/sleepwall", NULL, MS_BIND, NULL) == 0)
+        bind_rc = 0;
+    else if (mount_rc == 0)
+        saved_errno = errno;
+    if (mount_rc == 0 && bind_rc != 0) {
+        /* A label view that is not bound over the folder serves nobody. */
+        umount("/pw3-sleepwall");
+    }
+    snprintf(line, sizeof(line),
+             "PW3_STORAGE sleepwall_mount=%d mkdir=%d mount=%d bind=%d errno=%d",
+             (mkdir_rc == 0 && mount_rc == 0 && bind_rc == 0) ? 0 : -1,
+             mkdir_rc, mount_rc, bind_rc, saved_errno);
     report(line);
 }
 
