@@ -71,8 +71,14 @@ int main() {
     expectPixel(png, 1, 0, 0, 255, 0, 128);
 
     // Refused: a picture this device cannot hold, before anything is allocated.
+    // The limits are a memory budget for the display process (Png.h), so the
+    // test pins them as well: a change there has to be a change here.
+    CHECK(pw3::PngMaxSide == 4096);
+    CHECK(pw3::PngMaxPixels == 4000000);
+    CHECK(pw3::PngMaxBytes == 16LL * 1024 * 1024);
     CHECK(!pw3::decodePng(kOversizedSide, kOversizedSideSize, &png));
-    CHECK(!pw3::decodePng(kOversizedPixels, kOversizedPixelsSize, &png));
+    CHECK(!pw3::decodePng(kOverPixels, kOverPixelsSize, &png));          // 4,002,000 pixels
+    CHECK(!pw3::decodePng(kOversizedPixels, kOversizedPixelsSize, &png));  // 16,000,000 pixels
     // Refused: not a PNG at all, cut short, and nothing to read.
     unsigned char broken[sizeof(kRgba2x2)];
     std::memcpy(broken, kRgba2x2, sizeof(broken));
@@ -94,9 +100,28 @@ int main() {
     if (f) std::fclose(f);
     CHECK(!pw3::loadPng(empty.c_str(), &missing));
     CHECK(!pw3::loadPng(nullptr, &missing));
+    // A file at the size limit is read, one byte past it is not: the limit is
+    // checked on the file's own size, before it is read into memory.
+    const std::string atLimit = directory + "/at-limit.png";
+    f = std::fopen(atLimit.c_str(), "wb");
+    CHECK(f != nullptr);
+    if (f) {
+        CHECK(std::fwrite(kRgba2x2, 1, kRgba2x2Size, f) == kRgba2x2Size);
+        CHECK(std::fseek(f, long(pw3::PngMaxBytes) - 1, SEEK_SET) == 0);   // zero-filled tail
+        CHECK(std::fputc(0, f) == 0);
+        std::fclose(f);
+    }
+    CHECK(pw3::loadPng(atLimit.c_str(), &png));   // the PNG decoder ignores what follows IEND
+    CHECK(png.width == 2 && png.height == 2);
+    f = std::fopen(atLimit.c_str(), "ab");
+    CHECK(f != nullptr);
+    if (f) { std::fputc(0, f); std::fclose(f); }
+    CHECK(!pw3::loadPng(atLimit.c_str(), &png));
+    CHECK(png.rgba.empty());
 
     unlink((directory + "/wallpaper.png").c_str());
     unlink(empty.c_str());
+    unlink(atLimit.c_str());
     rmdir(directory.c_str());
     std::printf(failures ? "PNG_TEST_FAILED %d\n" : "PNG_TEST_PASS%.0d\n", failures);
     return failures != 0;

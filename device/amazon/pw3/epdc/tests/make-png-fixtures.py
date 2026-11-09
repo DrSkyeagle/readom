@@ -11,9 +11,10 @@ an image somebody once chose.
 
 Pillow writes the 8-bit ones (RGBA, grey, palette with a transparent entry);
 the 16-bit one has no Pillow mode that round-trips, so it is written chunk by
-chunk. The two oversized ones are the 2x2 RGBA picture with only its IHDR
+chunk. The oversized ones are the 2x2 RGBA picture with only its IHDR
 dimensions changed -- what a decoder has to refuse before it allocates a
-picture this device cannot hold.
+picture this device cannot hold: one past the side limit, one just past the
+pixel limit, and one far past it.
 """
 import io
 import os
@@ -81,6 +82,9 @@ def main():
         'kRgb16x1': raw_png(1, 1, 16, 2, [struct.pack('>HHH', 0x1234, 0x5678, 0x9ABC)]),
     }
     fixtures['kOversizedSide'] = with_dimensions(fixtures['kRgba2x2'], 8000, 2)
+    # Just past the pixel limit (4,000,000) and well past it; the side stays
+    # inside PngMaxSide, so these are refused by the pixel count alone.
+    fixtures['kOverPixels'] = with_dimensions(fixtures['kRgba2x2'], 2001, 2000)
     fixtures['kOversizedPixels'] = with_dimensions(fixtures['kRgba2x2'], 4000, 4000)
 
     text = io.StringIO()

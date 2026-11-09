@@ -24,14 +24,22 @@ struct Png {
     int width = 0, height = 0;
     std::vector<uint8_t> rgba;  // width * height * 4 bytes, straight alpha, row after row
 };
-// The largest picture that is decoded. The panel is 1072 x 1448 and the display
-// process has 512 MB of RAM in total: a photograph larger than this is refused
-// rather than attempted, and the sleep picture falls back to the PGM.
+// The largest picture decoded, and the largest file read. A file past either is
+// refused before stb_image allocates anything, and the sleep picture falls back
+// to the PGM it always had -- a wallpaper is worth a fallback, not a risk to the
+// display process.
+//
+// The numbers are a memory budget, not a picture-quality one: the panel is
+// 1072 x 1448 (1.6 MP), so anything above that is scaled down anyway, and the
+// display process has 512 MB in total. A 4 MP RGBA picture costs 16 MB decoded;
+// with the file in memory, stb_image's own buffer and the copy this decoder
+// makes, the worst case (an interlaced PNG) is about 64 MB, and about 32 MB in
+// the ordinary case. 12 MP and a 32 MB file were what this was first written
+// with, and that is roughly 128 MB at a first sleep: T14 measured it as a risk
+// of taking SurfaceFlinger down on the device, so the limits came down with it.
 constexpr int PngMaxSide = 4096;
-constexpr long long PngMaxPixels = 12LL * 1000 * 1000;  // 48 MB as RGBA once decoded
-// The largest file read. A PNG of the panel's size is under 2 MB; this is well
-// past any wallpaper and still small enough to read into one buffer.
-constexpr long long PngMaxBytes = 32LL * 1024 * 1024;
+constexpr long long PngMaxPixels = 4000000;             // 4 megapixels; 16 MB as RGBA
+constexpr long long PngMaxBytes = 16LL * 1024 * 1024;   // a 4 MP RGBA PNG cannot be larger
 // Decodes the picture in `size` bytes at `data`. False: not a PNG, a PNG this
 // build does not carry a decoder for, or one past the limits above.
 bool decodePng(const uint8_t* data, size_t size, Png* out);
