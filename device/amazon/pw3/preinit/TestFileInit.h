@@ -509,6 +509,7 @@ int main(void) {
      * before the exec, while the SELinux policy is not loaded yet. */
     if (!testfile_handover_store(fat))
         report("the read-write hand-over store is not available this start");
+    preinit_nav_settings();
     if (!mkdir_ram("/system", 0755) || mount(system, "/system", "ext4", MS_RDONLY | MS_NODEV, "noload,errors=remount-ro") ||
         !mounted_readonly("/system", 0xef53, false, false) || !hash_regular("/init", cfg.init_sha) ||
         (cfg.adb_key && !hash_regular("/adb_keys", cfg.adb_sha)) || !testfile_physical(&cfg))
