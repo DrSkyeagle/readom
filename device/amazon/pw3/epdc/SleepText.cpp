@@ -114,4 +114,11 @@ void SleepText::row(int y, uint8_t* luma, int width, uint8_t ink) const {
         out[x] = uint8_t((out[x] * (255 - a) + ink * a + 127) / 255);
     }
 }
+
+bool SleepText::lineSpan(int y, int* left, int* right) const {
+    if (!lineWidth_ || y < top_ || y >= top_ + height_) return false;
+    if (left) *left = left_;
+    if (right) *right = left_ + lineWidth_;
+    return true;
+}
 }  // namespace pw3

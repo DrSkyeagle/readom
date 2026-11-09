@@ -31,6 +31,12 @@ public:
     // Writes the placed line into row `y` of a picture (luma, `width` bytes), in `ink`.
     void row(int y, uint8_t* luma, int width, uint8_t ink) const;
     int height() const { return height_; }
+    // The part of row `y` the placed line covers, in the picture's columns:
+    // false when the line is not on that row. The wallpaper leaves the frame
+    // before it showing through its transparent pixels, except where this says
+    // the line is: a line over something the eye is meant to recognise would be
+    // the one part of the screen the picture cannot have (SleepWallpaper.h).
+    bool lineSpan(int y, int* left, int* right) const;
 private:
     struct Piece { std::string text; int x, width; };
     int stripWidth_ = 0, height_ = 0;

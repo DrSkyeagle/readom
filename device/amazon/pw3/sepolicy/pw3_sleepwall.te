@@ -1,0 +1,50 @@
+# SPDX-License-Identifier: Apache-2.0
+# The sleep wallpapers (docs in sleep/README.md) are the user's own pictures:
+# they are put in a folder on the store, which preinit mounts read-write at
+# /kindle-us while the policy is not loaded yet (preinit/PreInit.c,
+# testfile_handover_store), so the folder and its files carry the vfat label.
+# The display HAL reads them when the screen goes off
+# (gralloc/framebuffer.cpp, wallpaperSleepLocked); nothing else SurfaceFlinger
+# does touches the store.
+#
+# Why not an allow on vfat: the base policy forbids it. In AOSP 8.1
+# system/sepolicy/private/surfaceflinger.te:
+#     neverallow surfaceflinger sdcard_type:file rw_file_perms;
+# vfat is in sdcard_type (public/file.te: `type vfat, sdcard_type, fs_type,
+# mlstrustedobject;`), so any read allow from surfaceflinger to vfat:file is
+# refused by checkpolicy -- the first version of this file was exactly that and
+# did not compile (env-auditor, 2026-11-10). A type of our own is the way out.
+#
+# Why the kernel needs a patch for genfscon: on this kernel (Lab126 3.0.35)
+# security/selinux/hooks.c sets SE_SBGENFS in selinux_set_mnt_opts() only for
+# proc, debugfs, sysfs and pstore; without that flag inode_doinit() gives a vfat
+# inode the superblock's label instead of looking the path up (hooks.c, the
+# `default:` branch with `sbsec->flags & SE_SBGENFS`), so a genfscon rule for
+# vfat is ignored and everything stays `vfat`. The fix is two lines in that
+# function, adding vfat to the same test (env-auditor / T13 kernel patch 1061).
+# With it, genfscon below labels /kindle-us/sleepwall and its files.
+#
+# Why this rule is ordered correctly: genfs paths are matched first-prefix by
+# the kernel (security_genfs_sid), so `/` and `/sleepwall` both match a file in
+# this folder. The compiled policy keeps the rules sorted by path length,
+# longest first (checkpolicy/policy_define.c, define_genfs_context_helper), so
+# `/sleepwall` is tried before `/`. That is the single-policy path this device
+# builds (`PRODUCT_FULL_TREBLE_OVERRIDE := false`); a Treble-style CIL build
+# sorts genfscon by path ascending instead and would put `/` first.
+#
+# genfscon paths are relative to the root of the mounted filesystem: dm-0 is
+# mounted at /kindle-us, so `/sleepwall` is /kindle-us/sleepwall. This also
+# means the folder must not be reached through a bind mount -- a bind mount's
+# root is its own `/` and the label would fall back to vfat.
+#
+# The search on vfat:dir is for the walk into the mount, not for reading files:
+# looking up "sleepwall" checks search on the parent, which is the vfat root
+# inode (the mount root), before the kernel steps into the labelled directory.
+# The neverallow above is on files, so this one compiles; it does not let
+# SurfaceFlinger open anything on the store except the wallpapers, whose type
+# grants only read.
+type pw3_sleepwall_file, file_type, data_file_type;
+genfscon vfat /sleepwall u:object_r:pw3_sleepwall_file:s0
+allow surfaceflinger vfat:dir search;
+allow surfaceflinger pw3_sleepwall_file:dir r_dir_perms;
+allow surfaceflinger pw3_sleepwall_file:file r_file_perms;

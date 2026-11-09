@@ -12,6 +12,7 @@
 #include "../epdc/Dither.h"
 #include "../epdc/Picture.h"
 #include "../epdc/SleepText.h"
+#include "../epdc/SleepWallpaper.h"
 #include <hardware/fb.h>
 #include <log/log.h>
 #include <cutils/properties.h>
@@ -26,6 +27,7 @@
 #include <new>
 #include <pthread.h>
 #include <stdexcept>
+#include <string>
 #include <sys/mman.h>
 #include <vector>
 
@@ -397,6 +399,112 @@ bool placeSleepLine(pw3::SleepText* text, bool chinese, int width, int height) {
     const auto pieces = pw3::sleepLine(chinese, clock ? &local : nullptr, batteryPercent());
     return !pieces.empty() && text->place(pieces, width / 2, 10, width, height);
 }
+// The folder of sleep wallpapers (README.md, sleep/): on the store the user
+// sees, the same FAT the documents bind comes from (preinit, /kindle-us), so
+// pictures are added the way the installer's files are added -- over USB, from
+// a PC. The second folder is the copy that ships in the image, for a start
+// whose SELinux policy does not reach the store yet (sepolicy/pw3_sleepwall.te).
+constexpr const char* kSleepWallpaperDir = "/kindle-us/sleepwall";
+constexpr const char* kBakedSleepWallpaperDir = "/system/usr/share/pw3/sleepwall";
+// The picture shown last, by name so that it is looked up again after the
+// folder changed, and not shown twice in a row while there is a choice. Kept for
+// the life of the process: a reboot starts over, and the first sleep after it
+// may repeat the last picture of the start before.
+std::string lastWallpaper;
+
+// The end of both sleep pictures: everything, with GC16 (GL16 would leave the
+// page faintly inside it), then the waveform is waited for so that the caller
+// can power the panel down without cutting an update in half (opsSleep).
+bool sleepUpdateLocked(Device* d, int w, int h) {
+    const int rc = send(d, {pw3::Rect{0, 0, w, h}, pw3::Waveform::Gc16, true});
+    if (rc) { ++d->failures; d->panel->invalidate(); ALOGE("Sleep picture update failed: %d", rc); return false; }
+    d->panel->assumeShown(visiblePixels(d), d->fixed.line_length);
+    d->lastUpdateNs = nanoseconds();
+    pthread_cond_broadcast(&d->wake);
+    waitIdle(d);
+    return true;
+}
+
+// A wallpaper from the folder, over the frame the panel was showing, instead of
+// the picture that ships in the image (SleepWallpaper.h). True: the panel holds
+// it. False: nothing was drawn and the caller shows the picture instead -- a
+// missing or unreadable folder, a picture this build cannot read, or a panel
+// whose contents this process does not know, in which case there is no frame to
+// show through and no wallpaper to draw it over.
+bool wallpaperSleepLocked(Device* d, bool chinese, int w, int h) {
+    if (!property_get_bool("debug.pw3.sleepwall.enabled", true)) return false;
+    if (d->panel->needsFull()) return false;
+    char directory[PROPERTY_VALUE_MAX];
+    property_get("debug.pw3.sleepwall.dir", directory, kSleepWallpaperDir);
+    std::string folder = directory;
+    std::vector<std::string> names = pw3::wallpapersIn(folder.c_str());
+    if (names.empty() && folder != kBakedSleepWallpaperDir) {
+        folder = kBakedSleepWallpaperDir;
+        names = pw3::wallpapersIn(folder.c_str());
+    }
+    if (names.empty()) {
+        // Said once per process: this runs at every sleep, and a folder that is
+        // not there is a setting, not a fault.
+        static bool complained = false;
+        if (!complained) {
+            complained = true;
+            ALOGW("sleep wallpaper: no .png in %s; the sleep picture shows instead", folder.c_str());
+        }
+        return false;
+    }
+    // The one shown last, by name: the folder may have gained or lost pictures.
+    int previous = -1;
+    for (size_t i = 0; i < names.size(); ++i) {
+        if (names[i] == lastWallpaper) { previous = int(i); break; }
+    }
+    int index = pw3::pickWallpaper(int(names.size()), previous, pw3::wallpaperRandom());
+    // A picture that cannot be read -- half copied from a PC, or a format this
+    // build carries no decoder for -- must not lose the sleep picture: the next
+    // one is tried, and the picture that ships in the image is the last resort.
+    pw3::Wallpaper wallpaper;
+    int chosen = -1;
+    for (size_t attempt = 0; attempt < names.size(); ++attempt) {
+        const int candidate = (index + int(attempt)) % int(names.size());
+        const std::string path = folder + "/" + names[size_t(candidate)];
+        if (pw3::loadWallpaper(path.c_str(), w, h, &wallpaper)) { chosen = candidate; break; }
+        ALOGW("sleep wallpaper: %s is not a picture this build can read", path.c_str());
+    }
+    if (chosen < 0) return false;
+    // Only now is the framebuffer written: the driver reads it when an update
+    // starts, and nothing may be queued that has not ended.
+    waitIdle(d);
+    try {
+        pw3::SleepText text;
+        const bool line = placeSleepLine(&text, chinese, w, h);
+        pw3::WallpaperPainter painter(w, h, d->panel->policy().contrast);
+        painter.setWallpaper(&wallpaper);
+        if (line) painter.setText(&text, 90);
+        // What the panel shows now, in luma for the blend and in level bytes for
+        // the pixels the picture leaves alone. Neither changes while this runs:
+        // the composer's thread writes the canvas under this same lock.
+        const uint8_t* const canvas = d->panel->canvas();
+        const uint8_t* const shown = d->panel->shown();
+        uint8_t* const fb = visiblePixels(d);
+        for (int y = 0; y < h; ++y) {
+            painter.row(y, canvas + size_t(y) * size_t(w), shown + size_t(y) * size_t(w),
+                        fb + size_t(y) * d->fixed.line_length);
+        }
+    } catch (const std::exception&) {
+        // Nothing that can throw runs after the first row (the painter's own
+        // construction does, before it); the picture path repaints every row.
+        ALOGE("Sleep wallpaper could not be painted");
+        return false;
+    }
+    static bool announced = false;
+    if (!announced) {
+        announced = true;
+        ALOGI("Sleep wallpaper: %s/%s (%zu pictures)", folder.c_str(), names[size_t(chosen)].c_str(), names.size());
+    }
+    if (!sleepUpdateLocked(d, w, h)) return false;
+    lastWallpaper = names[size_t(chosen)];
+    return true;
+}
+
 // Before the panel is powered down: the sleep picture, all of the screen with
 // GC16 (GL16 would leave the page faintly inside it), then the waveform ends.
 // An e-ink panel keeps what it shows: without it, the page would stay on the
@@ -405,19 +513,9 @@ bool placeSleepLine(pw3::SleepText* text, bool chinese, int width, int height) {
 // panel state then holds the picture, so the first frame after waking changes
 // only what differs from it. Without a picture, only the grey levels of what
 // is still in its first pass are shown.
-void opsSleep(framebuffer_device_t* api) {
-    Device* d = device(api);
-    Hold hold(&d->lock);
-    // From here until the first frame after waking, nothing else may update the
-    // panel: the caller powers it down as soon as this returns, and a picture
-    // whose update is cut off by that is the one thing a repaint cannot help --
-    // the screen is repainted on the way back up, by SurfaceFlinger's own
-    // complete frame.
-    d->asleep = true;
-    d->recover = false;
-    const bool chinese = chineseSystem();
+void pictureSleepLocked(Device* d, bool chinese, int w, int h) {
     FILE* picture = pw3::openPicture(chinese ? "/system/usr/share/pw3/sleep-zh.pgm" : "/system/usr/share/pw3/sleep-en.pgm",
-                                                               d->panel->width(), d->panel->height());
+                                     w, h);
     if (!picture) {
         ALOGE("Sleep picture could not be opened");
         settleLocked(d);
@@ -426,7 +524,6 @@ void opsSleep(framebuffer_device_t* api) {
     }
     // The driver reads the framebuffer when an update starts: nothing may still be queued.
     waitIdle(d);
-    const int w = d->panel->width(), h = d->panel->height();
     bool complete = false;
     try {
         pw3::SleepText text;
@@ -450,13 +547,32 @@ void opsSleep(framebuffer_device_t* api) {
         d->panel->invalidate();
         return;
     }
-    const int rc = send(d, {pw3::Rect{0, 0, w, h}, pw3::Waveform::Gc16, true});
-    if (rc) { ++d->failures; d->panel->invalidate(); ALOGE("Sleep picture update failed: %d", rc); return; }
-    d->panel->assumeShown(visiblePixels(d), d->fixed.line_length);
-    d->lastUpdateNs = nanoseconds();
-    pthread_cond_broadcast(&d->wake);
-    waitIdle(d);
+    sleepUpdateLocked(d, w, h);
 }
+
+// Before the panel is powered down. An e-ink panel keeps what it shows, so
+// without a picture here the page would stay on the screen; a picture drawn on
+// the way out also means the first frame after waking changes only what differs
+// from it. A wallpaper from the user's folder is preferred, with the frame
+// before it showing through its transparent pixels; the picture that ships in
+// the image is the fallback, and the grey levels of what is still in its first
+// pass are the fallback below that (Panel::settle).
+void opsSleep(framebuffer_device_t* api) {
+    Device* d = device(api);
+    Hold hold(&d->lock);
+    // From here until the first frame after waking, nothing else may update the
+    // panel: the caller powers it down as soon as this returns, and a picture
+    // whose update is cut off by that is the one thing a repaint cannot help --
+    // the screen is repainted on the way back up, by SurfaceFlinger's own
+    // complete frame.
+    d->asleep = true;
+    d->recover = false;
+    const bool chinese = chineseSystem();
+    const int w = d->panel->width(), h = d->panel->height();
+    if (wallpaperSleepLocked(d, chinese, w, h)) return;
+    pictureSleepLocked(d, chinese, w, h);
+}
+
 void opsDescribe(framebuffer_device_t* api, char* text, int size) {
     Device* d = device(api);
     Hold hold(&d->lock);

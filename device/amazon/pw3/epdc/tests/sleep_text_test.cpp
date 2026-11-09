@@ -50,6 +50,14 @@ int main() {
         const int want = x == 12 || x == 13 ? 60 : x >= 17 && x <= 19 ? (200 * 127 + 60 * 128 + 127) / 255 : 200;
         CHECK(row[x] == want);
     }
+    // Where the line is: the wallpaper leaves what the panel already shows
+    // through its transparent pixels, except under the line (SleepWallpaper.h).
+    int left = -1, right = -1;
+    CHECK(!text.lineSpan(2, &left, &right));                  // above the line
+    CHECK(text.lineSpan(4, &left, &right) && left == 12 && right == 20);
+    CHECK(text.lineSpan(6, &left, &right) && left == 12 && right == 20);
+    CHECK(!text.lineSpan(7, &left, &right));                  // below it
+    CHECK(text.lineSpan(4, nullptr, nullptr));
     // A broken index is refused.
     f = std::fopen(index.c_str(), "w"); std::fputs("pw3-sleep-glyphs 1\n6 3 x\n", f); std::fclose(f);   // past the strip's end
     CHECK(!text.load(strip.c_str(), index.c_str()));

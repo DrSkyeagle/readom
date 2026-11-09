@@ -178,3 +178,14 @@ path = "LICENSE"
 precedence = "closest"
 SPDX-FileCopyrightText = "2004 The Apache Software Foundation"
 SPDX-License-Identifier = "Apache-2.0"
+
+# stb_image v2.30, unmodified, from https://github.com/nothings/stb
+# (device/amazon/pw3/sleep/third_party/README.md). Dual public domain / MIT; the
+# MIT text in LICENSES/ is what this entry names, and without the entry the
+# catch-all above would record somebody else's library as this project's own
+# work under Apache-2.0 -- the fault this file's test was written for.
+[[annotations]]
+path = "device/amazon/pw3/sleep/third_party/stb_image.h"
+precedence = "closest"
+SPDX-FileCopyrightText = "Sean Barrett and the stb contributors"
+SPDX-License-Identifier = "MIT"
