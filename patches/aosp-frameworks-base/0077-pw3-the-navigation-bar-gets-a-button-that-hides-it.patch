@@ -165,7 +165,7 @@ new file mode 100644
 +     See the License for the specific language governing permissions and
 +     limitations under the License.
 +-->
-+<!-- Readom: a chevron pointing down onto a line -- "take the bar away". Black, because the
++<!-- Readom: a chevron pointing down onto a line, "take the bar away". Black, because the
 +     navigation bar on this panel is opaque white (patch 0015). -->
 +<vector xmlns:android="http://schemas.android.com/apk/res/android"
 +    android:width="24dp"
