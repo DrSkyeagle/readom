@@ -1,6 +1,6 @@
 > **This is a personal fork.**
 >
-> Upstream: [hbyxabc/readom](https://github.com/hbyxabc/readom). This fork carries the **Kindle Voyage (7th gen, firmware 5.13.6)** port in branch **`voyage`**, submitted upstream as Pull Request [#26](https://github.com/hbyxabc/readom/pull/26).
+> Upstream: [hbyxabc/readom](https://github.com/hbyxabc/readom). This fork carries the **Kindle Voyage (7th gen, firmware 5.13.6)** port in branch `voyage`. Upstream PR [#26](https://github.com/hbyxabc/readom/pull/26) was closed without merging — the rw store mount, the skipped storage check and the shared kernel-patch series would weaken the PW3 safety boundary, and I agree with that call. Merge progress and the plan for smaller PRs are tracked in port Issue [#27](https://github.com/hbyxabc/readom/issues/27).
 >
 > Verified on hardware (Voyage / 5.13.6): install → Android 8.1 boots; Wi‑Fi, display and standby OK; WeRead runs; returning to the stock system works. Enabled: **page-turn haptics**, **PagePress zones split top/bottom (previous/next)**, **the stock `documents/` folder appears as Android internal storage** (read-only, no duplicate copy), and the **navigation bar is hidden by default** (swipe up from the very bottom edge inside an app to peek; `nav=show` in `documents/readom.conf` restores it; `keymap=1/2/3` changes the key layout).
 >

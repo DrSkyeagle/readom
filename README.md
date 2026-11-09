@@ -1,21 +1,20 @@
 > **这是一个个人 fork / This is a personal fork**
 >
-> 上游项目：[hbyxabc/readom](https://github.com/hbyxabc/readom)。本 fork 只用来做 **Kindle Voyage（第 7 代，固件 5.13.6）** 的适配与真机验证，代码在 **oyage** 分支，已向上游提交 Pull Request：[#26](https://github.com/hbyxabc/readom/pull/26)。
+> 上游项目：[hbyxabc/readom](https://github.com/hbyxabc/readom)。本 fork 做 **Kindle Voyage（第 7 代，固件 5.13.6）** 的适配与真机验证，代码在 `voyage` 分支。
 >
-> 真机已验证（KV 第 7 代 / 5.13.6）：安装后进入 Android 8.1；Wi‑Fi、显示、待机正常；微信读书可用；可正常回原厂系统。已启用：**翻页振动**、**PagePress 上下分区翻页**、**原厂 documents/ 出现在 Android「内部存储」**（只读、不占双份空间）、**导航栏默认隐藏**（应用内从最底边上划临时唤出，documents/readom.conf 写 
-av=show 可恢复；同文件 keymap=1/2/3 可切键位）。
+> - 上游 PR [#26](https://github.com/hbyxabc/readom/pull/26) 已被维护者关闭（未合并）：rw 挂载原厂盘、跳过存储检查、共用内核补丁序列这三处会削弱 PW3 的安全边界，我认同这个判断。合并进度与后续小 PR 计划见 **移植 Issue [#27](https://github.com/hbyxabc/readom/issues/27)**。
+> - **发行包**（安装器 zip：`Readom.sh` + 190 MB 离线载荷 + 中文安装说明）：[voyage-v8.7](https://github.com/DrSkyeagle/readom/releases/tag/voyage-v8.7)
 >
-> **发行包**（安装器 zip，含 Readom.sh + 190 MB 离线载荷 + 中文安装说明）：<https://github.com/DrSkyeagle/readom/releases/tag/voyage-v8.7>
+> 真机已验证（KV 第 7 代 / 5.13.6）：安装后进入 Android 8.1；Wi‑Fi、显示、待机正常；微信读书可用（建议 1.88 版）；可正常回原厂系统。已启用：**翻页振动**、**PagePress 上下分区翻页**、**原厂 `documents/` 以只读形式出现在 Android「内部存储」**（不占双份空间）、**导航栏默认隐藏**（应用内从屏幕最底边上划可临时唤出；`documents/readom.conf` 写 `nav=show` 后重启永久恢复，同文件 `keymap=1/2/3` 可切换键位）。
 >
-> 安装方式与上游一致：把 documents/Readom.sh 和离线载荷放进 documents/，书库点 **Readom**。以下内容均为上游原文档，未作修改。
+> 安装方式与上游一致：把 `documents/Readom.sh` 和离线载荷放进 `documents/`，书库点 **Readom**。以下内容均为上游原文档，未作修改。
 
 > **安装第三方应用（APK）的说明**：这套 Android 系统**没有内置应用安装器**（PackageInstaller 界面），在文件管理器里点 APK 不会弹出安装界面。可以改用 adb 安装：
 >
-> 1. 在 Android 里打开 **设置 → 关于平板电脑**，连点"版本号"7 次开启开发者选项；
+> 1. 在 Android 里打开 **设置 → 关于平板电脑**，连点“版本号”7 次开启开发者选项；
 > 2. 进入 **开发者选项**，打开 **USB 调试**；
 > 3. 用数据线把 Kindle 连到电脑（Kindle 需处于 Android 系统，不是原厂系统），电脑上装好 platform-tools；
-> 4. 电脑执行 db devices（Kindle 上弹出授权时勾选"始终允许"），然后 db install 应用.apk。
-
+> 4. 电脑执行 `adb devices`（Kindle 上弹出授权时勾选“始终允许”），然后 `adb install 应用.apk`。
 <h1 align="center">
   <a href="https://readom.app">
     <picture>
