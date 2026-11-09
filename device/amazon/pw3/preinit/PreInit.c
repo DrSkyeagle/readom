@@ -752,16 +752,30 @@ static void testfile_sleepwall_dir(void) {
  * re-shows the navigation bar through policy_control. The marker is a plain
  * rootfs file: Android's rc starts a oneshot shell service after
  * sys.boot_completed, and that service only reads this two-word file. */
-static void testfile_nav_marker(void) {
+static bool nav_wanted_show(bool *from_conf) {
     char buf[512];
-    bool show = false, from_conf = false;
-    if (preinit_read_small("/kindle-us/readom.conf", buf, sizeof(buf))) {
-        for (char *p = strtok(buf, " \t\r\n"); p; p = strtok(NULL, " \t\r\n")) {
-            if (!strcmp(p, "nav=show")) { show = true; from_conf = true; }
-            else if (!strcmp(p, "nav=hide")) { show = false; from_conf = true; }
-        }
+    bool show = false;
+    if (from_conf) *from_conf = false;
+    if (!preinit_read_small("/kindle-us/readom.conf", buf, sizeof(buf))) return false;
+    for (char *p = strtok(buf, " \t\r\n"); p; p = strtok(NULL, " \t\r\n")) {
+        if (!strcmp(p, "nav=show")) { show = true; if (from_conf) *from_conf = true; }
+        else if (!strcmp(p, "nav=hide")) { show = false; if (from_conf) *from_conf = true; }
     }
-    preinit_write_text("/readom-nav", show ? "show\n" : "hide\n", show ? 5 : 5);
+    return show;
+}
+
+/* The marker is a diagnostic only: v8.6 found it is never written unless initramfs carries the
+ * file already, and a preference routed through it could be lost silently. So the marker is
+ * created here when it is missing, and the preference itself is read straight from the store. */
+static void testfile_nav_marker(void) {
+    bool from_conf = false;
+    bool show = nav_wanted_show(&from_conf);
+    int fd = open("/readom-nav", O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, 0644);
+    if (fd >= 0) {
+        const char *text = show ? "show\n" : "hide\n";
+        write(fd, text, 5);
+        close(fd);
+    }
     char line[96];
     snprintf(line, sizeof(line), "PW3_NAV nav=%s src=%s", show ? "show" : "hide",
              from_conf ? "conf" : "default");
@@ -769,34 +783,40 @@ static void testfile_nav_marker(void) {
 }
 
 
-/* Readom v8.7: navigation-bar preference.
+/* Readom v8.7 / T09: navigation-bar preference.
  *
- * The rc-service route does not work on this image: a service whose script lives
- * on rootfs has no SELinux domain ("does not have a SELinux domain defined"), and
- * even the shell domain cannot read /readom-navbar.sh. So the preference is
- * applied where the policy is not loaded yet: PID 1 rewrites SettingsProvider's
- * global database before the service starts. The file is owned system:system
- * (1000:1000); the original is backed up once, the replacement is written to a
- * temporary file, fsynced, has the original mode and security.selinux copied
- * onto it, and is renamed over the original. Any failure leaves the original
- * untouched and is only a log line -- the navigation bar simply keeps its
- * previous state.
+ * Two SettingsProvider rows tell the Android side what to do with the navigation bar:
+ *
+ *   policy_control      "immersive.navigation=*" hides the bar (nav=hide); absent leaves the
+ *                       system's own behaviour (nav=show).
+ *   readom_nav_locked   "1" asks the framework patch (aosp-frameworks-base 0076) to let the bar
+ *                       back only for a deliberate swipe up from the bottom edge, and to refuse
+ *                       the power-button panic gesture and every other transient request; "0"
+ *                       restores AOSP's reveal rules. A boot without the framework patch simply
+ *                       ignores the row.
+ *
+ * The rc-service route does not work on this image: a service whose script lives on rootfs has no
+ * SELinux domain ("does not have a SELinux domain defined"), and even the shell domain cannot read
+ * /readom-navbar.sh. So the preference is applied where the policy is not loaded yet: PID 1
+ * rewrites SettingsProvider's global database before the service starts. The file is owned
+ * system:system (1000:1000); the original is backed up once, the replacement is written to a
+ * temporary file, fsynced, has the original mode and security.selinux copied onto it, and is
+ * renamed over the original. Any failure leaves the original untouched and is only a log line --
+ * the navigation bar simply keeps its previous state.
  */
 static const char *const kSettingsGlobal = "/data/system/users/0/settings_global.xml";
-static const char *const kNavMarker = "/readom-nav";
+static const char *const kNavPolicyName = "policy_control";
+static const char *const kNavLockedName = "readom_nav_locked";
+static const char *const kNavPolicyHidden = "immersive.navigation=*";
 
-static bool nav_wanted_show(void) {
-    char buf[16];
-    if (!preinit_read_small(kNavMarker, buf, sizeof(buf))) return false;
-    return !strncmp(buf, "show", 4);
-}
-
-/* Returns the offset of the first byte of the <setting> element that carries
- * name="policy_control", or (size_t)-1. The element is expected to be
- * self-closing, which is how SettingsProvider writes it in Android 8.1. */
-static size_t nav_find_setting(const char *data, size_t size, size_t *end) {
+/* Returns the offset of the first byte of the <setting> element that carries name="<name>", or
+ * (size_t)-1. The element is expected to be self-closing, which is how SettingsProvider writes it
+ * in Android 8.1. */
+static size_t nav_find_setting(const char *data, size_t size, const char *name, size_t *end) {
     (void)size;
-    const char *needle = "name=\"policy_control\"";
+    char needle[96];
+    int needle_len = snprintf(needle, sizeof(needle), "name=\"%s\"", name);
+    if (needle_len <= 0 || (size_t)needle_len >= sizeof(needle)) return (size_t)-1;
     const char *found = strstr(data, needle);
     if (!found) return (size_t)-1;
     const char *start = found;
@@ -824,23 +844,103 @@ static int nav_max_id(const char *data) {
     return max;
 }
 
+static bool nav_has_setting(const char *data, size_t size, const char *name) {
+    size_t end = 0;
+    return nav_find_setting(data, size, name, &end) != (size_t)-1;
+}
+
+/* Builds the file's contents with name="<name>" set to value, or with the element removed when
+ * remove is true, in *out. Returns false when no buffer could be built; the caller then keeps the
+ * original file. Every buffer here is one byte longer than its length, NUL-terminated. */
+static bool nav_edit_setting(const char *data, size_t size, const char *name,
+                             const char *value, bool remove, char **out, size_t *out_size) {
+    *out = NULL;
+    *out_size = 0;
+    size_t end = 0;
+    size_t start = nav_find_setting(data, size, name, &end);
+    if (remove) {
+        if (start == (size_t)-1) {           /* nothing to remove */
+            char *copy = (char *)malloc(size + 1);
+            if (!copy) return false;
+            memcpy(copy, data, size);
+            copy[size] = 0;
+            *out = copy;
+            *out_size = size;
+            return true;
+        }
+        size_t after = end;
+        while (after < size && data[after] == '\n') ++after;
+        size_t out_len = size - (after - start);
+        char *next = (char *)malloc(out_len + 1);
+        if (!next) return false;
+        memcpy(next, data, start);
+        memcpy(next + start, data + after, size - after);
+        next[out_len] = 0;
+        *out = next;
+        *out_size = out_len;
+        return true;
+    }
+    if (start != (size_t)-1) {
+        /* replace the value attribute of the existing element */
+        const char *elem = data + start;
+        const char *elem_end = data + end;
+        const char *vp = strstr(elem, "value=\"");
+        if (vp && vp < elem_end) {
+            const char *vend = memchr(vp + 7, '"', (size_t)(elem_end - (vp + 7)));
+            if (vend) {
+                size_t prefix = (size_t)(vp + 7 - data);
+                size_t suffix = size - (size_t)(vend - data);
+                size_t out_len = prefix + strlen(value) + suffix;
+                char *next = (char *)malloc(out_len + 1);
+                if (!next) return false;
+                memcpy(next, data, prefix);
+                memcpy(next + prefix, value, strlen(value));
+                memcpy(next + prefix + strlen(value), vend, suffix);
+                next[out_len] = 0;
+                *out = next;
+                *out_size = out_len;
+                return true;
+            }
+        }
+    }
+    const char *close = strstr(data, "</settings>");
+    if (!close) return false;
+    char entry[192];
+    int entry_len = snprintf(entry, sizeof(entry),
+        "    <setting id=\"%d\" name=\"%s\" value=\"%s\" package=\"com.android.shell\" />\n",
+        nav_max_id(data) + 1, name, value);
+    if (entry_len <= 0 || (size_t)entry_len >= sizeof(entry)) return false;
+    size_t offset = (size_t)(close - data);
+    size_t out_len = size + (size_t)entry_len;
+    char *next = (char *)malloc(out_len + 1);
+    if (!next) return false;
+    memcpy(next, data, offset);
+    memcpy(next + offset, entry, (size_t)entry_len);
+    memcpy(next + offset + (size_t)entry_len, data + offset, size - offset);
+    next[out_len] = 0;
+    *out = next;
+    *out_size = out_len;
+    return true;
+}
+
 static void preinit_nav_settings(void) {
-    bool show = nav_wanted_show();
-    int write_rc = -1, rows = 0, saved_errno = 0;
-    char line[128];
+    bool show = nav_wanted_show(NULL);
+    int write_rc = -1, saved_errno = 0, rows = -1, locked_row = -1;
+    char line[160];
     struct stat st;
     char *data = NULL;
     ssize_t got = 0;
     int fd = open(kSettingsGlobal, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
     if (fd < 0) {
-        snprintf(line, sizeof(line), "PW3_NAV xml=-1 write=-1 rows=-1 errno=%d", errno);
+        snprintf(line, sizeof(line), "PW3_NAV xml=-1 write=-1 rows=-1 locked=-1 errno=%d", errno);
         report(line);
         return;
     }
     if (fstat(fd, &st) || st.st_size <= 0 || st.st_size > (4 << 20)) {
         saved_errno = errno;
         close(fd);
-        snprintf(line, sizeof(line), "PW3_NAV xml=-1 write=-1 rows=-1 errno=%d", saved_errno);
+        snprintf(line, sizeof(line), "PW3_NAV xml=-1 write=-1 rows=-1 locked=-1 errno=%d",
+                 saved_errno);
         report(line);
         return;
     }
@@ -849,97 +949,54 @@ static void preinit_nav_settings(void) {
     close(fd);
     if (!data || got != st.st_size) {
         free(data);
-        snprintf(line, sizeof(line), "PW3_NAV xml=-1 write=-1 rows=-1 errno=%d", errno);
+        snprintf(line, sizeof(line), "PW3_NAV xml=-1 write=-1 rows=-1 locked=-1 errno=%d", errno);
         report(line);
         return;
     }
     data[got] = 0;
 
-    size_t end = 0;
-    size_t start = nav_find_setting(data, (size_t)got, &end);
-    const char *value = "immersive.navigation=*";
-    char *out = NULL;
-    size_t out_size = 0;
-    if (show) {
-        if (start == (size_t)-1) rows = 0;
-        else {
-            size_t before = start, after = end;
-            while (after < (size_t)got && data[after] == '\n') ++after;
-            out_size = (size_t)got - (after - before);
-            out = (char *)malloc(out_size + 1);
-            if (out) {
-                memcpy(out, data, before);
-                memcpy(out + before, data + after, (size_t)got - after);
-                out[out_size] = 0;
-            }
-        }
-    } else {
-        rows = 1;
-        if (start != (size_t)-1) {
-            /* replace the value attribute of the existing element */
-            const char *elem = data + start;
-            const char *elem_end = data + end;
-            const char *vp = strstr(elem, "value=\"");
-            if (vp && vp < elem_end) {
-                const char *vend = memchr(vp + 7, '"', (size_t)(elem_end - (vp + 7)));
-                if (vend) {
-                    size_t prefix = (size_t)(vp + 7 - data);
-                    size_t suffix = (size_t)got - (size_t)(vend - data);
-                    out_size = prefix + strlen(value) + suffix;
-                    out = (char *)malloc(out_size + 1);
-                    if (out) {
-                        memcpy(out, data, prefix);
-                        memcpy(out + prefix, value, strlen(value));
-                        memcpy(out + prefix + strlen(value), vend, suffix);
-                        out[out_size] = 0;
-                    }
-                }
-            }
-        }
-        if (!out) {
-            const char *close = strstr(data, "</settings>");
-            if (close) {
-                char entry[192];
-                int entry_len = snprintf(entry, sizeof(entry),
-                    "    <setting id=\"%d\" name=\"policy_control\" value=\"%s\" package=\"com.android.shell\" />\n",
-                    nav_max_id(data) + 1, value);
-                size_t offset = (size_t)(close - data);
-                out_size = (size_t)got + (size_t)entry_len;
-                out = (char *)malloc(out_size + 1);
-                if (out) {
-                    memcpy(out, data, offset);
-                    memcpy(out + offset, entry, (size_t)entry_len);
-                    memcpy(out + offset + (size_t)entry_len, data + offset, (size_t)got - offset);
-                    out[out_size] = 0;
-                }
-            }
+    /* policy_control hides the bar; readom_nav_locked is what keeps it hidden from everything but
+     * a deliberate bottom edge swipe. nav=show drops the first and writes 0 for the second. */
+    bool ok = true;
+    for (int which = 0; ok && which < 2; ++which) {
+        const char *name = which == 0 ? kNavPolicyName : kNavLockedName;
+        const char *value = which == 0 ? kNavPolicyHidden : (show ? "0" : "1");
+        bool remove = which == 0 && show;
+        char *next = NULL;
+        size_t next_size = 0;
+        ok = nav_edit_setting(data, (size_t)got, name, value, remove, &next, &next_size);
+        if (ok) {
+            free(data);
+            data = next;
+            got = (ssize_t)next_size;
         }
     }
-    free(data);
-    if (!out) {
-        snprintf(line, sizeof(line), "PW3_NAV xml=-1 write=-1 rows=-1 errno=%d", errno);
+    if (!ok) {
+        free(data);
+        snprintf(line, sizeof(line), "PW3_NAV xml=-1 write=-1 rows=-1 locked=-1 errno=%d", errno);
         report(line);
         return;
     }
-    if (show && start == (size_t)-1) {   /* nothing to remove */
-        write_rc = 0;
-    } else {
+    rows = nav_has_setting(data, (size_t)got, kNavPolicyName) ? 1 : 0;
+    locked_row = nav_has_setting(data, (size_t)got, kNavLockedName) ? (show ? 0 : 1) : -1;
+
+    {
         char tmp_path[256], bak_path[280];
         snprintf(tmp_path, sizeof(tmp_path), "%s.readom-tmp", kSettingsGlobal);
         snprintf(bak_path, sizeof(bak_path), "%s.readom-bak", kSettingsGlobal);
         int out_fd = open(tmp_path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, 0600);
         if (out_fd < 0) { saved_errno = errno; write_rc = -1; }
         else {
-            bool ok = write(out_fd, out, out_size) == (ssize_t)out_size;
-            if (ok) {
+            bool write_ok = write(out_fd, data, (size_t)got) == got;
+            if (write_ok) {
                 char label[128];
                 ssize_t label_len = getxattr(kSettingsGlobal, "security.selinux", label, sizeof(label));
                 if (label_len > 0) setxattr(tmp_path, "security.selinux", label, (size_t)label_len, 0);
-                ok = fchown(out_fd, 1000, 1000) == 0 && fchmod(out_fd, st.st_mode & 07777) == 0;
+                write_ok = fchown(out_fd, 1000, 1000) == 0 && fchmod(out_fd, st.st_mode & 07777) == 0;
             }
-            if (ok) ok = fsync(out_fd) == 0;
-            if (close(out_fd)) ok = false;
-            if (ok) {
+            if (write_ok) write_ok = fsync(out_fd) == 0;
+            if (close(out_fd)) write_ok = false;
+            if (write_ok) {
                 /* one backup only: keep the first pre-Readom settings file */
                 int bak_fd = open(bak_path, O_RDONLY | O_CLOEXEC);
                 if (bak_fd < 0) {
@@ -953,20 +1010,20 @@ static void preinit_nav_settings(void) {
                     if (src >= 0) close(src);
                     if (dst >= 0) close(dst);
                 } else close(bak_fd);
-                ok = rename(tmp_path, kSettingsGlobal) == 0;
-                if (ok) {
+                write_ok = rename(tmp_path, kSettingsGlobal) == 0;
+                if (write_ok) {
                     int dir = open("/data/system/users/0", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
                     if (dir >= 0) { fsync(dir); close(dir); }
                     sync();
                 } else saved_errno = errno;
             } else saved_errno = errno;
-            if (!ok) unlink(tmp_path);
-            write_rc = ok ? 0 : -1;
+            if (!write_ok) unlink(tmp_path);
+            write_rc = write_ok ? 0 : -1;
         }
     }
-    free(out);
-    snprintf(line, sizeof(line), "PW3_NAV xml=%d write=%d rows=%d errno=%d",
-             write_rc == 0 ? 0 : -1, write_rc, rows, saved_errno);
+    free(data);
+    snprintf(line, sizeof(line), "PW3_NAV xml=0 write=%d rows=%d locked=%d errno=%d",
+             write_rc == 0 ? 0 : -1, rows, locked_row, saved_errno);
     report(line);
 }
 
