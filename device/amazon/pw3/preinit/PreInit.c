@@ -674,13 +674,13 @@ static void testfile_documents_bind(void) {
 }
 
 
-/* readom.conf's nav=hide|show (default hide) selects whether the boot service
- * re-shows the navigation bar through policy_control. The marker is a plain
- * rootfs file: Android's rc starts a oneshot shell service after
- * sys.boot_completed, and that service only reads this two-word file. */
+/* readom.conf's nav=show|hide selects the navigation bar's start state. The bar is
+ * shown by default (2026-11-10, T22: readers asked for it to be visible, with a key of
+ * its own to put it away); `nav=hide` still starts every boot with it hidden. The marker
+ * is a plain rootfs file and is only a diagnostic. */
 static bool nav_wanted_show(bool *from_conf) {
     char buf[512];
-    bool show = false;
+    bool show = true;
     if (from_conf) *from_conf = false;
     if (!preinit_read_small("/kindle-us/readom.conf", buf, sizeof(buf))) return false;
     for (char *p = strtok(buf, " \t\r\n"); p; p = strtok(NULL, " \t\r\n")) {
@@ -709,17 +709,16 @@ static void testfile_nav_marker(void) {
 }
 
 
-/* Readom v8.7 / T09: navigation-bar preference.
+/* Readom v8.7 / T22: navigation-bar preference.
  *
  * Two SettingsProvider rows tell the Android side what to do with the navigation bar:
  *
- *   policy_control      "immersive.navigation=*" hides the bar (nav=hide); absent leaves the
- *                       system's own behaviour (nav=show).
- *   readom_nav_locked   "1" asks the framework patch (aosp-frameworks-base 0076) to let the bar
- *                       back only for a deliberate swipe up from the bottom edge, and to refuse
- *                       the power-button panic gesture and every other transient request; "0"
- *                       restores AOSP's reveal rules. A boot without the framework patch simply
- *                       ignores the row.
+ *   policy_control      "immersive.navigation=*" hides the bar (nav=hide); absent leaves it
+ *                       shown (the default, and what nav=show asks for).
+ *   readom_nav_locked   "1" means the reader has put the bar away through its own key (patch
+ *                       aosp-frameworks-base 0076); then it comes back only for a swipe up from
+ *                       the bottom edge, for a few seconds, and a tap on it keeps it. "0" means
+ *                       shown. A boot without the framework patch simply ignores the row.
  *
  * The rc-service route does not work on this image: a service whose script lives on rootfs has no
  * SELinux domain ("does not have a SELinux domain defined"), and even the shell domain cannot read
