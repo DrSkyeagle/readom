@@ -319,7 +319,6 @@ DEVICE_PACKAGE_OVERLAYS += $(LOCAL_PATH)/overlay
 PRODUCT_PACKAGES += \
     Provision Settings SystemUI Launcher3Go DocumentsUI PackageInstaller \
     EinkBro PinyinIME SystemWebView pw3-sleep-picture-zh pw3-sleep-picture-en \
-    pw3-sleepwall-01 pw3-sleepwall-02 pw3-sleepwall-03 \
     ExternalStorageProvider DownloadProviderUi KeyChain CertInstaller \
     CaptivePortalLogin InputDevices FusedLocation ProxyHandler \
     libEGL_swiftshader libGLESv1_CM_swiftshader libGLESv2_swiftshader \

@@ -3,7 +3,6 @@
 #include "Luma.h"
 #include <algorithm>
 #include <cctype>
-#include <cerrno>
 #include <cmath>
 #include <cstring>
 #include <ctime>
@@ -55,18 +54,11 @@ bool endsInPng(const std::string& name) {
 }
 }  // namespace
 
-std::vector<std::string> wallpapersIn(const char* directory, int* error) {
+std::vector<std::string> wallpapersIn(const char* directory) {
     std::vector<std::string> names;
-    if (error) *error = 0;
-    if (!directory || !*directory) {
-        if (error) *error = EINVAL;
-        return names;
-    }
+    if (!directory || !*directory) return names;
     DIR* dir = opendir(directory);
-    if (!dir) {
-        if (error) *error = errno;
-        return names;
-    }
+    if (!dir) return names;
     while (const dirent* entry = readdir(dir)) {
         const char* name = entry->d_name;
         // Skip "." and "..", and anything hidden: a folder that the user sees

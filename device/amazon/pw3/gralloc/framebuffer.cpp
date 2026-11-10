@@ -362,7 +362,6 @@ bool chineseSystem() {
 // empty or unreadable, and it is also what a start without the policy and
 // kernel change for the store has (sepolicy/pw3_sleepwall.te).
 constexpr const char* kSleepWallpaperDir = "/kindle-us/sleepwall";
-constexpr const char* kBakedSleepWallpaperDir = "/system/usr/share/pw3/sleepwall";
 // The picture shown last, by name so that it is looked up again after the
 // folder changed, and not shown twice in a row while there is a choice. Kept for
 // the life of the process: a reboot starts over, and the first sleep after it
@@ -397,17 +396,16 @@ bool sleepUpdateLocked(Device* d, int w, int h) {
 bool wallpaperSleepLocked(Device* d, int w, int h) {
     if (!property_get_bool("debug.pw3.sleepwall.enabled", true)) return false;
     if (d->panel->needsFull()) return false;
-    const std::string folders[] = {kSleepWallpaperDir, kBakedSleepWallpaperDir};
+    const std::string folders[] = {kSleepWallpaperDir};
     const size_t folderCount = sizeof(folders) / sizeof(folders[0]);
     // Why a folder showed nothing -- and why a picture in one could not be read
     // -- is said once per process: this runs at every sleep, and a folder that
     // is not there is a setting, not a fault.
-    static std::string complaints[2];
+    static std::string complaints[1];
     static std::vector<std::string> unreadable;
     for (size_t f = 0; f < folderCount; ++f) {
         const std::string& folder = folders[f];
         if (folder.empty()) continue;
-        if (f && folder == folders[0]) continue;  // configured to the baked folder itself
         int error = 0;
         const std::vector<std::string> names = pw3::wallpapersIn(folder.c_str(), &error);
         if (names.empty()) {

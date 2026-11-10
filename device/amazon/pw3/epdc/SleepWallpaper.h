@@ -22,12 +22,8 @@
 namespace pw3 {
 // The wallpapers in `directory`: regular files whose name ends in ".png" in any
 // case, in name order so that two starts with the same folder choose alike.
-// Empty: no such folder, nothing readable in it, or only other files. `error`,
-// when given, is why: the errno of a folder that could not be opened, or 0 when
-// it was opened and simply held no picture. The display HAL logs it, because
-// "the default pictures are showing" and "the folder is there but empty" look
-// the same on the screen and are not the same thing to a person debugging it.
-std::vector<std::string> wallpapersIn(const char* directory, int* error = nullptr);
+// Empty: no such folder, nothing readable in it, or only other files.
+std::vector<std::string> wallpapersIn(const char* directory);
 // Which of `count` to show, given the one last shown: any but that one, when
 // there is a choice. `random` is the caller's randomness, kept out of here so
 // that the rule can be tested. -1: nothing to show.
