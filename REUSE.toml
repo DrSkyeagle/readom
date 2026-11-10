@@ -189,14 +189,3 @@ path = "device/amazon/pw3/sleep/third_party/stb_image.h"
 precedence = "closest"
 SPDX-FileCopyrightText = "Sean Barrett and the stb contributors"
 SPDX-License-Identifier = "MIT"
-
-# The three default sleep wallpapers were supplied by the device owner for this
-# port's experimental builds (device/amazon/pw3/sleep/wallpapers/PW3-SOURCE.md
-# and the NOTICE beside them). They are not this project's work and are not
-# under Apache-2.0; the licence reference has no standard identifier because
-# none was granted.
-[[annotations]]
-path = "device/amazon/pw3/sleep/wallpapers/*.png"
-precedence = "closest"
-SPDX-FileCopyrightText = "The owner of the device this port is prepared for"
-SPDX-License-Identifier = "LicenseRef-UserProvided-Wallpaper"
