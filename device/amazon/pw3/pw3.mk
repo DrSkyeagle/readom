@@ -314,9 +314,12 @@ DEVICE_PACKAGE_OVERLAYS += $(LOCAL_PATH)/overlay
 # prediction nor correction (2026-10-14), and its 17 MB were a second keyboard.
 # core_base does not include the one-time AOSP setup completion activity.
 # Without Provision, user_setup_complete stays 0 and policy blocks HOME.
+# The default sleep wallpapers are modules of their own (sleep/wallpapers/):
+# a BUILD_PREBUILT module that PRODUCT_PACKAGES does not name is not installed.
 PRODUCT_PACKAGES += \
     Provision Settings SystemUI Launcher3Go DocumentsUI PackageInstaller \
     EinkBro PinyinIME SystemWebView pw3-sleep-picture-zh pw3-sleep-picture-en pw3-sleep-glyphs \
+    pw3-sleepwall-01 pw3-sleepwall-02 pw3-sleepwall-03 \
     ExternalStorageProvider DownloadProviderUi KeyChain CertInstaller \
     CaptivePortalLogin InputDevices FusedLocation ProxyHandler \
     libEGL_swiftshader libGLESv1_CM_swiftshader libGLESv2_swiftshader \
