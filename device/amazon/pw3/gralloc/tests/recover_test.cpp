@@ -24,7 +24,7 @@
 //       -I/home/builder/android-src/system/core/include
 //       -Idevice/amazon/pw3/sleep/third_party
 //       device/amazon/pw3/gralloc/tests/recover_test.cpp
-//       device/amazon/pw3/epdc/{Panel,Tone,Luma,Dither,Picture,SleepText,Png,SleepWallpaper}.cpp
+//       device/amazon/pw3/epdc/{Panel,Tone,Luma,Dither,Picture,Png,SleepWallpaper}.cpp
 //       -o /tmp/recover_test
 // which is what tools/run-tests.py gives it ('gralloc-recover'), run from the
 // root of this tree. Nothing but includes: no -D and no -lpthread, so the

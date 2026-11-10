@@ -1,16 +1,14 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""The sleep pictures and the pieces of the line written on them (README.md).
+"""The sleep pictures (README.md).
 
   make-sleep-picture.py pictures ART.png TITLE_FONT.ttf OUTDIR
       sleep-en.pgm: the art as it is (its own title, "Reading knows no forbidden zones");
       sleep-zh.pgm: the same with that title replaced by 读书无禁区.
-  make-sleep-picture.py glyphs FONT.ttf OUT.pgm OUT.txt
-      the pieces of the line "休眠于 21:47 · 10月15日 · 电量 63%" (epdc/SleepText.h).
 
 Needs Pillow and numpy. Output: 8-bit binary PGM, the screen's size (1072 x 1448, PW3).
 """
-import math, sys
+import sys
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
@@ -44,33 +42,10 @@ def pictures(art_path, font, out):
     pgm(zh, out + '/sleep-zh.pgm')
 
 
-# Every piece of the line, drawn once, side by side on one strip.
-TOKENS = (list('0123456789') + [':', '%', ' ', ' · ', '休眠于', '月', '日', '电量', 'Asleep at', 'Battery'] +
-          ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'])
-
-
-def glyphs(font, path, index):
-    small = ImageFont.truetype(font, 32)
-    ascent, descent = small.getmetrics()
-    widths = [max(1, math.ceil(small.getlength(t))) for t in TOKENS]
-    strip = Image.new('L', (sum(widths), ascent + descent), 0)
-    draw = ImageDraw.Draw(strip)
-    x, rows = 0, []
-    for token, w in zip(TOKENS, widths):
-        draw.text((x, ascent), token, font=small, fill=255, anchor='ls')   # coverage: 255 is ink
-        rows.append('%d %d %s' % (x, w, token))
-        x += w
-    pgm(strip, path)
-    with open(index, 'w', encoding='utf-8') as f:
-        f.write('pw3-sleep-glyphs 1\n' + '\n'.join(rows) + '\n')
-
-
 def main():
     args = sys.argv[1:]
     if len(args) == 4 and args[0] == 'pictures':
         pictures(*args[1:])
-    elif len(args) == 4 and args[0] == 'glyphs':
-        glyphs(*args[1:])
     else:
         raise SystemExit(__doc__)
 

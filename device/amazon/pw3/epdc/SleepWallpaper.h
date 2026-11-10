@@ -15,7 +15,6 @@
 #pragma once
 #include "Dither.h"
 #include "Png.h"
-#include "SleepText.h"
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -59,9 +58,6 @@ public:
     WallpaperPainter(int width, int height, unsigned contrast);
     // The picture to paint, fitted to the painter's size; must outlive it.
     void setWallpaper(const Wallpaper* wallpaper) { wallpaper_ = wallpaper; }
-    // The line painted over the picture (epdc/SleepText.h) and its ink luma;
-    // null: none. Pixels the line covers are never left as the frame before.
-    void setText(const SleepText* text, uint8_t ink) { text_ = text; ink_ = ink; }
     // Row `y` of the screen -> `width` level bytes. `background` is the luma of
     // the frame the panel was showing and `shown` the level bytes of its picture
     // (Panel::canvas, Panel::shown); both null: there is nothing behind, and
@@ -73,8 +69,6 @@ public:
 private:
     int width_, height_;
     const Wallpaper* wallpaper_ = nullptr;
-    const SleepText* text_ = nullptr;
-    uint8_t ink_ = 90;
     Dither dither_;
     std::vector<uint8_t> luma_;
 };

@@ -50,15 +50,6 @@ LOCAL_SRC_FILES := ../../epdc/tests/picture_test.cpp ../../epdc/Picture.cpp
 include $(BUILD_EXECUTABLE)
 
 include $(CLEAR_VARS)
-LOCAL_MODULE := pw3-sleep-text-test
-LOCAL_MODULE_TAGS := tests
-LOCAL_MODULE_PATH := $(TARGET_OUT_DATA_NATIVE_TESTS)/pw3-panel-test
-LOCAL_CLANG := true
-LOCAL_CPPFLAGS := -std=c++14 -fexceptions -Wall -Wextra -Werror -UNDEBUG
-LOCAL_SRC_FILES := ../../epdc/tests/sleep_text_test.cpp ../../epdc/SleepText.cpp ../../epdc/Picture.cpp
-include $(BUILD_EXECUTABLE)
-
-include $(CLEAR_VARS)
 # The allocator and the composer have to size a pixel the same; this says so
 # for every format either of them names.
 LOCAL_MODULE := pw3-format-test

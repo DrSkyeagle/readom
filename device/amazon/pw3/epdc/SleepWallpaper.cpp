@@ -156,12 +156,10 @@ WallpaperPainter::WallpaperPainter(int width, int height, unsigned contrast)
 void WallpaperPainter::row(int y, const uint8_t* background, const uint8_t* shown, uint8_t* out) {
     if (!out) return;
     uint8_t* const luma = luma_.data();
-    const bool covered = text_ && text_->lineSpan(y, nullptr, nullptr);
     if (!wallpaper_ || wallpaper_->width != width_ || wallpaper_->height != height_ || y < 0 || y >= height_) {
         // No picture to paint: the frame before, or paper. Never reachable from
         // opsSleep, which only constructs a painter around a loaded picture.
         for (int x = 0; x < width_; ++x) luma[x] = background ? background[x] : 255;
-        if (covered) text_->row(y, luma, width_, ink_);
         dither_.row(luma, out);
         return;
     }
@@ -178,18 +176,14 @@ void WallpaperPainter::row(int y, const uint8_t* background, const uint8_t* show
             luma[x] = uint8_t(std::min(255u, over + divide255(unsigned(background[x]) * (255u - alpha))));
         }
     }
-    if (covered) text_->row(y, luma, width_, ink_);
     dither_.row(luma, out);
     // The picture asked for nothing here: leave the pixel at the level the panel
     // already shows, so the frame before it stays exactly as it was drawn rather
     // than a dither of it. Error diffusion ran through the pixel anyway, so the
     // picture's own edges keep their brightness.
     if (!background || !shown) return;
-    int left = 0, right = 0;
-    const bool painted = text_ && text_->lineSpan(y, &left, &right);
     for (int x = 0; x < width_; ++x) {
         if (source[size_t(x) * 4 + 3] != 0) continue;
-        if (painted && x >= left && x < right) continue;
         out[x] = shown[x];
     }
 }

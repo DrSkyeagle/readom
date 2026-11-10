@@ -130,8 +130,6 @@ TESTS = [
                        'device/amazon/pw3/epdc/Dither.cpp', 'device/amazon/pw3/epdc/Tone.cpp'], False),
     ('picture', 'cpp', ['-Idevice/amazon/pw3/epdc', 'device/amazon/pw3/epdc/tests/picture_test.cpp',
                         'device/amazon/pw3/epdc/Picture.cpp'], False),
-    ('sleep-text', 'cpp', ['-Idevice/amazon/pw3/epdc', 'device/amazon/pw3/epdc/tests/sleep_text_test.cpp',
-                           'device/amazon/pw3/epdc/SleepText.cpp', 'device/amazon/pw3/epdc/Picture.cpp'], False),
     # The sleep wallpaper is a folder of PNGs the user put on the store
     # (epdc/SleepWallpaper.h): Png.h is the decoder for them, vendored stb_image
     # (sleep/third_party) behind limits this project sets, and SleepWallpaper
@@ -147,7 +145,6 @@ TESTS = [
                                 'device/amazon/pw3/epdc/Dither.cpp',
                                 'device/amazon/pw3/epdc/Tone.cpp',
                                 'device/amazon/pw3/epdc/Luma.cpp',
-                                'device/amazon/pw3/epdc/SleepText.cpp',
                                 'device/amazon/pw3/epdc/Picture.cpp'], False),
     # Two more that were written, compile on a host, and were run by nobody:
     # the low-battery rule (its own header says "g++ -std=c++14 -I.."), and the
@@ -624,7 +621,6 @@ def main():
                        'device/amazon/pw3/epdc/Panel.cpp', 'device/amazon/pw3/epdc/Tone.cpp',
                        'device/amazon/pw3/epdc/Luma.cpp', 'device/amazon/pw3/epdc/Dither.cpp',
                        'device/amazon/pw3/epdc/Picture.cpp',
-                       'device/amazon/pw3/epdc/SleepText.cpp',
                        'device/amazon/pw3/epdc/Png.cpp',
                        'device/amazon/pw3/epdc/SleepWallpaper.cpp'], True))
     else:
