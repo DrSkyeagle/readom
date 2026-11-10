@@ -57,3 +57,10 @@ allow surfaceflinger pw3_sleepwall_file:file r_file_perms;
 # nothing here lets it write.
 allow sdcardd pw3_sleepwall_file:dir create_dir_perms;
 allow sdcardd pw3_sleepwall_file:file create_file_perms;
+# A new inode whose label is this type, created on the store, needs the
+# filesystem-associate permission against the filesystem's own type (the
+# kernel audit: avc: denied { associate } for name="*.png" scontext=u:object_r:
+# pw3_sleepwall_file:s0 tcontext=u:object_r:vfat:s0 tclass=filesystem). Without
+# it FUSE/sdcardd can stat and readdir the folder but cannot create files in
+# it, so putting a wallpaper from Android failed with EACCES (T21).
+allow pw3_sleepwall_file vfat:filesystem associate;
