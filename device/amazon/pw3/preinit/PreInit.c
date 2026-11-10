@@ -1093,11 +1093,20 @@ static void preinit_nav_settings(void) {
  * A filesystem left mounted by a power cut carries a journal to replay, and
  * resize2fs refuses that ("please run e2fsck -f"). e2fsck is then run once and
  * resize2fs tried once more; e2fsck is the program the fsck option of every
- * mount table names, and it is the same one the offline resize assumes. */
-static int preinit_tool(const char *path, char *const argv[])
+ * mount table names, and it is the same one the offline resize assumes.
+ *
+ * Both tools are bionic binaries from /system and call getentropy() in their own
+ * startup, which bionic implements with open("/dev/urandom") and turns into
+ * __libc_fatal (SIGABRT) when that fails. The emulator run of 2026-11-10 was the
+ * first time either ran from this entry and both died that way: /dev is this
+ * start's own tmpfs and carried no memory character devices. TestFileInit.h now
+ * makes them before this point, and what a child was killed by is reported
+ * (`signal=`), so the next occurrence says so in one line instead of `-1`. */
+static int preinit_tool(const char *path, char *const argv[], int *signalled)
 {
     int status = 0;
     pid_t pid = fork(), got;
+    if (signalled) *signalled = 0;
     if (pid < 0) return -1;
     if (pid == 0) {
         /* The tools' own chatter is not a channel this start reads; the report
@@ -1110,28 +1119,33 @@ static int preinit_tool(const char *path, char *const argv[])
     }
     do { got = waitpid(pid, &status, 0); } while (got < 0 && errno == EINTR);
     if (got < 0) return -1;
-    if (WIFSIGNALED(status)) return -1;
+    if (WIFSIGNALED(status)) {
+        if (signalled) *signalled = WTERMSIG(status);
+        return -1;
+    }
     return WEXITSTATUS(status);
 }
 
 static bool testfile_grow_data(const char *device, uint64_t size, uint64_t fs_bytes,
         const unsigned char uuid[16])
 {
-    char line[192], node[64];
+    char line[224], node[64];
     unsigned char sb[1024];
     uint64_t got = 0;
     bool ok = false;
-    int status, check = 0;
+    int status, signal = 0, check = 0, check_signal = 0;
     if (snprintf(node, sizeof(node), "%s", device) >= (int)sizeof(node)) return false;
     char *resize[] = {"/system/bin/resize2fs", node, NULL};
     char *fsck[] = {"/system/bin/e2fsck", "-f", "-y", node, NULL};
-    status = preinit_tool("/system/bin/resize2fs", resize);
+    status = preinit_tool("/system/bin/resize2fs", resize, &signal);
     if (status != 0) {
         report("resize2fs did not grow the data filesystem; checking the filesystem first");
-        check = preinit_tool("/system/bin/e2fsck", fsck);
-        snprintf(line, sizeof(line), "PW3_STORAGE data_grow=fsck status=%d", check);
+        check = preinit_tool("/system/bin/e2fsck", fsck, &check_signal);
+        snprintf(line, sizeof(line), "PW3_STORAGE data_grow=fsck status=%d signal=%d",
+                 check, check_signal);
         report(line);
-        status = preinit_tool("/system/bin/resize2fs", resize);
+        signal = 0;
+        status = preinit_tool("/system/bin/resize2fs", resize, &signal);
     }
     int fd = open(node, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
     if (fd >= 0) {
@@ -1142,9 +1156,10 @@ static bool testfile_grow_data(const char *device, uint64_t size, uint64_t fs_by
         }
         close(fd);
     }
-    snprintf(line, sizeof(line), "PW3_STORAGE data_grow=%d from=%llu to=%llu fs=%llu status=%d",
+    snprintf(line, sizeof(line),
+             "PW3_STORAGE data_grow=%d from=%llu to=%llu fs=%llu status=%d signal=%d",
              ok ? 0 : -1, (unsigned long long)fs_bytes, (unsigned long long)size,
-             (unsigned long long)got, status);
+             (unsigned long long)got, status, signal);
     report(line);
     return ok;
 }

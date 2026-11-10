@@ -238,6 +238,41 @@ int main(void) {
         int fd = open("/dev/kmsg", O_WRONLY | O_CLOEXEC);
         if (fd >= 0) { if (kmsg_fd >= 0) close(kmsg_fd); kmsg_fd = fd; }
     }
+    /* The memory character devices, for the /system tools this start runs.
+     *
+     * /system/bin/resize2fs and e2fsck are bionic binaries and call getentropy()
+     * in their own startup; bionic implements it with open("/dev/urandom") and
+     * aborts through __libc_fatal when that fails. /dev is this start's own
+     * tmpfs and used to carry only what was made from sysfs -- console, kmsg and
+     * the block nodes -- so the one-way data image growth died on the emulator
+     * with SIGABRT from a child that had printed nothing (2026-11-10):
+     *
+     *     libc: getentropy failed
+     *
+     * /dev/null and /dev/zero are here as well because a child's chatter is
+     * redirected to /dev/null and because tools expect them to exist at all; the
+     * nodes are not fatal to make. sysfs names the numbers; the fallback is the
+     * kernel's fixed mem major (1) in case a kernel hides the class. Android
+     * replaces this /dev with its own later, so nothing here outlives the start. */
+    {
+        static const struct { const char *sysdev, *node; unsigned minor; } memory_nodes[] = {
+            {"/sys/class/mem/null/dev", "/dev/null", 3},
+            {"/sys/class/mem/zero/dev", "/dev/zero", 5},
+            {"/sys/class/mem/random/dev", "/dev/random", 8},
+            {"/sys/class/mem/urandom/dev", "/dev/urandom", 9},
+        };
+        char node_line[96];
+        unsigned made = 0, failed = 0;
+        for (unsigned i = 0; i < 4; ++i) {
+            if (node_from_sysfs(memory_nodes[i].sysdev, memory_nodes[i].node, S_IFCHR) ||
+                !mknod(memory_nodes[i].node, S_IFCHR | 0600, makedev(1, memory_nodes[i].minor)))
+                ++made;
+            else if (errno != EEXIST)
+                ++failed;
+        }
+        snprintf(node_line, sizeof(node_line), "PW3_STORAGE memory_nodes made=%u failed=%u", made, failed);
+        report(node_line);
+    }
     report(testfile_contract);
     if (!only_pseudo_mounts() || !parse_config(CONF_PATH, &cfg) || !testfile_cmdline(&cfg) ||
         !read_text("/pw3-testdata.conf", buffer, sizeof(buffer)) || !pw3_test_data_parse(buffer, &data))
