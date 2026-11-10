@@ -1,38 +1,32 @@
 From: PW3 Android port
-Subject: [PW3] The navigation bar gets its own key: one tap puts it away, one tap brings it back
+Subject: [PW3] The navigation bar gets its own key: one tap puts it away
 
-The reader asked for a way to put the navigation bar away by hand. This patch gives
-the bar one more key at the right-hand end, next to Recents: a chevron pointing down
-onto a line. A tap toggles the bar:
+The reader asked to own the bar's visibility. This patch gives the bar one more key at the
+right-hand end, next to Recents: a chevron pointing down onto a line. A tap toggles the bar
+-- patch 0076 owns the state, applies it, and puts the bar back on a swipe up from the
+bottom edge.
 
-  - while the bar is up, a tap hides it (patch 0076 writes `readom_nav_locked=1`);
-  - while the temporary bar is up after a swipe up from the bottom edge, a tap keeps
-    it up (writes 0), so the reader who wants it back does not have to swipe again.
+The nav bar's layout is a string from SystemUI's own resources -- `config_navBarLayout` in
+`packages/SystemUI/res/values/config.xml` -- and its keys are inflated from it by
+`NavigationBarInflaterView`, so this is a new token (`navlock`) and a new layout for it, not
+a change to framework-res: no resource ID that the ART boot image depends on moves. The
+button is a plain `ImageView` rather than a `KeyButtonView`, because it sends no key code.
 
-The nav bar's layout is a string from SystemUI's own resources --
-`config_navBarLayout` in `packages/SystemUI/res/values/config.xml` -- and its keys are
-inflated from it by `NavigationBarInflaterView`, so this is a new token (`navlock`)
-and a new layout for it, not a change to framework-res: no resource ID that the ART
-boot image depends on moves, and the key is inflated by the same code in the ordinary
-and the temporary bar, because both are the same view. The button is a plain
-`ImageView` rather than a `KeyButtonView`, because it sends no key code.
+The key does not touch Settings itself: it sends the broadcast introduced by patch 0076 and
+the policy side owns the state, so there is one place that decides.
 
-The key does not touch Settings itself: it sends the broadcast introduced by patch
-0076 and the policy side owns the state, so there is one place that decides.
-
-Not run on a device yet when this patch was written; the directions to run are in
+Not run on a device yet when this patch was written; how to run it is in
 `readom-port/reports/t09-nav-impl.md`.
 
 diff --git a/packages/SystemUI/res/values/config.xml b/packages/SystemUI/res/values/config.xml
 --- a/packages/SystemUI/res/values/config.xml
 +++ b/packages/SystemUI/res/values/config.xml
-@@ -339,7 +339,9 @@
+@@ -339,7 +339,8 @@
      <bool name="config_quickSettingsOnFirstPull">false</bool>
  
      <!-- Nav bar button default ordering/layout -->
 -    <string name="config_navBarLayout" translatable="false">left[.5W],back[1WC];home;recent[1WC],right[.5W]</string>
-+    <!-- Readom: navlock is the bar's own hide button (readom_nav_key.xml). A long press
-+         on it brings the bar back. -->
++    <!-- Readom: navlock is the bar's own key (readom_nav_key.xml). -->
 +    <string name="config_navBarLayout" translatable="false">left[.5W],back[1WC];home;recent[1WC],navlock[1WC],right[.5W]</string>
  
      <bool name="quick_settings_show_full_alarm">false</bool>
@@ -52,31 +46,28 @@ diff --git a/packages/SystemUI/src/com/android/systemui/statusbar/phone/Navigati
  
      private static final String TAG = "NavBarInflater";
  
++    // Readom: the navigation bar's own key (patch 0077).
 +    private static final String READOM_NAV_ACTION = "org.readom.policy.TOGGLE_NAV";
-+
 +
      public static final String NAV_BAR_VIEWS = "sysui_nav_bar";
      public static final String NAV_BAR_LEFT = "sysui_nav_bar_left";
      public static final String NAV_BAR_RIGHT = "sysui_nav_bar_right";
-@@ -61,6 +65,8 @@
+@@ -61,6 +65,7 @@
      public static final String BACK = "back";
      public static final String HOME = "home";
      public static final String RECENT = "recent";
-+    // Readom: the navigation bar's own hide button (patch 0077).
 +    public static final String NAVLOCK = "navlock";
      public static final String NAVSPACE = "space";
      public static final String CLIPBOARD = "clipboard";
      public static final String KEY = "key";
-@@ -307,6 +313,17 @@
+@@ -307,6 +312,15 @@
          return v;
      }
  
 +    /**
-+     * Readom: asks the policy side (patch 0076) for the other state of the navigation bar: a tap
-+     * while the bar is up hides it, a tap on the temporary bar after a swipe up from the bottom
-+     * edge keeps it up. The policy owns the setting, the hiding flag and the bar itself; this only
-+     * says what the reader asked for. Any application can send the same broadcast, and all that
-+     * can do is show or hide this bar, both of which the reader can undo with the same key.
++     * Readom: asks the policy side (patch 0076) for the other state of the navigation bar. The
++     * policy owns the setting and the bar; this only says what the reader asked for. Any
++     * application can send the same broadcast, and all it can do is toggle this bar.
 +     */
 +    private void readomToggleNavBar() {
 +        getContext().sendBroadcast(new Intent(READOM_NAV_ACTION));
@@ -85,7 +76,7 @@ diff --git a/packages/SystemUI/src/com/android/systemui/statusbar/phone/Navigati
      private View createView(String buttonSpec, ViewGroup parent, LayoutInflater inflater) {
          View v = null;
          String button = extractButton(buttonSpec);
-@@ -328,6 +345,14 @@
+@@ -328,6 +342,14 @@
              v = inflater.inflate(R.layout.back, parent, false);
          } else if (RECENT.equals(button)) {
              v = inflater.inflate(R.layout.recent_apps, parent, false);
@@ -104,7 +95,7 @@ diff --git a/packages/SystemUI/res/layout/readom_nav_key.xml b/packages/SystemUI
 new file mode 100644
 --- /dev/null
 +++ b/packages/SystemUI/res/layout/readom_nav_key.xml
-@@ -0,0 +1,34 @@
+@@ -0,0 +1,33 @@
 +<?xml version="1.0" encoding="utf-8"?>
 +<!-- Copyright (C) 2026 The PW3 port authors
 +
@@ -120,10 +111,9 @@ new file mode 100644
 +     See the License for the specific language governing permissions and
 +     limitations under the License.
 +-->
-+<!-- Readom: the navigation bar's own key. One tap puts the bar away; one tap on the
-+     temporary bar, after a swipe up from the bottom edge, keeps it up (patch 0076 owns
-+     that state). The icon is drawn rather than tinted from AOSP's set because this panel
-+     is a black-on-white one. -->
++<!-- Readom: the navigation bar's own key. One tap puts the bar away or brings it back
++     (patch 0076 owns that state). The icon is drawn rather than tinted from AOSP's set
++     because this panel is a black-on-white one. -->
 +<ImageView
 +    xmlns:android="http://schemas.android.com/apk/res/android"
 +    android:id="@+id/readom_nav_hide"
@@ -131,7 +121,7 @@ new file mode 100644
 +    android:layout_height="match_parent"
 +    android:layout_weight="0"
 +    android:background="?android:attr/selectableItemBackground"
-+    android:contentDescription="Hide navigation bar"
++    android:contentDescription="Hide or show the navigation bar"
 +    android:paddingTop="15dp"
 +    android:paddingBottom="15dp"
 +    android:paddingStart="@dimen/navigation_key_padding"
@@ -159,7 +149,7 @@ new file mode 100644
 +     See the License for the specific language governing permissions and
 +     limitations under the License.
 +-->
-+<!-- Readom: a chevron pointing down onto a line, "take the bar away". Black, because the
++<!-- Readom: a chevron pointing down onto a line, "put the bar away". Black, because the
 +     navigation bar on this panel is opaque white (patch 0015). -->
 +<vector xmlns:android="http://schemas.android.com/apk/res/android"
 +    android:width="24dp"

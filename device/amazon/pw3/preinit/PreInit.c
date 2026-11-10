@@ -711,14 +711,13 @@ static void testfile_nav_marker(void) {
 
 /* Readom v8.7 / T22: navigation-bar preference.
  *
- * Two SettingsProvider rows tell the Android side what to do with the navigation bar:
+ * Two SettingsProvider rows tell the Android side where the navigation bar is:
  *
- *   policy_control      "immersive.navigation=*" hides the bar (nav=hide); absent leaves it
- *                       shown (the default, and what nav=show asks for).
- *   readom_nav_locked   "1" means the reader has put the bar away through its own key (patch
- *                       aosp-frameworks-base 0076); then it comes back only for a swipe up from
- *                       the bottom edge, for a few seconds, and a tap on it keeps it. "0" means
- *                       shown. A boot without the framework patch simply ignores the row.
+ *   policy_control      "immersive.navigation=*" hides the bar; absent means shown.
+ *   readom_nav_locked   the reader's choice: "1" = put away with the bar's own key (patch
+ *                       aosp-frameworks-base 0076), "0" = shown. It survives a restart, so
+ *                       without a nav= key in readom.conf an existing value is not touched.
+ *                       A boot without the framework patch simply ignores the row.
  *
  * The rc-service route does not work on this image: a service whose script lives on rootfs has no
  * SELinux domain ("does not have a SELinux domain defined"), and even the shell domain cannot read
@@ -849,7 +848,8 @@ static bool nav_edit_setting(const char *data, size_t size, const char *name,
 }
 
 static void preinit_nav_settings(void) {
-    bool show = nav_wanted_show(NULL);
+    bool from_conf = false;
+    bool show = nav_wanted_show(&from_conf);
     int write_rc = -1, saved_errno = 0, rows = -1, locked_row = -1;
     char line[160];
     struct stat st;
@@ -880,13 +880,25 @@ static void preinit_nav_settings(void) {
     }
     data[got] = 0;
 
-    /* policy_control hides the bar; readom_nav_locked is what keeps it hidden from everything but
-     * a deliberate bottom edge swipe. nav=show drops the first and writes 0 for the second. */
+    /* The bar is shown by default. policy_control hides it; readom_nav_locked is the reader's
+     * choice and survives a restart, so without a nav= key in readom.conf an existing value is
+     * left alone. nav=show drops the policy and writes 0, nav=hide writes both. */
     bool ok = true;
-    for (int which = 0; ok && which < 2; ++which) {
-        const char *name = which == 0 ? kNavPolicyName : kNavLockedName;
-        const char *value = which == 0 ? kNavPolicyHidden : (show ? "0" : "1");
-        bool remove = which == 0 && show;
+    bool keep = !from_conf && nav_has_setting(data, (size_t)got, kNavLockedName);
+    for (int which = 0; ok && !keep && which < 2; ++which) {
+        const char *name;
+        const char *value;
+        bool remove;
+        if (which == 0) {                       /* policy_control: only for nav=hide */
+            if (!from_conf) continue;           /* shown by default: nothing to write */
+            name = kNavPolicyName;
+            value = kNavPolicyHidden;
+            remove = show;
+        } else {                                /* readom_nav_locked: 1 = put away */
+            name = kNavLockedName;
+            value = (from_conf && !show) ? "1" : "0";
+            remove = false;
+        }
         char *next = NULL;
         size_t next_size = 0;
         ok = nav_edit_setting(data, (size_t)got, name, value, remove, &next, &next_size);
@@ -895,6 +907,13 @@ static void preinit_nav_settings(void) {
             data = next;
             got = (ssize_t)next_size;
         }
+    }
+    if (keep) {
+        free(data);
+        snprintf(line, sizeof(line), "PW3_NAV nav=keep src=default write=0 rows=-1 locked=-1"
+                 " errno=0");
+        report(line);
+        return;
     }
     if (!ok) {
         free(data);
@@ -947,8 +966,10 @@ static void preinit_nav_settings(void) {
         }
     }
     free(data);
-    snprintf(line, sizeof(line), "PW3_NAV xml=0 write=%d rows=%d locked=%d errno=%d",
-             write_rc == 0 ? 0 : -1, rows, locked_row, saved_errno);
+    snprintf(line, sizeof(line), "PW3_NAV nav=%s src=%s xml=0 write=%d rows=%d locked=%d"
+             " errno=%d", from_conf ? (show ? "show" : "hide") : "show",
+             from_conf ? "conf" : "default", write_rc == 0 ? 0 : -1, rows, locked_row,
+             saved_errno);
     report(line);
 }
 
