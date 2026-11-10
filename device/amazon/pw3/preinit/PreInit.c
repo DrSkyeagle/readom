@@ -520,9 +520,11 @@ static bool testfile_handover_store(const char *fat) {
  *
  * The Android rc files load neither module, and the keys do nothing until the
  * keypad misc device has its event generation enabled and its key mapping set
- * (left page up, right page down). This runs after /system is mounted and
- * checked, before execve("/init"), so the modules can be read from the checked
- * image and loaded while module loading is still unrestricted. Best effort:
+ * (left page up, right page down). The entry carries the two modules in the
+ * initramfs (boot/build_entry.py: the system image has the rebuilt public
+ * modules only), and this runs after /system is mounted and checked, before
+ * execve("/init"), so they are loaded while module loading is unrestricted.
+ * Best effort:
  * every failure is one report() line and boot continues. readom.no-fsr=1 skips
  * the whole block (the emulator's kl05 I2C is absent and its suspend path can
  * wait on a mutex; the touch/power/display paths must stay clean).
@@ -639,8 +641,8 @@ static void testfile_pagepress(void) {
         return;
     }
     /* fsr_keypad depends on symbols exported by drv26xx_haptics: order matters. */
-    haptics = preinit_init_module("/system/vendor/lib/modules/drv26xx_haptics.ko");
-    fsr = preinit_init_module("/system/vendor/lib/modules/fsr_keypad.ko");
+    haptics = preinit_init_module("/drv26xx_haptics.ko");
+    fsr = preinit_init_module("/fsr_keypad.ko");
     preinit_program_haptics();
     keymap_value = preinit_conf_keymap();
     keymap_src = keymap_value ? "conf" : "default";
