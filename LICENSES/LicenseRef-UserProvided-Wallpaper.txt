@@ -1,0 +1,8 @@
+The three pictures in device/amazon/pw3/sleep/wallpapers/ were supplied by the
+owner of the device this port is being prepared for, to be the default sleep
+wallpapers of experimental builds of this port.
+
+They are not part of this project's Apache-2.0 licensed sources, and no licence
+is granted here for reusing them outside those builds. A build made for anyone
+else should replace or remove them; the NOTICE beside them says the same, and
+PW3-SOURCE.md records the original files and their hashes.

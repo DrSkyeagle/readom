@@ -1,0 +1,8 @@
+The three pictures in this directory (wallpaper-01.png, wallpaper-02.png,
+wallpaper-03.png) were supplied by the owner of the device this port is being
+prepared for, to be the default sleep wallpapers of experimental builds of this
+port. They were not made by this project, are not part of its Apache-2.0
+licensed sources, and no licence is granted here for reusing them outside those
+builds; a build made for anyone else should replace or remove them.
+
+Original files, dimensions and hashes: PW3-SOURCE.md.
