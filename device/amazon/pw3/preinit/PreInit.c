@@ -737,7 +737,7 @@ static void testfile_kindle_root_view(void) {
     char cover[160], docs[160], line[256];
     struct statvfs flags;
     int mkdir_rc = -1, bind_rc = -1, cover_rc = -1, rw_rc = -1, cover_ro_rc = -1;
-    int docs_ro_rc = -1, saved_errno = 0;
+    int docs_mount_rc = -1, docs_remount_rc = -1, docs_ro_rc = -1, saved_errno = 0;
     if (mkdir_ram(ROOT_VIEW_MOUNT, 0775)) mkdir_rc = 0;
     if (mkdir_rc != 0) {
         saved_errno = errno;
@@ -760,8 +760,9 @@ static void testfile_kindle_root_view(void) {
         if (cover_rc == 0 &&
             snprintf(docs, sizeof(docs), "%s/documents", ROOT_VIEW_MOUNT) < (int)sizeof(docs) &&
             mount("/data/media/0/documents", docs, NULL, MS_BIND, NULL) == 0) {
+            docs_mount_rc = 0;
             if (mount(NULL, docs, NULL, MS_REMOUNT | MS_BIND | MS_RDONLY, NULL) == 0)
-                docs_ro_rc = 0;
+                docs_remount_rc = 0;
             else
                 saved_errno = errno;
         } else {
@@ -779,13 +780,24 @@ static void testfile_kindle_root_view(void) {
                 cover_ro_rc = 0;
             else
                 saved_errno = errno;
-            if (docs_ro_rc == 0 && (statvfs(docs, &flags) || !(flags.f_flag & ST_RDONLY)))
-                docs_ro_rc = -1;
+            if (docs_mount_rc == 0 && docs_remount_rc == 0 &&
+                !statvfs(docs, &flags) && (flags.f_flag & ST_RDONLY))
+                docs_ro_rc = 0;
         }
         if (cover_rc || rw_rc || cover_ro_rc || docs_ro_rc) {   /* fail closed: withdraw the whole view */
-            if (docs_ro_rc == 0) umount(docs);
+            /* The mounts are taken down top-down and every one that was made is
+             * removed, not only the ones whose check passed: a bind left behind
+             * makes umount(ROOT_VIEW_MOUNT) fail with EBUSY, and a view left
+             * half-taken-down would show android/ un-covered. If the view still
+             * cannot be removed, an empty read-only tmpfs is put over its root
+             * so nothing on the store is reachable through it either way. */
+            if (docs_mount_rc == 0) umount(docs);
             if (cover_rc == 0) umount(cover);
-            umount(ROOT_VIEW_MOUNT);
+            if (umount(ROOT_VIEW_MOUNT)) {
+                if (mount("tmpfs", ROOT_VIEW_MOUNT, "tmpfs", MS_RDONLY | MS_NOSUID | MS_NODEV,
+                          "size=64k,nr_inodes=8"))
+                    saved_errno = errno;
+            }
         }
     }
     snprintf(line, sizeof(line),
