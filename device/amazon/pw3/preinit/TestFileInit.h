@@ -540,15 +540,36 @@ int main(void) {
      * kernel for the new size with an ioctl this kernel does not have (ext4
      * online resize arrived in 3.7; this is 3.0.35), and because an offline
      * resize is the transaction that does not depend on either side's version.
-     * Nothing has this filesystem open by now -- the application sweep and the
-     * system record are done -- so the unmount is the whole of the exclusion.
+     * No file of it is open by now -- the application sweep and the system
+     * record are done -- but the hand-over above has bound two views of the
+     * store into it (documents/ and the root view, the latter with its tmpfs
+     * cover on android/), and VFS refuses to unmount a filesystem that has
+     * mounts below it (EBUSY). They are this start's own, made a few lines
+     * above, and nothing has seen them yet (Android has not started); they are
+     * released here and made again below, on the resized filesystem. A build
+     * that skipped this left the resized filesystem at its old size while the
+     * log said it had grown (found on the emulator, 2026-11-10).
      *
      * Best effort with respect to the start: a shrink no, an image grown and a
      * filesystem still of its old size is a device that boots with the space it
      * had, and the next start tries again. Only losing /data altogether is a
      * stop, because there is nothing to hand Android then. */
     if (data_grow) {
+        /* The order is the order they are stacked in: the cover inside the root
+         * view, the root view itself, documents/. Their absence is not an error
+         * -- each of the two views is best effort in the hand-over. */
+        static const char *const views[] = {"/data/media/0/kindle/android",
+            "/data/media/0/kindle", "/data/media/0/documents"};
+        char grow_line[128];
+        unsigned released = 0, held = 0;
         report("the data filesystem is smaller than its image; growing it in place");
+        for (unsigned i = 0; i < 3; ++i) {
+            if (!umount(views[i]) || errno == EINVAL || errno == ENOENT) ++released;
+            else ++held;
+        }
+        snprintf(grow_line, sizeof(grow_line), "PW3_STORAGE grow_release views=%u held=%u errno=%d",
+                 released, held, held ? errno : 0);
+        report(grow_line);
         if (umount("/data")) {
             report("the data filesystem could not be unmounted; this start uses it at its present size");
         } else {
@@ -557,6 +578,12 @@ int main(void) {
             if (mount(userdata, "/data", "ext4", MS_NOSUID | MS_NODEV | MS_NOATIME,
                       "errors=remount-ro,data=ordered,barrier=1") || !testfile_mounted("/data", 0xef53, false, false))
                 stop("the data filesystem could not be mounted again after growing it");
+            /* The two views the hand-over made are made again on the filesystem
+             * that now has its size. Their own fail-closed behaviour is
+             * unchanged: each withdraws itself if it cannot be made whole. The
+             * store they are bound from (/kindle-us) was not touched. */
+            testfile_documents_bind();
+            testfile_kindle_root_view();
         }
     }
     /* PagePress keys: load the two modules from the checked /system and
