@@ -6,10 +6,12 @@ LOCAL_PATH := $(call my-dir)
 # listed with their licence in the device's NOTICE; the NOTICE beside this file
 # is that licence.
 #
-# Each is also in PRODUCT_PACKAGES (device/amazon/pw3/pw3.mk): a prebuilt that
-# PRODUCT_PACKAGES does not name is defined and then not installed, which is a
-# build that silently ships no default wallpaper (found in the v8.9 plumbing,
-# 2026-11-10).
+# This makefile is included from the parent (../Android.mk, all-makefiles-under):
+# the build's own scan stops at a directory that has an Android.mk, so a nested
+# one is never found on its own. Each module is also in PRODUCT_PACKAGES
+# (device/amazon/pw3/pw3.mk): a prebuilt that PRODUCT_PACKAGES does not name is
+# defined and then not installed, which is a build that silently ships no default
+# wallpaper (both found in the v8.9 plumbing, 2026-11-10).
 include $(CLEAR_VARS)
 LOCAL_MODULE := pw3-sleepwall-01
 LOCAL_MODULE_CLASS := ETC

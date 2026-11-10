@@ -36,3 +36,11 @@ LOCAL_MODULE_STEM := sleep-glyphs.txt
 LOCAL_SRC_FILES := sleep-glyphs.txt
 LOCAL_MODULE_PATH := $(TARGET_OUT)/usr/share/pw3
 include $(BUILD_PREBUILT)
+
+# The default wallpapers live in wallpapers/ with their own makefile. The build
+# finds makefiles with first-makefiles-under (findleaves.py), which stops
+# descending as soon as it meets one -- so this directory's Android.mk hides
+# wallpapers/ from that scan, and the wallpapers are only defined because they
+# are included from here. Without this line the modules exist in no build and
+# the image silently ships without them (found in the v8.9 plumbing, 2026-11-10).
+include $(call all-makefiles-under,$(LOCAL_PATH))
