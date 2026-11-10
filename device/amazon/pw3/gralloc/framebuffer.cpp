@@ -11,12 +11,12 @@
 #include "../epdc/EpdcContract.h"
 #include "../epdc/Dither.h"
 #include "../epdc/Picture.h"
-#include "../epdc/SleepText.h"
 #include "../epdc/SleepWallpaper.h"
 #include <hardware/fb.h>
 #include <log/log.h>
 #include <cutils/properties.h>
 #include <atomic>
+#include <algorithm>
 #include <cerrno>
 #include <climits>
 #include <ctime>
@@ -354,51 +354,6 @@ bool chineseSystem() {
     if (property_get("persist.sys.locale", locale, "") <= 0) property_get("ro.product.locale", locale, "");
     return !strncmp(locale, "zh", 2);
 }
-// Battery level in percent, or -1.
-//
-// -1 is a deliberate "unknown", and the sleep line simply leaves the battery out
-// when it comes back. What was missing until 2026-10-21 was any way to tell
-// "could not read it" from "read it and it did not parse" -- the second is a
-// kernel that changed, the first is usually a permission. Said once per process,
-// because this runs on every sleep.
-int batteryPercent() {
-    static bool complained = false;
-    const char* const path = "/sys/class/power_supply/max77696-battery/capacity";
-    FILE* f = fopen(path, "re");
-    int percent = -1;
-    if (!f) {
-        if (!complained) { complained = true; ALOGW("sleep line: cannot read %s: %s", path, strerror(errno)); }
-        return -1;
-    }
-    if (fscanf(f, "%d", &percent) != 1) {
-        percent = -1;
-        if (!complained) { complained = true; ALOGW("sleep line: %s does not read as a number", path); }
-    }
-    fclose(f);
-    return percent;
-}
-// The line on the sleep picture, centred along its top edge: when the device went to
-// sleep, the date and the battery level (epdc/SleepText.h). False: none.
-bool placeSleepLine(pw3::SleepText* text, bool chinese, int width, int height) {
-    // No line is a deliberate fallback -- the sleep picture is drawn either way
-    // -- but the glyphs are files in this image, so failing to load them means
-    // either the image is wrong or something refused the read, and neither
-    // should be invisible. Said once per process: this runs on every sleep.
-    static bool complained = false;
-    if (!text->load("/system/usr/share/pw3/sleep-glyphs.pgm", "/system/usr/share/pw3/sleep-glyphs.txt")) {
-        if (!complained) {
-            complained = true;
-            ALOGW("sleep line: the glyph strip or its index could not be loaded (%s); the "
-                  "sleep picture gets no line", strerror(errno));
-        }
-        return false;
-    }
-    const time_t now = time(nullptr);
-    std::tm local{};
-    const bool clock = localtime_r(&now, &local) != nullptr;
-    const auto pieces = pw3::sleepLine(chinese, clock ? &local : nullptr, batteryPercent());
-    return !pieces.empty() && text->place(pieces, width / 2, 10, width, height);
-}
 // The folder of sleep wallpapers (README.md, sleep/): on the store the user
 // sees, the same FAT the documents bind comes from (preinit, /kindle-us), so
 // pictures are added the way the installer's files are added -- over USB, from
@@ -439,16 +394,16 @@ bool sleepUpdateLocked(Device* d, int w, int h) {
 // the last resort. Every sleep says which of the three it showed: "the default
 // pictures are on the screen" and "the folder was empty" look the same to a
 // person and are not the same thing to whoever is checking a build.
-bool wallpaperSleepLocked(Device* d, bool chinese, int w, int h) {
+bool wallpaperSleepLocked(Device* d, int w, int h) {
     if (!property_get_bool("debug.pw3.sleepwall.enabled", true)) return false;
     if (d->panel->needsFull()) return false;
-    char configured[PROPERTY_VALUE_MAX];
-    property_get("debug.pw3.sleepwall.dir", configured, kSleepWallpaperDir);
-    const std::string folders[] = {configured, kBakedSleepWallpaperDir};
+    const std::string folders[] = {kSleepWallpaperDir, kBakedSleepWallpaperDir};
     const size_t folderCount = sizeof(folders) / sizeof(folders[0]);
-    // Why a folder showed nothing is said once per process: this runs at every
-    // sleep, and a missing folder is a setting, not a fault.
+    // Why a folder showed nothing -- and why a picture in one could not be read
+    // -- is said once per process: this runs at every sleep, and a folder that
+    // is not there is a setting, not a fault.
     static std::string complaints[2];
+    static std::vector<std::string> unreadable;
     for (size_t f = 0; f < folderCount; ++f) {
         const std::string& folder = folders[f];
         if (folder.empty()) continue;
@@ -478,21 +433,24 @@ bool wallpaperSleepLocked(Device* d, bool chinese, int w, int h) {
             const int candidate = (index + int(attempt)) % int(names.size());
             const std::string path = folder + "/" + names[size_t(candidate)];
             if (pw3::loadWallpaper(path.c_str(), w, h, &wallpaper)) { chosen = candidate; break; }
-            ALOGW("sleep wallpaper: %s is not a picture this build can read", path.c_str());
+            if (std::find(unreadable.begin(), unreadable.end(), path) == unreadable.end() && unreadable.size() < 16) {
+                unreadable.push_back(path);
+                ALOGW("sleep wallpaper: %s is not a picture this build can read", path.c_str());
+            }
         }
         if (chosen < 0) {
-            ALOGW("sleep wallpaper: nothing in %s could be read; trying the next folder", folder.c_str());
+            if (complaints[f] != "no readable picture") {
+                complaints[f] = "no readable picture";
+                ALOGW("sleep wallpaper: nothing in %s could be read", folder.c_str());
+            }
             continue;
         }
         // Only now is the framebuffer written: the driver reads it when an update
         // starts, and nothing may be queued that has not ended.
         waitIdle(d);
         try {
-            pw3::SleepText text;
-            const bool line = placeSleepLine(&text, chinese, w, h);
             pw3::WallpaperPainter painter(w, h, d->panel->policy().contrast);
             painter.setWallpaper(&wallpaper);
-            if (line) painter.setText(&text, 90);
             // What the panel shows now, in luma for the blend and in level bytes for
             // the pixels the picture leaves alone. Neither changes while this runs:
             // the composer's thread writes the canvas under this same lock.
@@ -540,15 +498,12 @@ void pictureSleepLocked(Device* d, bool chinese, int w, int h) {
     waitIdle(d);
     bool complete = false;
     try {
-        pw3::SleepText text;
-        const bool line = placeSleepLine(&text, chinese, w, h);
         pw3::Dither dither(w, d->panel->policy().contrast);
         std::vector<uint8_t> row(static_cast<size_t>(w));
         complete = true;
         for (int y = 0; y < h && complete; ++y) {
             complete = fread(row.data(), 1, row.size(), picture) == row.size();
             if (!complete) break;
-            if (line) text.row(y, row.data(), w, 90);
             dither.row(row.data(), visiblePixels(d) + size_t(y) * d->fixed.line_length);
         }
     } catch (const std::exception&) {
@@ -583,7 +538,7 @@ void opsSleep(framebuffer_device_t* api) {
     d->recover = false;
     const bool chinese = chineseSystem();
     const int w = d->panel->width(), h = d->panel->height();
-    if (wallpaperSleepLocked(d, chinese, w, h)) return;
+    if (wallpaperSleepLocked(d, w, h)) return;
     // Said every sleep as well: the line a test looks for when it wants to know
     // that the wallpaper was tried and which of the three sources showed.
     ALOGI("Sleep wallpaper: none; the sleep picture that ships in the image is shown");

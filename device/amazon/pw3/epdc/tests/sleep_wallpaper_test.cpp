@@ -3,7 +3,6 @@
 // it is fitted to the panel, and what its transparent pixels leave of the frame
 // the panel was showing.
 #include "../SleepWallpaper.h"
-#include "../SleepText.h"
 #include "../Tone.h"
 #include "png_fixtures.h"
 #include <cerrno>
@@ -186,45 +185,9 @@ int main() {
         const int expected = int(luma[64 + divide255(200u * 127u)]);
         CHECK(std::fabs(meanLuminance(12, out, W, 2, 2, W - 2, H - 2) - expected) <= 0.02 * 65535);
     }
-    // The sleep line is painted over the picture and is never left as the frame
-    // before, even where the picture is transparent.
+    // Without a picture set, a row is painted as paper rather than left as
+    // whatever was in the buffer: the caller has nothing to catch.
     {
-        const std::string strip = path("glyphs.pgm"), index = path("glyphs.txt");
-        FILE* f = std::fopen(strip.c_str(), "wb");
-        CHECK(f != nullptr);
-        if (f) {
-            std::fputs("P5\n8 4\n255\n", f);
-            for (int y = 0; y < 4; ++y) {
-                const unsigned char row[8] = {255, 255, 128, 128, 128, 0, 0, 0};
-                std::fwrite(row, 1, 8, f);
-            }
-            std::fclose(f);
-        }
-        writeText(index, "pw3-sleep-glyphs 1\n0 2 1\n2 3 %\n5 3  · \n");
-        pw3::SleepText text;
-        CHECK(text.load(strip.c_str(), index.c_str()));
-        CHECK(text.place({"1", " · ", "%"}, 16, 3, 24, 10));
-        int left = -1, right = -1;
-        CHECK(text.lineSpan(4, &left, &right));
-        CHECK(left == 12 && right == 20);
-        CHECK(!text.lineSpan(2, &left, &right));  // above the line
-        CHECK(!text.lineSpan(7, &left, &right));  // below it
-
-        const pw3::Wallpaper clear = flatWallpaper(24, 10, 0, 0, 0, 0);
-        pw3::WallpaperPainter painter(24, 10, 12);
-        painter.setWallpaper(&clear);
-        painter.setText(&text, 60);
-        std::vector<uint8_t> bgRow(24, 200), shownRow(24, 187), line(24);
-        for (int y = 0; y < 10; ++y) {
-            painter.row(y, bgRow.data(), shownRow.data(), line.data());
-            for (int x = 0; x < 24; ++x) {
-                const bool inLine = y >= 3 && y < 7 && x >= 12 && x < 20;
-                if (!inLine) CHECK(line[size_t(x)] == 187);
-                if (y == 4 && (x == 12 || x == 13 || x == 17)) CHECK(line[size_t(x)] != 187);
-            }
-        }
-        // Without a picture set, a row is painted as paper rather than left as
-        // whatever was in the buffer: the caller has nothing to catch.
         pw3::WallpaperPainter none(4, 1, 12);
         uint8_t bare[4] = {1, 2, 3, 4};
         none.row(0, nullptr, nullptr, bare);
@@ -236,8 +199,6 @@ int main() {
     unlink(path("c.txt").c_str());
     unlink(path(".hidden.png").c_str());
     unlink(path("gray.png").c_str());
-    unlink(path("glyphs.pgm").c_str());
-    unlink(path("glyphs.txt").c_str());
     rmdir(directory.c_str());
     std::printf(failures ? "SLEEP_WALLPAPER_TEST_FAILED %d\n" : "SLEEP_WALLPAPER_TEST_PASS%.0d\n", failures);
     return failures != 0;
