@@ -418,6 +418,23 @@ static bool preinit_cmdline_has(const char *token);
  * nls_utf8 is a module (CONFIG_NLS_UTF8=m) and no Android rc loads it before
  * the app-facing mount is useful, so the read-only initramfs carries it and
  * PID 1 loads it here, while module loading is still unrestricted.
+ *
+ * The group and mask are the private/128gb-storage branch's (v8.8 private): the
+ * root view of this store is readable *and writable* through Android's FUSE
+ * volume, and the daemon that serves that view is /system/bin/sdcard, which
+ * vold starts as uid 1023 gid 1023 (AID_MEDIA_RW, system/vold/EmulatedVolume.cpp:
+ * "-u 1023 -g 1023"). It opens the files on this mount itself, so what it may
+ * open is decided by the ownership those mount options give them: 1023:1023
+ * with umask 0002 is 0664/0775, which is writable by the daemon's group and by
+ * nothing else on the device. faccessat() as root is not the test that matters;
+ * the daemon's own uid is.
+ *
+ * This does not widen what Android can reach: the per-mount read-only view that
+ * documents/ keeps, the read-only tmpfs over android/, and the labels of this
+ * mount are untouched. Which applications may write through the FUSE volume at
+ * all is decided by the view vold gives them (/mnt/runtime/write, per
+ * permission), not by these masks; the masks only decide whether the daemon
+ * can carry the write out.
  */
 static bool pw3_load_nls_utf8(void) {
     int fd = open("/nls_utf8.ko", O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
@@ -452,8 +469,8 @@ static bool testfile_handover_store(const char *fat) {
     }
     utf8 = pw3_load_nls_utf8();
     options = utf8
-        ? "uid=0,gid=0,umask=0022,utf8=1,codepage=437,shortname=mixed"
-        : "uid=0,gid=0,umask=0022,codepage=437,iocharset=iso8859-1";
+        ? "uid=0,gid=1023,umask=0002,utf8=1,codepage=437,shortname=mixed"
+        : "uid=0,gid=1023,umask=0002,codepage=437,iocharset=iso8859-1";
     if (!mkdir_ram("/kindle-us", 0755) ||
         mount(fat, "/kindle-us", "vfat", MS_NOSUID | MS_NODEV | MS_NOEXEC, options)) {
         report("the read-write hand-over FAT mount failed; the store is not shared");
@@ -493,7 +510,8 @@ static bool testfile_handover_store(const char *fat) {
     testfile_kindle_root_view();
     testfile_sleepwall_dir();
     testfile_nav_marker();
-    report("hand-over store mounted read-write at /kindle-us; android/ covered by read-only tmpfs");
+    report("hand-over store mounted read-write at /kindle-us; android/ covered by read-only tmpfs; "
+           "the root view is read-write");
     return true;
 }
 
@@ -656,12 +674,16 @@ static void testfile_pagepress(void) {
 /* Readom v8.5: make the stock documents directory visible to Android apps as
  * /storage/emulated/0/documents. vold exports /data/media/0 through its FUSE
  * volume, so a bind mount placed there before execve (no SELinux policy yet)
- * is what the storage service and MediaProvider end up serving. The source is
- * the read-write vfat store mounted fmask/dmask=0022 with root ownership, so
- * apps can read and cannot write it; the FAT is not modified by Android.
+ * is what the storage service and MediaProvider end up serving.
  * v8.8: the bind is remounted read-only as well. The masks are what make it
  * read-only today, and they are a mount option somebody can change; the
  * per-mount flag is the property the product promised.
+ * v8.8 private: this path stays read-only even though private/128gb-storage
+ * makes the store's root writable (/storage/emulated/0/kindle). The owner asked
+ * for both: the old path is where applications have been told books live, and
+ * it should not become a way to change them by accident. The same files are
+ * writable through kindle/documents; that is the branch's deliberate risk, one
+ * mount removed from the path apps already use.
  * Best effort: a failure is one log line and boot continues.
  */
 static void testfile_documents_bind(void) {
@@ -693,15 +715,26 @@ static void testfile_documents_bind(void) {
  * bind placed there before execve is what the storage service ends up
  * exporting. A bind mount does not carry the submounts of its source, so the
  * empty read-only tmpfs over android/ has to be bound again into the new view:
- * without that, system.img, data.img and state would be reachable as files.
- * The view is then remounted read-only per mount, so the store cannot be
- * written through it whatever the FAT masks say. Any failure withdraws the
- * whole view -- a root view whose android/ is not covered is worse than none,
- * and there is nothing the user asked for that a half-view would serve. */
+ * without that, system.img, data.img, state and the report area would be
+ * reachable as files.
+ *
+ * private/128gb-storage: the view is read-write now, not read-only. The store
+ * is the user's own area -- books, documents, koreader -- and the branch exists
+ * to let Android write and delete there; the bind is left as the read-write
+ * mount it comes from. What the branch does not open is everything else: the
+ * read-only tmpfs over android/ stays, and documents/ keeps its own read-only
+ * per-mount view at /data/media/0/documents. The FUSE daemon can only carry
+ * these writes out if the store's file ownership lets it, which is why the FAT
+ * mount above is 1023:1023 with umask 0002 (testfile_handover_store).
+ *
+ * Both properties are checked rather than assumed, and any failure withdraws
+ * the whole view: a root view whose android/ is not covered is worse than none,
+ * and a view that is not writable is not what this branch asked for either. */
 #define ROOT_VIEW_MOUNT "/data/media/0/kindle"
 static void testfile_kindle_root_view(void) {
-    char cover[160], line[192];
-    int mkdir_rc = -1, bind_rc = -1, cover_rc = -1, ro_rc = -1, saved_errno = 0;
+    char cover[160], line[224];
+    struct statvfs flags;
+    int mkdir_rc = -1, bind_rc = -1, cover_rc = -1, rw_rc = -1, cover_ro_rc = -1, saved_errno = 0;
     if (mkdir_ram(ROOT_VIEW_MOUNT, 0775)) mkdir_rc = 0;
     if (mkdir_rc != 0) {
         saved_errno = errno;
@@ -715,21 +748,27 @@ static void testfile_kindle_root_view(void) {
         } else {
             saved_errno = errno;
         }
+        /* The two properties: the view is writable (this branch's change) and
+         * android/ is still read-only (what the change may not take away). */
         if (cover_rc == 0) {
-            if (mount(NULL, ROOT_VIEW_MOUNT, NULL, MS_REMOUNT | MS_BIND | MS_RDONLY, NULL) == 0)
-                ro_rc = 0;
+            if (!statvfs(ROOT_VIEW_MOUNT, &flags) && !(flags.f_flag & ST_RDONLY))
+                rw_rc = 0;
+            else
+                saved_errno = errno;
+            if (!statvfs(cover, &flags) && (flags.f_flag & ST_RDONLY))
+                cover_ro_rc = 0;
             else
                 saved_errno = errno;
         }
-        if (cover_rc || ro_rc) {   /* fail closed: withdraw the whole view */
+        if (cover_rc || rw_rc || cover_ro_rc) {   /* fail closed: withdraw the whole view */
             if (cover_rc == 0) umount(cover);
             umount(ROOT_VIEW_MOUNT);
         }
     }
     snprintf(line, sizeof(line),
-             "PW3_STORAGE root_view=%d mkdir=%d bind=%d cover=%d ro=%d errno=%d",
-             (mkdir_rc == 0 && bind_rc == 0 && cover_rc == 0 && ro_rc == 0) ? 0 : -1,
-             mkdir_rc, bind_rc, cover_rc, ro_rc, saved_errno);
+             "PW3_STORAGE root_view=%d mkdir=%d bind=%d cover=%d rw=%d cover_ro=%d errno=%d",
+             (mkdir_rc == 0 && bind_rc == 0 && cover_rc == 0 && rw_rc == 0 && cover_ro_rc == 0) ? 0 : -1,
+             mkdir_rc, bind_rc, cover_rc, rw_rc, cover_ro_rc, saved_errno);
     report(line);
 }
 

@@ -33,7 +33,7 @@ KERNEL_HEADERS = Path('/usr/arm-linux-gnueabi/include')
 # The one program contract string (preinit/TestFileInit.h, pw3_pack.py
 # CURRENT_TESTFILE_CONTRACT). A change here is a change to what PID 1 accepts.
 CONTRACT = ('PW3_TESTFILE_INIT_V13_DM_CLUSTER_EXTENTS_FAT_READONLY_VERIFY_THEN_RW_ANDROID_TMPFS_COVERED'
-            '_KINDLE_ROOT_VIEW_READ_ONLY_DATA_IMAGE_GROWN_IN_PLACE_DATA_SIZED_IMAGES'
+            '_KINDLE_ROOT_VIEW_READ_WRITE_DATA_IMAGE_GROWN_IN_PLACE_DATA_SIZED_IMAGES'
             '_SYSTEM_STAMP_BACKGROUND_RECHECK_FAT_CROSSLINK_OPTIONAL_REPORT_AREA'
             '_IMAGE_OWNS_APP_CODE_THREE_KEY_CMDLINE_NO_PARTITIONING')
 
@@ -177,3 +177,4 @@ def report():
 
 if __name__ == '__main__':
     sys.exit(main())
+
