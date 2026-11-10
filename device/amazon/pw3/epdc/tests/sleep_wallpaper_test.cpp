@@ -194,82 +194,11 @@ int main() {
         for (uint8_t level : bare) CHECK(level == 255);
     }
 
-    // ---- the pictures decoded once, in two bytes a pixel ------------------
-    {
-        const std::string folder = path("baked");
-        CHECK(mkdir(folder.c_str(), 0755) == 0);
-        writeFile(folder + "/a.png", kRgba2x2, kRgba2x2Size);
-        writeFile(folder + "/b.png", kGray4x2, kGray4x2Size);
-        writeFile(folder + "/c.png", kPalette2x2, kPalette2x2Size);
-        writeText(folder + "/note.txt", "not a picture");
-        pw3::WallpaperSet set;
-        CHECK(set.load(folder.c_str(), 4, 2) == 3);
-        CHECK(set.size() == 3);
-        CHECK(set.name(0) == "a.png" && set.name(1) == "b.png" && set.name(2) == "c.png");
-        for (int i = 0; i < 3; ++i) {
-            const pw3::WallpaperLevels* picture = set.picture(i);
-            CHECK(picture != nullptr);
-            if (!picture) continue;
-            CHECK(picture->width == 4 && picture->height == 2);
-            CHECK(picture->luma.size() == 8 && picture->alpha.size() == 8);  // 2 bytes a pixel
-        }
-        CHECK(set.picture(-1) == nullptr && set.picture(3) == nullptr && set.name(3).empty());
-        // Every picture is reachable, and the one shown last is not chosen again.
-        std::vector<bool> seen(3, false);
-        for (uint32_t random = 0; random < 97; ++random) {
-            for (int previous = -1; previous < 3; ++previous) {
-                const std::string previousName = previous < 0 ? std::string() : set.name(previous);
-                const int index = set.pick(previousName, random);
-                CHECK(index >= 0 && index < 3);
-                if (index < 0 || index >= 3) continue;
-                if (previous >= 0) CHECK(index != previous);
-                seen[size_t(index)] = true;
-            }
-        }
-        for (bool any : seen) CHECK(any);
-        set.clear();
-        CHECK(set.size() == 0 && set.picture(0) == nullptr);
-        CHECK(set.load(path("nothing-here").c_str(), 4, 2) == 0);
-    }
-
-    // ---- the compact form paints what the RGBA picture paints -------------
-    {
-        const pw3::Wallpaper picture = flatWallpaper(6, 3, 120, 60, 30, 128);
-        const pw3::WallpaperLevels levels = pw3::levelsOf(picture);
-        CHECK(levels.width == 6 && levels.height == 3);
-        CHECK(levels.luma.size() == 18 && levels.alpha.size() == 18);
-        for (size_t i = 0; i < 18; ++i) CHECK(levels.alpha[i] == 128);
-        std::vector<uint8_t> background(18, 200), shown(18, 187), out(6), levelsOut(6);
-        pw3::WallpaperPainter rgba(6, 3, 12);
-        rgba.setWallpaper(&picture);
-        pw3::WallpaperPainter compact(6, 3, 12);
-        compact.setLevels(&levels);
-        for (int y = 0; y < 3; ++y) {
-            rgba.row(y, background.data() + y * 6, shown.data() + y * 6, out.data());
-            compact.row(y, background.data() + y * 6, shown.data() + y * 6, levelsOut.data());
-            for (int x = 0; x < 6; ++x) CHECK(out[size_t(x)] == levelsOut[size_t(x)]);
-        }
-        // Transparent pixels are still left at the level the panel already has.
-        const pw3::Wallpaper clearPicture = flatWallpaper(6, 3, 0, 0, 0, 0);
-        const pw3::WallpaperLevels clearLevels = pw3::levelsOf(clearPicture);
-        pw3::WallpaperPainter transparent(6, 3, 12);
-        transparent.setLevels(&clearLevels);
-        for (int y = 0; y < 3; ++y) {
-            transparent.row(y, background.data() + y * 6, shown.data() + y * 6, out.data());
-            for (uint8_t level : out) CHECK(level == 187);
-        }
-    }
-
     unlink(path("a.PNG").c_str());
     unlink(path("b.png").c_str());
     unlink(path("c.txt").c_str());
     unlink(path(".hidden.png").c_str());
     unlink(path("gray.png").c_str());
-    unlink((path("baked") + "/a.png").c_str());
-    unlink((path("baked") + "/b.png").c_str());
-    unlink((path("baked") + "/c.png").c_str());
-    unlink((path("baked") + "/note.txt").c_str());
-    rmdir(path("baked").c_str());
     rmdir(directory.c_str());
     std::printf(failures ? "SLEEP_WALLPAPER_TEST_FAILED %d\n" : "SLEEP_WALLPAPER_TEST_PASS%.0d\n", failures);
     return failures != 0;

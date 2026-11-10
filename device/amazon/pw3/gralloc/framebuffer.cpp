@@ -18,7 +18,6 @@
 #include <atomic>
 #include <algorithm>
 #include <cerrno>
-#include <chrono>
 #include <climits>
 #include <ctime>
 #include <cstdio>
@@ -369,9 +368,6 @@ constexpr const char* kBakedSleepWallpaperDir = "/system/usr/share/pw3/sleepwall
 // the life of the process: a reboot starts over, and the first sleep after it
 // may repeat the last picture of the start before.
 std::string lastWallpaper;
-// The pictures that ship in the image, decoded when the device opens
-// (WallpaperSet, t29-sleep-wallpaper-perf.md).
-pw3::WallpaperSet bakedWallpapers;
 
 // The end of both sleep pictures: everything, with GC16 (GL16 would leave the
 // page faintly inside it), then the waveform is waited for so that the caller
@@ -408,25 +404,10 @@ bool wallpaperSleepLocked(Device* d, int w, int h) {
     // is not there is a setting, not a fault.
     static std::string complaints[2];
     static std::vector<std::string> unreadable;
-    const pw3::WallpaperLevels* bakedPicture = nullptr;
-    const pw3::Wallpaper* decodedPicture = nullptr;
-    pw3::Wallpaper decoded;
-    std::string shownName, folderShown;
     for (size_t f = 0; f < folderCount; ++f) {
         const std::string& folder = folders[f];
         if (folder.empty()) continue;
         if (f && folder == folders[0]) continue;  // configured to the baked folder itself
-        // The pictures that ship in the image were decoded when the device
-        // opened (t29-sleep-wallpaper-perf.md): a sleep only picks one.
-        if (folder == kBakedSleepWallpaperDir && bakedWallpapers.size() > 0) {
-            const int index = bakedWallpapers.pick(lastWallpaper, pw3::wallpaperRandom());
-            const pw3::WallpaperLevels* picture = bakedWallpapers.picture(index);
-            if (!picture) continue;
-            bakedPicture = picture;
-            shownName = bakedWallpapers.name(index);
-            folderShown = folder;
-            break;
-        }
         int error = 0;
         const std::vector<std::string> names = pw3::wallpapersIn(folder.c_str(), &error);
         if (names.empty()) {
@@ -446,12 +427,12 @@ bool wallpaperSleepLocked(Device* d, int w, int h) {
         // A picture that cannot be read -- half copied from a PC, or a format this
         // build carries no decoder for -- must not lose the sleep picture: the
         // next one in the folder is tried, then the next folder.
-        const auto started = std::chrono::steady_clock::now();
+        pw3::Wallpaper wallpaper;
         int chosen = -1;
         for (size_t attempt = 0; attempt < names.size(); ++attempt) {
             const int candidate = (index + int(attempt)) % int(names.size());
             const std::string path = folder + "/" + names[size_t(candidate)];
-            if (pw3::loadWallpaper(path.c_str(), w, h, &decoded)) { chosen = candidate; break; }
+            if (pw3::loadWallpaper(path.c_str(), w, h, &wallpaper)) { chosen = candidate; break; }
             if (std::find(unreadable.begin(), unreadable.end(), path) == unreadable.end() && unreadable.size() < 16) {
                 unreadable.push_back(path);
                 ALOGW("sleep wallpaper: %s is not a picture this build can read", path.c_str());
@@ -464,50 +445,36 @@ bool wallpaperSleepLocked(Device* d, int w, int h) {
             }
             continue;
         }
-        // The user's own pictures are decoded here, every sleep: they can change
-        // at any time, and one line measures what that still costs.
-        ALOGI("sleep wallpaper: decode %lld ms for %s/%s",
-              static_cast<long long>(std::chrono::duration_cast<std::chrono::milliseconds>(
-                  std::chrono::steady_clock::now() - started).count()),
-              folder.c_str(), names[size_t(chosen)].c_str());
-        decodedPicture = &decoded;
-        shownName = names[size_t(chosen)];
-        folderShown = folder;
-        break;
-    }
-    if (!bakedPicture && !decodedPicture) return false;
-    // Only now is the framebuffer written: the driver reads it when an update
-    // starts, and nothing may be queued that has not ended.
-    waitIdle(d);
-    try {
-        pw3::WallpaperPainter painter(w, h, d->panel->policy().contrast);
-        if (bakedPicture) {
-            painter.setLevels(bakedPicture);
-        } else {
-            painter.setWallpaper(decodedPicture);
+        // Only now is the framebuffer written: the driver reads it when an update
+        // starts, and nothing may be queued that has not ended.
+        waitIdle(d);
+        try {
+            pw3::WallpaperPainter painter(w, h, d->panel->policy().contrast);
+            painter.setWallpaper(&wallpaper);
+            // What the panel shows now, in luma for the blend and in level bytes for
+            // the pixels the picture leaves alone. Neither changes while this runs:
+            // the composer's thread writes the canvas under this same lock.
+            const uint8_t* const canvas = d->panel->canvas();
+            const uint8_t* const shown = d->panel->shown();
+            uint8_t* const fb = visiblePixels(d);
+            for (int y = 0; y < h; ++y) {
+                painter.row(y, canvas + size_t(y) * size_t(w), shown + size_t(y) * size_t(w),
+                            fb + size_t(y) * d->fixed.line_length);
+            }
+        } catch (const std::exception&) {
+            // Nothing that can throw runs after the first row (the painter's own
+            // construction does, before it); the picture path repaints every row.
+            ALOGE("Sleep wallpaper could not be painted");
+            return false;
         }
-        // What the panel shows now, in luma for the blend and in level bytes for
-        // the pixels the picture leaves alone. Neither changes while this runs:
-        // the composer's thread writes the canvas under this same lock.
-        const uint8_t* const canvas = d->panel->canvas();
-        const uint8_t* const shown = d->panel->shown();
-        uint8_t* const fb = visiblePixels(d);
-        for (int y = 0; y < h; ++y) {
-            painter.row(y, canvas + size_t(y) * size_t(w), shown + size_t(y) * size_t(w),
-                        fb + size_t(y) * d->fixed.line_length);
-        }
-    } catch (const std::exception&) {
-        // Nothing that can throw runs after the first row (the painter's own
-        // construction does, before it); the picture path repaints every row.
-        ALOGE("Sleep wallpaper could not be painted");
-        return false;
+        if (!sleepUpdateLocked(d, w, h)) return false;
+        lastWallpaper = names[size_t(chosen)];
+        // Said every sleep: this is the line a test looks for to know which
+        // picture was chosen and whether it came from the user or the image.
+        ALOGI("Sleep wallpaper: %s/%s", folder.c_str(), names[size_t(chosen)].c_str());
+        return true;
     }
-    if (!sleepUpdateLocked(d, w, h)) return false;
-    lastWallpaper = shownName;
-    // Said every sleep: this is the line a test looks for to know which
-    // picture was chosen and whether it came from the user or the image.
-    ALOGI("Sleep wallpaper: %s/%s", folderShown.c_str(), shownName.c_str());
-    return true;
+    return false;
 }
 
 // Before the panel is powered down: the sleep picture, all of the screen with
@@ -663,23 +630,6 @@ int fb_device_open(const hw_module_t* module, const char* name, hw_device_t** ou
     try { d->panel.reset(new pw3::Panel(int(d->screen.xres), int(d->screen.yres))); }
     catch (const std::exception&) { return failure("panel-state", -ENOMEM); }
     readPolicy(d.get());
-    // The pictures that ship in the image, decoded once now: a sleep after this
-    // only picks one and never decodes (README.md, t29-sleep-wallpaper-perf.md).
-    // A failure here leaves the folder to the old on-demand path, not the screen
-    // to the page.
-    try {
-        const auto bakedStarted = std::chrono::steady_clock::now();
-        const int baked =
-            bakedWallpapers.load(kBakedSleepWallpaperDir, int(d->screen.xres), int(d->screen.yres));
-        ALOGI("sleep wallpaper: %d baked pictures ready in %lld ms", baked,
-              static_cast<long long>(std::chrono::duration_cast<std::chrono::milliseconds>(
-                  std::chrono::steady_clock::now() - bakedStarted).count()));
-    } catch (const std::exception&) {
-        // The device still opens: the sleep path decodes the baked pictures
-        // itself, as before this change (no second fallback, just the old path).
-        bakedWallpapers.clear();
-        ALOGW("sleep wallpaper: the baked pictures could not be kept; sleeps decode them");
-    }
     pthread_condattr_t options;
     if (pthread_condattr_init(&options)) return failure("condition", -ENOMEM);
     int rc = pthread_condattr_setclock(&options, CLOCK_MONOTONIC);

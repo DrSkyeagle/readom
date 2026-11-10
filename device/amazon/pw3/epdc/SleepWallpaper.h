@@ -49,44 +49,6 @@ struct Wallpaper {
 // False if it is not a picture this build can read (Png.h).
 bool loadWallpaper(const char* path, int width, int height, Wallpaper* out);
 
-// The compact form of a fitted picture: the two bytes a grey panel can use, the
-// luma of the premultiplied colour and the alpha, instead of 4 bytes of RGBA.
-// 2 bytes a pixel is 3.1 MB a screen, and the blend and the dither need nothing
-// else (WallpaperPainter). What is kept decoded (WallpaperSet) is kept this way.
-struct WallpaperLevels {
-    int width = 0, height = 0;
-    std::vector<uint8_t> luma;   // premultiplied colour luma, one byte a pixel
-    std::vector<uint8_t> alpha;  // one byte a pixel
-};
-WallpaperLevels levelsOf(const Wallpaper& wallpaper);
-
-// The pictures of a folder, decoded and fitted once. The folder that ships in
-// the image cannot change while the process runs, so the display HAL reads it
-// when it opens and every sleep after that only picks one: the decode that used
-// to sit in the sleep path (100-300 ms per picture on this CPU) happens at
-// start-up instead (README.md, t29-sleep-wallpaper-perf.md). Memory: 3.1 MB a
-// picture in the compact form, 9.3 MB for the three that ship.
-class WallpaperSet {
-public:
-    // Reads every picture in `directory` (wallpapersIn order) and fits each to
-    // `width` x `height`. Returns how many were loaded; a picture that cannot be
-    // read is skipped, because a folder in the image that cannot be read is a
-    // build fault the caller says once, not a reason to leave the screen as it is.
-    int load(const char* directory, int width, int height);
-    int size() const { return int(names_.size()); }
-    // Which picture to show, given the name shown last: any but that one when
-    // there is a choice (pickWallpaper). -1: none.
-    int pick(const std::string& previous, uint32_t random) const;
-    const WallpaperLevels* picture(int index) const;
-    // Empty for an index that is not a picture.
-    const std::string& name(int index) const;
-    void clear();
-
-private:
-    std::vector<std::string> names_;
-    std::vector<WallpaperLevels> pictures_;
-};
-
 // Paints the wallpaper into the panel's level bytes, row by row, over what the
 // panel was showing. The caller owns the row loops: this holds only the picture,
 // one row of luma and the error diffusion (Dither.h), so that a sleep costs one
@@ -94,11 +56,8 @@ private:
 class WallpaperPainter {
 public:
     WallpaperPainter(int width, int height, unsigned contrast);
-    // The picture to paint, fitted to the painter's size; must outlive it. One
-    // of the two forms, not both: RGBA (setWallpaper) or the compact levels the
-    // prefetched pictures are kept in (setLevels).
+    // The picture to paint, fitted to the painter's size; must outlive it.
     void setWallpaper(const Wallpaper* wallpaper) { wallpaper_ = wallpaper; }
-    void setLevels(const WallpaperLevels* levels) { levels_ = levels; }
     // Row `y` of the screen -> `width` level bytes. `background` is the luma of
     // the frame the panel was showing and `shown` the level bytes of its picture
     // (Panel::canvas, Panel::shown); both null: there is nothing behind, and
@@ -110,7 +69,6 @@ public:
 private:
     int width_, height_;
     const Wallpaper* wallpaper_ = nullptr;
-    const WallpaperLevels* levels_ = nullptr;
     Dither dither_;
     std::vector<uint8_t> luma_;
 };
