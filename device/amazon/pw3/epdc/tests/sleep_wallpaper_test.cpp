@@ -5,6 +5,7 @@
 #include "../SleepWallpaper.h"
 #include "../Tone.h"
 #include "png_fixtures.h"
+#include <cerrno>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -73,12 +74,27 @@ int main() {
     writeText(path("c.txt"), "not a picture");
     writeText(path(".hidden.png"), "hidden");       // a dot file is not the user's
     CHECK(mkdir(path("d.png").c_str(), 0755) == 0);  // a folder called .png is not a picture
-    const std::vector<std::string> names = pw3::wallpapersIn(directory.c_str());
+    CHECK(mkdir(path("empty").c_str(), 0755) == 0);
+    int error = -1;
+    const std::vector<std::string> names = pw3::wallpapersIn(directory.c_str(), &error);
+    CHECK(error == 0);
     CHECK(names.size() == 2);
     if (names.size() == 2) CHECK(names[0] == "a.PNG" && names[1] == "b.png");
-    CHECK(pw3::wallpapersIn(path("nothing-here").c_str()).empty());
-    CHECK(pw3::wallpapersIn("").empty());
-    CHECK(pw3::wallpapersIn(nullptr).empty());
+    // An empty folder is opened, and says so: the caller has to tell it from a
+    // folder that is not there, because one is a setting and the other a fault.
+    error = -1;
+    CHECK(pw3::wallpapersIn(path("empty").c_str(), &error).empty());
+    CHECK(error == 0);
+    error = 0;
+    CHECK(pw3::wallpapersIn(path("nothing-here").c_str(), &error).empty());
+    CHECK(error == ENOENT);
+    error = 0;
+    CHECK(pw3::wallpapersIn("", &error).empty() && error != 0);
+    error = 0;
+    CHECK(pw3::wallpapersIn(nullptr, &error).empty() && error != 0);
+    error = -1;
+    CHECK(pw3::wallpapersIn(directory.c_str(), nullptr).size() == 2);  // the error out is optional
+    rmdir(path("empty").c_str());
     rmdir(path("d.png").c_str());
 
     // ---- which picture ----------------------------------------------------
