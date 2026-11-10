@@ -53,6 +53,7 @@
   |---|---|---|
   | `debug.pw3.sleepwall.enabled` | `true` | `false`：完全回到镜像自带的图 |
   用户目录没有图时读内置目录 `/system/usr/share/pw3/sleepwall/`（本实验包里有三张默认）；两处都没有才回退到 PGM。
+  `debug.pw3.sleepwall.dir` 调试开关已删除（Lead 2026-11-10 追认：无测试/功能依赖，属调试代码；换图直接放用户目录）。
 - **权限与内核**：`/kindle-us` 挂的是 vfat，SurfaceFlinger 的域默认既不能读 store 上的文件、也不能沿路径走进这个目录；方案是给自己的类型打标签：`sepolicy/pw3_sleepwall.te` 里 `pw3_sleepwall_file` + `genfscon vfat /sleepwall` + 3 行 allow，**并依赖内核补丁 1061**（vfat 加入 `SE_SBGENFS`，否则 genfscon 路径规则在本内核不生效）。两者缺一时（例如只把 `gralloc.pw3.so` 注入现有 system.img），HAL 会打一行 `sleep wallpaper: <目录>: Permission denied` 然后显示**内置的三张默认壁纸**（`system_file`，策略本来放行）；内置目录也没有（非实验包）才回退 PGM。真机自检：`ls -Z /kindle-us/sleepwall` 应是 `u:object_r:pw3_sleepwall_file:s0`，`dmesg | grep 'avc.*pw3_sleepwall_file'` 不应有 denied。
 - **代价**：每次熄屏要解一张 PNG 再缩放（Cortex-A9 上约 100–300 ms，6 MB 左右临时内存），发生在按电源键之后、面板断电之前；屏幕已经关了，用户看不到，但关机动画会稍慢一点。图片超大时会先被尺寸上限挡掉。
 
