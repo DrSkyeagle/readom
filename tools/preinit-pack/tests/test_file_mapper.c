@@ -57,8 +57,10 @@ static int mock_ioctl(int fd,unsigned long request,...){
   int n=*(int*)arg;if(fault==7&&n==16){errno=EIO;return -1;}
   uint64_t spc=(uint64_t)cluster_bytes/512,run=(bytes(fd)/512)/desired/spc*spc;if(!run)run=spc;
   /* Three physical ranges that cannot run into each other at any size these
-   * files may have: the data image at its largest reaches about 10.3 M. */
-  int value=(fd==11?1000:fd==13?12000000:4000000)+n+(n/(int)run)*16;
+   * files may have: the data image at its largest -- PW3_TEST_DATA_MAX_BYTES,
+   * 4 GiB on the private 128gb-storage branch -- reaches about 12.4 M sectors,
+   * so the report area's range starts at 14 M rather than 12 M. */
+  int value=(fd==11?1000:fd==13?14000000:4000000)+n+(n/(int)run)*16;
   if(fault==8&&n==16)value=0;
   if(fault==9&&n==16)value=16000000;
   if(fault==10&&n>=32&&n<48)value-=16; /* the third cluster where the second is */
