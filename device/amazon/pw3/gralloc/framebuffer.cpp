@@ -357,10 +357,9 @@ bool chineseSystem() {
 // The folder of sleep wallpapers (README.md, sleep/): on the store the user
 // sees, the same FAT the documents bind comes from (preinit, /kindle-us), so
 // pictures are added the way the installer's files are added -- over USB, from
-// a PC. The second folder is the copy that ships in the image (the three
-// default pictures, sleep/wallpapers): it shows when the user's folder is
-// empty or unreadable, and it is also what a start without the policy and
-// kernel change for the store has (sepolicy/pw3_sleepwall.te).
+// a PC. The demo pictures this port's package brings are copied into it by the
+// installer and are the user's to keep or delete; the image itself ships no
+// wallpaper (the picture it ships, sleep-*.pgm, is the fallback below).
 constexpr const char* kSleepWallpaperDir = "/kindle-us/sleepwall";
 // The picture shown last, by name so that it is looked up again after the
 // folder changed, and not shown twice in a row while there is a choice. Kept for
@@ -396,83 +395,76 @@ bool sleepUpdateLocked(Device* d, int w, int h) {
 bool wallpaperSleepLocked(Device* d, int w, int h) {
     if (!property_get_bool("debug.pw3.sleepwall.enabled", true)) return false;
     if (d->panel->needsFull()) return false;
-    const std::string folders[] = {kSleepWallpaperDir};
-    const size_t folderCount = sizeof(folders) / sizeof(folders[0]);
-    // Why a folder showed nothing -- and why a picture in one could not be read
+    // Why the folder showed nothing -- and why a picture in it could not be read
     // -- is said once per process: this runs at every sleep, and a folder that
     // is not there is a setting, not a fault.
-    static std::string complaints[1];
+    static std::string complaint;
     static std::vector<std::string> unreadable;
-    for (size_t f = 0; f < folderCount; ++f) {
-        const std::string& folder = folders[f];
-        if (folder.empty()) continue;
-        int error = 0;
-        const std::vector<std::string> names = pw3::wallpapersIn(folder.c_str(), &error);
-        if (names.empty()) {
-            const std::string why = error ? std::string(strerror(error)) : std::string("no .png");
-            if (complaints[f] != why) {
-                complaints[f] = why;
-                ALOGW("sleep wallpaper: %s: %s", folder.c_str(), why.c_str());
-            }
-            continue;
+    int error = 0;
+    const std::vector<std::string> names = pw3::wallpapersIn(kSleepWallpaperDir, &error);
+    if (names.empty()) {
+        const std::string why = error ? std::string(strerror(error)) : std::string("no .png");
+        if (complaint != why) {
+            complaint = why;
+            ALOGW("sleep wallpaper: %s: %s", kSleepWallpaperDir, why.c_str());
         }
-        // The one shown last, by name: the folder may have gained or lost pictures.
-        int previous = -1;
-        for (size_t i = 0; i < names.size(); ++i) {
-            if (names[i] == lastWallpaper) { previous = int(i); break; }
-        }
-        const int index = pw3::pickWallpaper(int(names.size()), previous, pw3::wallpaperRandom());
-        // A picture that cannot be read -- half copied from a PC, or a format this
-        // build carries no decoder for -- must not lose the sleep picture: the
-        // next one in the folder is tried, then the next folder.
-        pw3::Wallpaper wallpaper;
-        int chosen = -1;
-        for (size_t attempt = 0; attempt < names.size(); ++attempt) {
-            const int candidate = (index + int(attempt)) % int(names.size());
-            const std::string path = folder + "/" + names[size_t(candidate)];
-            if (pw3::loadWallpaper(path.c_str(), w, h, &wallpaper)) { chosen = candidate; break; }
-            if (std::find(unreadable.begin(), unreadable.end(), path) == unreadable.end() && unreadable.size() < 16) {
-                unreadable.push_back(path);
-                ALOGW("sleep wallpaper: %s is not a picture this build can read", path.c_str());
-            }
-        }
-        if (chosen < 0) {
-            if (complaints[f] != "no readable picture") {
-                complaints[f] = "no readable picture";
-                ALOGW("sleep wallpaper: nothing in %s could be read", folder.c_str());
-            }
-            continue;
-        }
-        // Only now is the framebuffer written: the driver reads it when an update
-        // starts, and nothing may be queued that has not ended.
-        waitIdle(d);
-        try {
-            pw3::WallpaperPainter painter(w, h, d->panel->policy().contrast);
-            painter.setWallpaper(&wallpaper);
-            // What the panel shows now, in luma for the blend and in level bytes for
-            // the pixels the picture leaves alone. Neither changes while this runs:
-            // the composer's thread writes the canvas under this same lock.
-            const uint8_t* const canvas = d->panel->canvas();
-            const uint8_t* const shown = d->panel->shown();
-            uint8_t* const fb = visiblePixels(d);
-            for (int y = 0; y < h; ++y) {
-                painter.row(y, canvas + size_t(y) * size_t(w), shown + size_t(y) * size_t(w),
-                            fb + size_t(y) * d->fixed.line_length);
-            }
-        } catch (const std::exception&) {
-            // Nothing that can throw runs after the first row (the painter's own
-            // construction does, before it); the picture path repaints every row.
-            ALOGE("Sleep wallpaper could not be painted");
-            return false;
-        }
-        if (!sleepUpdateLocked(d, w, h)) return false;
-        lastWallpaper = names[size_t(chosen)];
-        // Said every sleep: this is the line a test looks for to know which
-        // picture was chosen and whether it came from the user or the image.
-        ALOGI("Sleep wallpaper: %s/%s", folder.c_str(), names[size_t(chosen)].c_str());
-        return true;
+        return false;
     }
-    return false;
+    // The one shown last, by name: the folder may have gained or lost pictures.
+    int previous = -1;
+    for (size_t i = 0; i < names.size(); ++i) {
+        if (names[i] == lastWallpaper) { previous = int(i); break; }
+    }
+    const int index = pw3::pickWallpaper(int(names.size()), previous, pw3::wallpaperRandom());
+    // A picture that cannot be read -- half copied from a PC, or a format this
+    // build carries no decoder for -- must not lose the sleep picture: the next
+    // one in the folder is tried, and the picture that ships in the image below.
+    pw3::Wallpaper wallpaper;
+    int chosen = -1;
+    for (size_t attempt = 0; attempt < names.size(); ++attempt) {
+        const int candidate = (index + int(attempt)) % int(names.size());
+        const std::string path = std::string(kSleepWallpaperDir) + "/" + names[size_t(candidate)];
+        if (pw3::loadWallpaper(path.c_str(), w, h, &wallpaper)) { chosen = candidate; break; }
+        if (std::find(unreadable.begin(), unreadable.end(), path) == unreadable.end() && unreadable.size() < 16) {
+            unreadable.push_back(path);
+            ALOGW("sleep wallpaper: %s is not a picture this build can read", path.c_str());
+        }
+    }
+    if (chosen < 0) {
+        if (complaint != "no readable picture") {
+            complaint = "no readable picture";
+            ALOGW("sleep wallpaper: nothing in %s could be read", kSleepWallpaperDir);
+        }
+        return false;
+    }
+    // Only now is the framebuffer written: the driver reads it when an update
+    // starts, and nothing may be queued that has not ended.
+    waitIdle(d);
+    try {
+        pw3::WallpaperPainter painter(w, h, d->panel->policy().contrast);
+        painter.setWallpaper(&wallpaper);
+        // What the panel shows now, in luma for the blend and in level bytes for
+        // the pixels the picture leaves alone. Neither changes while this runs:
+        // the composer's thread writes the canvas under this same lock.
+        const uint8_t* const canvas = d->panel->canvas();
+        const uint8_t* const shown = d->panel->shown();
+        uint8_t* const fb = visiblePixels(d);
+        for (int y = 0; y < h; ++y) {
+            painter.row(y, canvas + size_t(y) * size_t(w), shown + size_t(y) * size_t(w),
+                        fb + size_t(y) * d->fixed.line_length);
+        }
+    } catch (const std::exception&) {
+        // Nothing that can throw runs after the first row (the painter's own
+        // construction does, before it); the picture path repaints every row.
+        ALOGE("Sleep wallpaper could not be painted");
+        return false;
+    }
+    if (!sleepUpdateLocked(d, w, h)) return false;
+    lastWallpaper = names[size_t(chosen)];
+    // Said every sleep: this is the line a test looks for to know which
+    // picture was chosen, and that it came from the user's folder.
+    ALOGI("Sleep wallpaper: %s/%s", kSleepWallpaperDir, names[size_t(chosen)].c_str());
+    return true;
 }
 
 // Before the panel is powered down: the sleep picture, all of the screen with

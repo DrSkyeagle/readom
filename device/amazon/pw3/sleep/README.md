@@ -18,7 +18,6 @@
 - **生成方法**：
   ```
   make-sleep-picture.py pictures art.png LXGWWenKai-Regular.ttf .
-  make-sleep-picture.py glyphs LXGWWenKai-Regular.ttf sleep-glyphs.pgm sleep-glyphs.txt
   ```
   - 中文版的做法：把原标题所在方框（`ART_TITLE`）填成周围纸面的灰度，再用霞鹜文楷排"读书无禁区"。
   - 字体：霞鹜文楷 v1.522（LXGW WenKai，SIL OFL 1.1，https://github.com/lxgw/LxgwWenKai）。只用来生成图片，不随系统分发；用字体排出的图片不属于字体本身。
@@ -26,22 +25,43 @@
 
 画面平均亮度约 239/255，四分之三是纸白。
 
-## 用户自己的壁纸（`/kindle-us/sleepwall/`）
+## 壁纸：用户自己的（`/kindle-us/sleepwall/`）
 
-除了上面两张随镜像分发的图，用户可以放自己的图：**把 PNG 放进 Kindle 盘根目录下的 `sleepwall/` 文件夹**（和安装时放 `documents/Readom.sh` 是同一块盘、同一套 USB 操作）。这个文件夹由 preinit 在开机时建好（空目录，vfat 上是 `root:root 0755`），用户直接往里拷图即可；发行镜像**不带示例图**。每次熄屏随机挑一张；PNG 的透明像素不画，露出**熄屏前最后一帧的画面**。
+镜像里**不内置**壁纸：显示的最终回退是自带的 `sleep-zh.pgm`/`sleep-en.pgm`。三张演示图
+（用户 2026-11-10 提供）随**安装包**分发，由安装器在安装时复制到 Kindle 盘的
+`/kindle-us/sleepwall/`——用户可留可删。也可以自己放：**把 PNG 放进 Kindle 盘根目录下的
+`sleepwall/` 文件夹**（和安装时放 `documents/Readom.sh` 是同一块盘、同一套 USB 操作）。
+这个文件夹由 preinit 在开机时建好（空目录，vfat 上 `root:root 0755`），用户直接往里拷图即可。
+每次熄屏从该目录随机挑一张；PNG 的透明像素不画，露出**熄屏前最后一帧的画面**。
+
+**选图顺序与回退矩阵**（每一行都保证屏幕不会留在书页上）：
+
+| 用户目录 `/kindle-us/sleepwall` | 熄屏显示 |
+|---|---|
+| 有可读 PNG | 从目录随机（多张时不连续重复） |
+| 不存在 / 读不到（EACCES，例如策略或内核补丁没进） | 镜像自带的 `sleep-*.pgm`（按系统语言） |
+| 存在但没有 `.png`（空目录/只有别的文件） | `sleep-*.pgm` |
+| 有 `.png` 但全部解不出（超限/坏图/拷了一半） | `sleep-*.pgm` |
+| 目录和 PGM 都读不到 | 老行为：把还在第一遍里的灰度级刷出来 |
+| 面板状态未知（`Panel::needsFull()`，没有"上一帧"可露） | `sleep-*.pgm` |
+| `debug.pw3.sleepwall.enabled=false` | `sleep-*.pgm` |
+
+**日志**（每次熄屏一行，就是验收证据）：`Sleep wallpaper: /kindle-us/sleepwall/<文件名>`
+说明显示的是哪张；`Sleep wallpaper: none; the sleep picture that ships in the image is shown`
+说明回退到了 PGM。目录读不到 / 没有 PNG / 某张解不出时，另有每进程一次性的 `ALOGW`
+（`sleep wallpaper: <目录>: <原因>`，带 `strerror`，ENOENT 与 EACCES 能分开）。
 
 - **为什么透明像素能"露出来"**：墨水屏断电后保留画面，所以透明处根本不用画——显示 HAL 把那里写成面板此刻已有的灰度级（`Panel::shown()`），GC16 再驱动一遍同样的值，画面上这一块就和睡前完全一样，不是"抖动过的近似"。半透明像素（0 < alpha < 255）在 16 级灰阶上没法真的半透明：它们和睡前一帧的亮度做 alpha 混合后再误差扩散（`epdc/SleepWallpaper.h`）。
-- **尺寸**：任意尺寸都行。按"铺满屏幕、居中裁剪"缩放（bilinear）：比例不同时裁掉两边，不会留黑边。上限：边长 4096、像素 400 万、文件 16 MB（`epdc/Png.h`）；超过的图直接跳过（换下一张，或回退自带图）。上限是内存预算：显示进程总共 512 MB，4 MP 是"够用且不会把 SurfaceFlinger 顶掉"的折中（4000×3000 的手机照片会被拒，屏幕不会因此留在书页上，会显示自带的 `sleep-*.pgm`）。
-- **随机规则**：每次熄屏重新挑，且**不连续重复**（有多张时）。上一次选中的文件名记在进程里，所以重启后的第一次可能重复；文件夹里只有一张时每次都显示它。
-- **回退**（任何一步失败都不会让屏幕留在书页上）：文件夹不存在/没有 PNG → 用镜像里分发的 `sleep-*.pgm`；某张 PNG 解码失败（拷了一半、格式不支持）→ 试下一张；面板状态未知、没有"上一帧"可露出（`Panel::needsFull()`）→ 用 `sleep-*.pgm`；连 PGM 都读不到 → 老行为：把还在第一遍里的灰度级刷出来。
-- **休眠文字**（`epdc/SleepText.h`，`休眠于 21:47 · 10月15日 · 电量 63%`）照旧叠在图片顶部，叠在壁纸之后；文字占的那几行不保留背景（否则字压在旧画面上看不清）。
+- **尺寸**：任意尺寸都行。按"铺满屏幕、居中裁剪"缩放（bilinear）：比例不同时裁掉两边，不会留黑边。上限：边长 4096、像素 400 万、文件 16 MB（`epdc/Png.h`）；超过的图直接跳过（换下一张，或回退自带图）。上限是内存预算：显示进程总共 512 MB，4 MP 是"够用且不会把 SurfaceFlinger 顶掉"的折中（4000×3000 的手机照片会被拒，屏幕不会因此留在书页上）。
+- **随机规则**：每次熄屏重新挑，且**不连续重复**（有多张时）。上一次选中的文件名记在进程里，所以重启后的第一次可能重复；只有一个候选时每次都显示它。
+- **没有顶栏文字**：熄屏画面上不再叠"休眠于 … · 电量 …"那一行（T26，用户要求；`SleepText` 的实现、测试与 glyph 资产已随该改动删除，见 T10 报告）。
 - **配置**（`debug.` 属性，发行版上默认值即产品值；调试构建可用 `setprop` 改）：
   | 属性 | 默认 | 作用 |
   |---|---|---|
   | `debug.pw3.sleepwall.enabled` | `true` | `false`：完全回到镜像自带的图 |
-  | `debug.pw3.sleepwall.dir` | `/kindle-us/sleepwall` | 换一个文件夹（例如调试时 `/data/local/tmp/sleepwall`） |
-  该属性读不到时还会再看 `/system/usr/share/pw3/sleepwall/`（装机/构建时预置的副本），两处都没有才回退到 PGM。
-- **权限与内核**：`/kindle-us` 挂的是 vfat，SurfaceFlinger 的域默认既不能读 store 上的文件、也不能沿路径走进这个目录；方案是给自己的类型打标签：`sepolicy/pw3_sleepwall.te` 里 `pw3_sleepwall_file` + `genfscon vfat /sleepwall` + 3 行 allow，**并依赖内核补丁 1061**（vfat 加入 `SE_SBGENFS`，否则 genfscon 路径规则在本内核不生效）。两者缺一（例如只把 `gralloc.pw3.so` 注入现有 system.img），HAL 会打一行 `sleep wallpaper: no .png`（实际是 EACCES）然后读内置目录 `/system/usr/share/pw3/sleepwall/`（`system_file`，策略本来放行）；内置目录也没有才回退 PGM——功能关闭，但不会坏。发行镜像**不含**内置目录，只在"只注入 HAL"的镜像里用它放用户/测试图（换图要重注入）。真机自检：`ls -Z /kindle-us/sleepwall` 应是 `u:object_r:pw3_sleepwall_file:s0`，`dmesg | grep 'avc.*pw3_sleepwall_file'` 不应有 denied。
+  用户目录没有图（或读不到）时直接回退到镜像自带的 `sleep-*.pgm`。
+  `debug.pw3.sleepwall.dir` 调试开关已删除（Lead 2026-11-10 追认：无测试/功能依赖，属调试代码；换图直接放用户目录）。
+- **权限与内核**：`/kindle-us` 挂的是 vfat，SurfaceFlinger 的域默认既不能读 store 上的文件、也不能沿路径走进这个目录；方案是给自己的类型打标签：`sepolicy/pw3_sleepwall.te` 里 `pw3_sleepwall_file` + `genfscon vfat /sleepwall` + 3 行 allow，**并依赖内核补丁 1061**（vfat 加入 `SE_SBGENFS`，否则 genfscon 路径规则在本内核不生效）。两者缺一时（例如只把 `gralloc.pw3.so` 注入现有 system.img），HAL 会打一行 `sleep wallpaper: <目录>: Permission denied` 然后回退到镜像自带的 `sleep-*.pgm`。真机自检：`ls -Z /kindle-us/sleepwall` 应是 `u:object_r:pw3_sleepwall_file:s0`，`dmesg | grep 'avc.*pw3_sleepwall_file'` 不应有 denied。
 - **代价**：每次熄屏要解一张 PNG 再缩放（Cortex-A9 上约 100–300 ms，6 MB 左右临时内存），发生在按电源键之后、面板断电之前；屏幕已经关了，用户看不到，但关机动画会稍慢一点。图片超大时会先被尺寸上限挡掉。
 
 ## 刷新
