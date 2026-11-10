@@ -190,6 +190,18 @@ def main():
     epdc = modules['mxc_epdc_fb.ko']
     if b'vermagic=%s ' % release.encode() not in epdc:
         sys.exit('the EPDC module is not of this kernel')
+    # Files the storage entry reads from the initramfs root before it execs
+    # Android's init (device/amazon/pw3/preinit/PreInit.c): the two PagePress
+    # modules -- the system image carries the rebuilt public modules only, not
+    # these -- the nls_utf8 the store is mounted with, and the stock haptics
+    # waveforms. All of them are this kernel's build outputs.
+    pagepress_modules = ('drv26xx_haptics.ko', 'fsr_keypad.ko', 'nls_utf8.ko')
+    for name in pagepress_modules:
+        if b'vermagic=%s ' % release.encode() not in modules[name]:
+            sys.exit('%s is not of this kernel' % name)
+    initramfs_root = {name: modules[name] for name in pagepress_modules}
+    initramfs_root.update({name: (PORT / 'device/amazon/pw3/input/haptics' / name).read_bytes()
+                           for name in ('haptics0.config', 'haptics1.config')})
 
     out = a.output
     out.mkdir(parents=True, exist_ok=False)
@@ -229,6 +241,8 @@ def main():
     entries += [pack.Entry('pw3-testfile-init', storage.mode, storage.uid, storage.gid, programs['pw3-handoff-init']),
                 pack.Entry('pw3-handoff', stat.S_IFDIR | 0o755),
                 pack.Entry('pw3-handoff/mxc_epdc_fb.ko', stat.S_IFREG | 0o600, 0, 0, epdc)]
+    entries += [pack.Entry(name, stat.S_IFREG | 0o644, 0, 0, data)
+                for name, data in sorted(initramfs_root.items())]
     taken = {e.name for e in entries}
     if any(name in taken for name, _, _ in pack.LOG_NODES):
         sys.exit('this initramfs already carries a log node; refusing a duplicate cpio member')
@@ -280,6 +294,7 @@ def main():
               'system': {'path': a.system_path, **system}, 'data': a.data, 'kernel_release': release, 'kernel_sha256': sha(kernel),
               'public_initramfs': {'bytes': len(public), 'sha256': sha(public), 'entries': len(entries)},
               'epdc_module_sha256': sha(epdc), 'programs_sha256': {n: sha(d) for n, d in programs.items()},
+              'initramfs_root_sha256': {n: sha(d) for n, d in sorted(initramfs_root.items())},
               'system_modules_checked': len(system_modules),
               'cmdline': cmdline, 'module_cache_audit_checks': len(audit['checks']),
               'installer': json.loads((out / 'launcher/build-result.json').read_text())['installer'], 'contains_device_data': False}

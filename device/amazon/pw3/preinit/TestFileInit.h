@@ -621,8 +621,8 @@ int main(void) {
             testfile_kindle_root_view();
         }
     }
-    /* PagePress keys: load the two modules from the checked /system and
-     * enable the keypad's event generation before the exec. */
+    /* PagePress keys: load the two modules the entry carries in its initramfs
+     * and enable the keypad's event generation before the exec. */
     testfile_pagepress();
     int receipt = open(PW3_FILEMAP_PATH, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0400);
     if (receipt < 0 || fchmod(receipt, 0400) || fchown(receipt, 0, 0) ||
