@@ -3,7 +3,7 @@
 """The release files the device-side installer fetches (README.md, "发行载荷"), in the build VM:
 
   readom-system-VERSION.img.zst   the system image
-  readom-data-VERSION.img.zst     an empty data image (about 60 KB for 1.75 GiB: carried
+  readom-data-VERSION.img.zst     an empty data image (about 60 KB for 3.5 GiB: carried
                                    inside the entry, README.md "发行载荷")
   manifest.json                    size and SHA256 of each file, packed and unpacked; the
                                    build time (the installer refuses a clock before it: TLS
@@ -17,10 +17,17 @@ so the Kindle needs one decoder and 8 MiB of memory for it.
 The data image is made here, from an empty directory, by the tool and with the arguments
 the build uses for userdata.img. Run this on the tree that produced the export.
 
+The manifest also names the data image format this one replaces (schema 5,
+`data_upgrade`): an installer that finds a kept image of that format and size grows it in
+place instead of refusing it, so a device upgrading from the 1.75 GiB image keeps what is
+in /data. The sizes come from the BoardConfig of the model, so a tree that changes
+BOARD_USERDATAIMAGE_PARTITION_SIZE changes both ends of that promise at once.
+
 Usage: build_payload.py --export DIR --data-format N --version VERSION --output DIR [--model MODEL]
   --export       export-aosp-images.py output (system.raw.img)
   --data-format  what Android keeps in /data and how big it is: a release keeps an existing
-                 data image only of its own format (1: Android 8.1, 1.75 GiB)
+                 data image only of its own format, or grows the one previous release's
+                 image in place (1: Android 8.1, 1.75 GiB; 2: Android 8.1, 3.5 GiB)
   --model        the device directory under device/amazon/ whose BoardConfig.mk says how big
                  the data image is, and the AOSP product directory that was built from it.
                  Default: pw3, the only model this project has run on a device
@@ -40,6 +47,18 @@ MAKE_EXT4FS = AOSP_OUT / 'host/linux-x86/bin/make_ext4fs'
 # 11 is lost+found. One more means a file, and a file here reaches every device.
 EMPTY_INODES = 11
 WINDOW = 8 << 20
+# The data image format each format grows in place, and how large that older
+# image was: format 2 is this branch's 3.5 GiB image, and it grows format 1, the
+# 1.75 GiB one, without losing what is in it (install.c, grow a kept data image;
+# the entry then grows the filesystem inside the file). The pair is written into
+# the manifest so that neither side has to hard-code the other's number, and a
+# format that has no predecessor simply has no entry here.
+#
+# Two formats may never share a size: when a device's state file is lost, the
+# size of the image on the store is the only evidence of which format it is
+# (installer/README.md, "用户区布局/state"), and a reused size would make that
+# inference wrong. The check below holds this file to the BoardConfig's size.
+DATA_UPGRADE_FROM = {2: (1, 1879048192)}
 
 
 def board_configs(model):
@@ -168,12 +187,24 @@ def main():
     packed_system = a.output / ('readom-system-%s.img.zst' % a.version)
     packed_data = a.output / ('readom-data-%s.img.zst' % a.version)
     raw_data = a.output / ('readom-data-%s.img' % a.version)
-    empty_data_image(raw_data, data_bytes(a.model), a.model)
+    size = data_bytes(a.model)
+    upgrade = DATA_UPGRADE_FROM.get(a.data_format)
+    if upgrade:
+        from_format, from_bytes = upgrade
+        if from_format >= a.data_format:
+            sys.exit('data format %d cannot be grown from format %d' % (a.data_format, from_format))
+        if size <= from_bytes or size % (4096 << 10):
+            sys.exit('data format %d is %d bytes; the %d byte image of format %d it grows in place '
+                     'must be smaller, and the new size a whole number of 4 MiB blocks'
+                     % (a.data_format, size, from_bytes, from_format))
+    empty_data_image(raw_data, size, a.model)
     compress(system, packed_system)
     compress(raw_data, packed_data)
     manifest = {
-        'schema': 4, 'version': a.version, 'built_utc': export['built_utc'], 'built': int(built.timestamp()),
+        'schema': 5, 'version': a.version, 'built_utc': export['built_utc'], 'built': int(built.timestamp()),
         'data_format': a.data_format,
+        # The image this format grows in place, or null: see DATA_UPGRADE_FROM.
+        'data_upgrade': ({'from_format': upgrade[0], 'from_bytes': upgrade[1]} if upgrade else None),
         # The export's hash of /system/framework/arm/boot*: the installer compares it
         # with the one it recorded for the system now installed, and only a difference
         # means Android will compile the applications in /data again.
@@ -183,7 +214,7 @@ def main():
             'data': entry(packed_data, raw_data, sha_file(raw_data)),
         },
     }
-    # The release is the two packed files and the manifest; the 1.75 GiB it was made from is
+    # The release is the two packed files and the manifest; the 3.5 GiB it was made from is
     # not one of them, and pw3-unpack makes it again whenever a check wants it.
     raw_data.unlink()
     (a.output / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')

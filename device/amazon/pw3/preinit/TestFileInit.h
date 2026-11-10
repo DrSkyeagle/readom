@@ -208,7 +208,7 @@ static void testfile_drop_shadowed_apps(void) {
     }
 }
 static const char testfile_contract[] __attribute__((used)) =
-    "PW3_TESTFILE_INIT_V12_DM_CLUSTER_EXTENTS_FAT_READONLY_VERIFY_THEN_RW_ANDROID_TMPFS_COVERED_KINDLE_ROOT_VIEW_READ_ONLY_DATA_SIZED_IMAGES_SYSTEM_STAMP_BACKGROUND_RECHECK_FAT_CROSSLINK_OPTIONAL_REPORT_AREA_IMAGE_OWNS_APP_CODE_THREE_KEY_CMDLINE_NO_PARTITIONING";
+    "PW3_TESTFILE_INIT_V13_DM_CLUSTER_EXTENTS_FAT_READONLY_VERIFY_THEN_RW_ANDROID_TMPFS_COVERED_KINDLE_ROOT_VIEW_READ_ONLY_DATA_IMAGE_GROWN_IN_PLACE_DATA_SIZED_IMAGES_SYSTEM_STAMP_BACKGROUND_RECHECK_FAT_CROSSLINK_OPTIONAL_REPORT_AREA_IMAGE_OWNS_APP_CODE_THREE_KEY_CMDLINE_NO_PARTITIONING";
 /* In .bss and not on the stack: at PW3_FILEMAP_MAX_EXTENTS = 8192 one
  * pw3_file_maps is ~575 KiB, which PID 1 must not put on its (small) stack.
  * File scope here is the same single translation unit; the host tests that
@@ -298,7 +298,22 @@ int main(void) {
     datafd = open(data_path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
     if (datafd < 0 || fstat(datafd, &before) || !S_ISREG(before.st_mode) || before.st_nlink != 1 ||
         (uint64_t)before.st_size != data.size || pread(datafd, sb, sizeof(sb), 1024) != (ssize_t)sizeof(sb) ||
-        !pw3_ext4_in_use(sb, data.size) || memcmp(sb + 0x68, data.uuid, 16)) stop("test data image format, size, state or UUID rejected");
+        memcmp(sb + 0x68, data.uuid, 16)) stop("test data image format, size, state or UUID rejected");
+    /* The filesystem inside the image may be smaller than the image itself.
+     * That is the one-way upgrade from a release whose data image was 1.75 GiB:
+     * the installer grew the file in place (it cannot grow what is inside it,
+     * the stock kernel has no ext4), and this entry grows the filesystem to the
+     * file before Android mounts it. A filesystem larger than its file is still
+     * refused -- no cluster of the file holds it -- and so is an image of any
+     * other shape. The tool that does the growing comes from /system, so it runs
+     * after /system has been checked, below. */
+    const uint64_t data_fs_bytes = pw3_ext4_bytes(sb);
+    if (!data_fs_bytes || data_fs_bytes > data.size || !pw3_ext4_in_use(sb, data_fs_bytes))
+        stop("test data image format, size, state or UUID rejected");
+    const bool data_grow = data_fs_bytes != data.size;
+    snprintf(buffer, sizeof(buffer), "PW3_STORAGE data_bytes=%llu data_fs_bytes=%llu grow=%d",
+             (unsigned long long)data.size, (unsigned long long)data_fs_bytes, data_grow ? 1 : 0);
+    report(buffer);
     /* The report area, which is a diagnostic and therefore optional: an
      * installation from before it existed has none, the installer makes none on
      * a store with no room to spare, and a file at that name that is not ours
@@ -514,6 +529,36 @@ int main(void) {
         !mounted_readonly("/system", 0xef53, false, false) || !hash_regular("/init", cfg.init_sha) ||
         (cfg.adb_key && !hash_regular("/adb_keys", cfg.adb_sha)) || !testfile_physical(&cfg))
         stop("test system, AOSP init, authentication or protected-area check failed");
+    /* The one-way data image upgrade (TestFileFormat.h): the filesystem is
+     * smaller than the image file the installer grew in place, so it is grown to
+     * that file now. It has to happen here and not earlier: the tool that does
+     * it is /system/bin/resize2fs, and /system has only just been admitted. It
+     * has to happen before the exec: Android must mount a /data of the size the
+     * configuration names.
+     *
+     * The filesystem is unmounted for it, because resize2fs 1.43.3 asks the
+     * kernel for the new size with an ioctl this kernel does not have (ext4
+     * online resize arrived in 3.7; this is 3.0.35), and because an offline
+     * resize is the transaction that does not depend on either side's version.
+     * Nothing has this filesystem open by now -- the application sweep and the
+     * system record are done -- so the unmount is the whole of the exclusion.
+     *
+     * Best effort with respect to the start: a shrink no, an image grown and a
+     * filesystem still of its old size is a device that boots with the space it
+     * had, and the next start tries again. Only losing /data altogether is a
+     * stop, because there is nothing to hand Android then. */
+    if (data_grow) {
+        report("the data filesystem is smaller than its image; growing it in place");
+        if (umount("/data")) {
+            report("the data filesystem could not be unmounted; this start uses it at its present size");
+        } else {
+            if (!testfile_grow_data(userdata, data.size, data_fs_bytes, data.uuid))
+                report("the data filesystem was not grown; this start uses it at its present size");
+            if (mount(userdata, "/data", "ext4", MS_NOSUID | MS_NODEV | MS_NOATIME,
+                      "errors=remount-ro,data=ordered,barrier=1") || !testfile_mounted("/data", 0xef53, false, false))
+                stop("the data filesystem could not be mounted again after growing it");
+        }
+    }
     /* PagePress keys: load the two modules from the checked /system and
      * enable the keypad's event generation before the exec. */
     testfile_pagepress();

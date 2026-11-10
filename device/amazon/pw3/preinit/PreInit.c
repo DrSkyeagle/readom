@@ -12,6 +12,7 @@
 #include <sys/statfs.h>
 #include <sys/statvfs.h>
 #include <sys/syscall.h>
+#include <sys/wait.h>
 #include <sys/xattr.h>
 #include <sys/sysmacros.h>
 #include <sys/utsname.h>
@@ -1025,6 +1026,88 @@ static void preinit_nav_settings(void) {
     snprintf(line, sizeof(line), "PW3_NAV xml=0 write=%d rows=%d locked=%d errno=%d",
              write_rc == 0 ? 0 : -1, rows, locked_row, saved_errno);
     report(line);
+}
+
+/* Readom private/128gb-storage: grow the data filesystem to the size of the
+ * image file it is in.
+ *
+ * The one-way upgrade from the 1.75 GiB data image goes through two programs
+ * because neither side can do both halves: the installer, on the stock system,
+ * can grow a file on the user store but its kernel cannot read ext4; this
+ * entry, after the jump, has ext4 and /system's e2fsprogs but finds the user
+ * store read-only until verification is done. So install.c extends the file
+ * (ftruncate/append, keeping every byte of what the reader has) and this grows
+ * what is inside it, offline, before Android mounts it.
+ *
+ * A no-op when there is nothing to do: the caller only gets here when the
+ * superblock's own block count is smaller than the file.
+ *
+ * Why offline: resize2fs 1.43.3 resizes a mounted filesystem through
+ * EXT4_IOC_RESIZE_FS, which this kernel (3.0.35) does not have -- ext4 online
+ * resize landed in 3.7. /data is unmounted by the caller for the whole of it,
+ * so there is no second writer and no ioctl to need.
+ *
+ * Failure is reported, not fatal: an image grown and a filesystem still of its
+ * old size is a device that starts with the space it had, and the next start
+ * asks again. Nothing here writes outside the image's own clusters.
+ *
+ * A filesystem left mounted by a power cut carries a journal to replay, and
+ * resize2fs refuses that ("please run e2fsck -f"). e2fsck is then run once and
+ * resize2fs tried once more; e2fsck is the program the fsck option of every
+ * mount table names, and it is the same one the offline resize assumes. */
+static int preinit_tool(const char *path, char *const argv[])
+{
+    int status = 0;
+    pid_t pid = fork(), got;
+    if (pid < 0) return -1;
+    if (pid == 0) {
+        /* The tools' own chatter is not a channel this start reads; the report
+         * lines below say what happened. */
+        int null = open("/dev/null", O_WRONLY | O_CLOEXEC);
+        if (null >= 0) { if (dup2(null, 1) < 0 || dup2(null, 2) < 0) _exit(127); if (null > 2) close(null); }
+        char *envp[] = {"PATH=/sbin:/system/bin:/system/xbin", "HOME=/", "TERM=linux", NULL};
+        execve(path, argv, envp);
+        _exit(127);
+    }
+    do { got = waitpid(pid, &status, 0); } while (got < 0 && errno == EINTR);
+    if (got < 0) return -1;
+    if (WIFSIGNALED(status)) return -1;
+    return WEXITSTATUS(status);
+}
+
+static bool testfile_grow_data(const char *device, uint64_t size, uint64_t fs_bytes,
+        const unsigned char uuid[16])
+{
+    char line[192], node[64];
+    unsigned char sb[1024];
+    uint64_t got = 0;
+    bool ok = false;
+    int status, check = 0;
+    if (snprintf(node, sizeof(node), "%s", device) >= (int)sizeof(node)) return false;
+    char *resize[] = {"/system/bin/resize2fs", node, NULL};
+    char *fsck[] = {"/system/bin/e2fsck", "-f", "-y", node, NULL};
+    status = preinit_tool("/system/bin/resize2fs", resize);
+    if (status != 0) {
+        report("resize2fs did not grow the data filesystem; checking the filesystem first");
+        check = preinit_tool("/system/bin/e2fsck", fsck);
+        snprintf(line, sizeof(line), "PW3_STORAGE data_grow=fsck status=%d", check);
+        report(line);
+        status = preinit_tool("/system/bin/resize2fs", resize);
+    }
+    int fd = open(node, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+    if (fd >= 0) {
+        if (pread(fd, sb, sizeof(sb), 1024) == (ssize_t)sizeof(sb)) {
+            got = pw3_ext4_bytes(sb);
+            ok = status == 0 && got == size && !memcmp(sb + 0x68, uuid, 16) &&
+                pw3_ext4_in_use(sb, size);
+        }
+        close(fd);
+    }
+    snprintf(line, sizeof(line), "PW3_STORAGE data_grow=%d from=%llu to=%llu fs=%llu status=%d",
+             ok ? 0 : -1, (unsigned long long)fs_bytes, (unsigned long long)size,
+             (unsigned long long)got, status);
+    report(line);
+    return ok;
 }
 
 #include "TestFileInit.h"

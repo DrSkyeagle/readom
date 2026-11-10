@@ -9,6 +9,24 @@ static inline uint16_t pw3_le16(const unsigned char *p) { return (uint16_t)p[0] 
 static inline uint32_t pw3_le32(const unsigned char *p) {
     return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
 }
+/* How many bytes each block in this superblock holds and how many of them the
+ * filesystem claims, or 0 when the superblock is not one this port can read.
+ * Separate from pw3_ext4_geometry() because the size a filesystem believes it
+ * has is the one question the grow path asks before it changes anything: the
+ * file may be larger than this (TestFileFormat.h), and this is the number that
+ * says how much of it the filesystem currently uses. */
+static inline uint64_t pw3_ext4_bytes(const unsigned char *s) {
+    uint32_t log, incompat = pw3_le32(s + 0x60);
+    uint64_t blocks, block_size;
+    if (pw3_le16(s + 0x38) != 0xef53) return 0;
+    log = pw3_le32(s + 0x18);
+    if (log > 2) return 0;
+    block_size = (uint64_t)1024 << log;
+    blocks = pw3_le32(s + 4);
+    if (incompat & 0x80U) blocks |= (uint64_t)pw3_le32(s + 0x150) << 32;
+    if (!blocks || blocks > UINT64_MAX / block_size) return 0;
+    return blocks * block_size;
+}
 static inline int pw3_ext4_geometry(const unsigned char *s, uint64_t file_size, uint32_t incompat_allowed) {
     uint32_t log, incompat, ro_compat;
     uint64_t blocks, block_size;

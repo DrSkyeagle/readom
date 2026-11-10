@@ -6,7 +6,8 @@
  *     RELEASE        key=value lines: version, built, data_format, payload_name, payload_url,
  *                    payload_bytes, payload_sha256, system_bytes, system_sha256, template
  *                    (a file, read into memory), template_bytes, template_sha256,
- *                    data_bytes, data_sha256, boot_image, build_incremental
+ *                    data_bytes, data_sha256, data_legacy_format, data_legacy_bytes,
+ *                    boot_image, build_incremental
  *     battery=N|unknown  charging=0|1  online=0|1  now=SECONDS
  *     serve=FILE     what the "server" holds
  *     attempt=STATUS:HTTP:BYTES   one per download call, in order: copy at most BYTES
@@ -211,6 +212,10 @@ int main(int argc, char **argv)
 			rel.data.bytes = strtoull(v, NULL, 10);
 		else if (!strcmp(line, "data_sha256"))
 			sha_from_hex(v, rel.data.sha256);
+		else if (!strcmp(line, "data_legacy_format"))
+			rel.data_legacy_format = (unsigned)atoi(v);
+		else if (!strcmp(line, "data_legacy_bytes"))
+			rel.data_legacy_bytes = strtoull(v, NULL, 10);
 		else if (!strcmp(line, "boot_image"))
 			sha_from_hex(v, rel.boot_image);
 		else if (!strcmp(line, "build_incremental"))

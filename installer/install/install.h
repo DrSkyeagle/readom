@@ -71,6 +71,15 @@ struct inst_release {
 	const char *version;		/* e.g. "v40": names the payload, kept in the state */
 	int64_t built;			/* Unix time of the build: an earlier clock cannot check TLS */
 	unsigned data_format;		/* data images of this format are kept */
+	/* The data image format this release grows in place, and how large that
+	 * image was (build_payload.py's manifest "data_upgrade"). A kept image of
+	 * exactly that format and size is not refused: the file is extended to
+	 * `data.bytes` on the user store and the state says this release's format,
+	 * and the entry grows the filesystem inside it before Android mounts it
+	 * (preinit V13, "data image grown in place"). Zero when this format has no
+	 * predecessor -- the first release of a format. */
+	unsigned data_legacy_format;
+	uint64_t data_legacy_bytes;
 	const char *payload_name;	/* readom-system-<version>.img.zst */
 	/* Where the payload can be fetched, in the order to try. More than one
 	 * because reachability is not a property of the release: on 2026-10-31 the

@@ -199,6 +199,46 @@ static int remove_file(struct run *r, const char *p)
 	return 0;
 }
 
+/* Little-endian field of an ext4 superblock, as pw3_ext4_geometry reads it on
+ * the entry side (preinit/StorageFormat.h). */
+static uint32_t le32(const unsigned char *p)
+{
+	return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+
+/* How many bytes the ext4 filesystem inside the data image says it holds, or 0
+ * when that file is not an ext4 image.
+ *
+ * This is the one thing about a kept image this side can read: the stock kernel
+ * has no ext4, so it cannot be mounted or checked here. Two numbers are needed
+ * to grow one in place -- the file's size from stat(), which grow_data() puts
+ * at this release's size, and this one, the size the filesystem believes it has
+ * -- and it is the gap between them that the entry closes after the jump. A
+ * file that is not an image is not grown over: E304, as before. */
+static uint64_t data_filesystem_bytes(const char *p)
+{
+	unsigned char sb[1024];
+	uint32_t log;
+	uint64_t blocks, block_size;
+	int fd = open(p, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+	if (fd < 0)
+		return 0;
+	const ssize_t got = pread(fd, sb, sizeof(sb), 1024);
+	close(fd);
+	if (got != (ssize_t)sizeof(sb) || (uint16_t)(sb[0x38] | (sb[0x39] << 8)) != 0xef53)
+		return 0;
+	log = le32(sb + 0x18);
+	if (log > 2)
+		return 0;
+	block_size = (uint64_t)1024 << log;
+	blocks = le32(sb + 4);
+	if (le32(sb + 0x60) & 0x80U)
+		blocks |= (uint64_t)le32(sb + 0x150) << 32;
+	if (!blocks)
+		return 0;
+	return blocks * block_size;
+}
+
 /* ---- the state file ---- */
 
 /* 0 when the state is as good as read -- which includes there being no state
@@ -775,8 +815,10 @@ static uint64_t existing(const char *p, uint64_t unit, int *unreadable)
 
 /* The order is: download, system image, payload deleted, data image. The most the
  * user store must hold at once is either the payload and system image, or (after the
- * payload is gone) the system and data images. */
-static enum inst_code check_space(struct run *r, int need_system, const char *payload, int need_data)
+ * payload is gone) the system and data images. `grow` is what a kept data image still
+ * needs appended to it (grow_data); it is room for the same image, counted the same
+ * way as a whole new one: what is there is a credit, the difference is asked for. */
+static enum inst_code check_space(struct run *r, int need_system, const char *payload, int need_data, uint64_t grow)
 {
 	struct statvfs vfs;
 	if (statvfs(r->dir, &vfs))
@@ -795,7 +837,7 @@ static enum inst_code check_space(struct run *r, int need_system, const char *pa
 			p = full > part ? full - part : 0;
 		}
 	}
-	if (need_data) {
+	if (need_data || grow) {
 		uint64_t want = clusters(r->rel->data.bytes, unit), have = existing(r->data_path, unit, &unreadable);
 		d = want > have ? want - have : 0;
 	}
@@ -1428,6 +1470,81 @@ static enum inst_code install_data(struct run *r)
 	return INST_READY;
 }
 
+/* Grow a kept data image in place, in one direction only, keeping every byte of
+ * what is in it.
+ *
+ * This is the half of the one-way 1.75 GiB -> 3.5 GiB upgrade that only this side
+ * can do: the user store is writable here (fsp over the stock FAT) and read-only
+ * to the entry until verification is over. The other half is the entry's: it
+ * grows the ext4 filesystem inside the file, offline, after /system is checked
+ * (preinit, "data image grown in place"), because the stock kernel has no ext4
+ * at all and this side could not mount, let alone resize, what is in there.
+ *
+ * The file is extended by writing zeroes at its end, not by ftruncate: this
+ * kernel's FAT cannot have a hole (fs/fat/file.c, fat_cont_expand, fills it with
+ * zeroes through generic_cont_expand_simple anyway), so a truncate would be the
+ * same bytes written with no progress to show for it. Writing them sequentially
+ * instead is resumable: a power cut leaves a file between the old size and the
+ * new, still with the old filesystem at its start, and the next tap carries on
+ * from wherever it stopped (ensure() reads the size that is there). It is also
+ * the only shape of the write that the report can count -- the screen shows the
+ * data image's percentage, and the last 1.75 GiB of it is this.
+ *
+ * The file's size is checked again after opening it: the entry's own data
+ * configuration is built from this file by the launcher after this returns, and
+ * a size that moved under a running installer is not one this can finish.
+ *
+ * `have` is the size the caller measured before the space check. The state says
+ * this release's format only after the file is the release's size; a power cut
+ * before that leaves the old record, and the next tap resumes rather than
+ * refusing the half-grown image. */
+static enum inst_code grow_data(struct run *r, int64_t have)
+{
+	static const unsigned char zeros[256 << 10];
+	const uint64_t total = r->rel->data.bytes;
+	struct stat st;
+	int error = 0;
+	if (have < 0 || (uint64_t)have > total)
+		return stop(r, INST_E_DATA_FORMAT, 0, "the data image is %lld bytes, not between its old and its new size",
+			    (long long)have);
+	int fd = open(r->data_path, O_WRONLY | O_APPEND | O_CLOEXEC | O_NOFOLLOW);
+	if (fd < 0)
+		return stop(r, INST_E_IO, errno, "cannot open the data image to grow it");
+	if (fstat(fd, &st) || !S_ISREG(st.st_mode) || (int64_t)st.st_size != have) {
+		const int changed = errno ? errno : EIO;
+		close(fd);
+		return stop(r, INST_E_IO, changed, "the data image changed size while it was being grown");
+	}
+	say(r, "growing the kept data image in place from %lld to %llu bytes", (long long)have,
+	    (unsigned long long)total);
+	uint64_t at = (uint64_t)have;
+	while (at < total) {
+		const uint64_t left = total - at;
+		const size_t want = left > sizeof(zeros) ? sizeof(zeros) : (size_t)left;
+		const ssize_t n = write(fd, zeros, want);
+		if (n < 0 && errno == EINTR)
+			continue;
+		if (n <= 0) {
+			error = errno ? errno : EIO;
+			break;
+		}
+		at += (uint64_t)n;
+		show(r, INST_STEP_DATA, at, total);
+	}
+	if (!error && fsync(fd))
+		error = errno;
+	if (close(fd) && !error)
+		error = errno;
+	if (error)
+		return stop(r, error == ENOSPC ? INST_E_NO_SPACE : INST_E_IO, error,
+			    "cannot grow the data image to %llu bytes", (unsigned long long)total);
+	r->st.data_format = r->rel->data_format;
+	say(r, "the data image is now %llu bytes and still holds everything it held; "
+	       "the entry grows the filesystem inside it before Android starts",
+	    (unsigned long long)total);
+	return INST_READY;
+}
+
 /* The one thing that may not be handed over to Android on a state file that got
  * no further than the page cache: a data image the state calls ready. A tap
  * that reads data=writing finds an image of exactly the right size and remakes
@@ -1637,29 +1754,77 @@ static enum inst_code ensure(struct run *r)
 		 * it. An image the state file says was being written (IMG_WRITING) is not this
 		 * case: that one is half made and is remade.
 		 *
-		 * Its format is the one thing that cannot be recovered, so it is taken to be
-		 * this release's and the check below decides on the size, which is the only
-		 * evidence there is. Taking it to be format 1 -- what this did while 1 was the
-		 * only format -- refuses every device whose record was lost after it was
-		 * installed, and refusing it repairs nothing: the check below is ahead of the
-		 * hand-over too, so that device starts no Android at all until the reader
-		 * deletes the data image and loses what is in it. The size settles it as long
-		 * as no two formats are the same size. A format that reuses a size has to be
-		 * stamped into the image itself -- the ext4 volume label is where it would go
-		 * -- because this inference cannot tell two such images apart. */
+		 * Its format is the one thing that cannot be recovered, so the size decides:
+		 * the size of the image this release grows in place names the old format
+		 * exactly, and only absence of that size falls back to this release's (the
+		 * check below then decides, and might refuse). Taking it to be format 1 --
+		 * what this did while 1 was the only format -- refuses every device whose
+		 * record was lost after it was installed, and refusing it repairs nothing:
+		 * the check below is ahead of the hand-over too, so that device starts no
+		 * Android at all until the reader deletes the data image and loses what is in
+		 * it. A format that reuses a size has to be stamped into the image itself --
+		 * the ext4 volume label is where it would go -- because this inference cannot
+		 * tell two such images apart. */
 		s->data = IMG_READY;
-		s->data_format = rel->data_format;
+		if (rel->data_legacy_bytes && data_bytes == (int64_t)rel->data_legacy_bytes)
+			s->data_format = rel->data_legacy_format;
+		else
+			s->data_format = rel->data_format;
 		inferred = 1;
-		say(r, "data image the state file does not account for: taken as format %u, this release's",
-		    rel->data_format);
+		say(r, "data image the state file does not account for: taken as format %u, %lld bytes",
+		    s->data_format, (long long)data_bytes);
 	}
 	if (s->data == IMG_READY && data_bytes == FILE_ABSENT) {
 		say(r, "state has a data image, the user store does not: a new one is made");
 		s->data = IMG_NONE;
 	}
-	if (s->data == IMG_READY && (s->data_format != rel->data_format || data_bytes != (int64_t)rel->data.bytes))
-		return stop(r, INST_E_DATA_FORMAT, 0, "data image of format %u and %lld bytes; this release uses format %u, %llu bytes",
-			    s->data_format, (long long)data_bytes, rel->data_format, (unsigned long long)rel->data.bytes);
+	/* A kept image that is neither this release's nor the one it grows in place is
+	 * E304, and nothing is changed: refusing before the system image is written is
+	 * what keeps a device from being upgraded into a version whose /data it cannot
+	 * use.
+	 *
+	 * The grown-in-place exception is one format, one size and one file: the image
+	 * this release's predecessor shipped, still holding an ext4 filesystem of that
+	 * old size. The file is extended here (`grow_to`); the entry grows the
+	 * filesystem inside it after the jump, which this side cannot do (no ext4 in
+	 * the stock kernel). A file already at the new size with the old record is the
+	 * same story one power cut later: the record is brought up to date and nothing
+	 * is written.
+	 *
+	 * An image in between -- a power cut during a previous grow -- is resumed from
+	 * its present size, because the filesystem at its start is still the old one
+	 * and untouched (see grow_data). */
+	uint64_t grow = 0;
+	int grown = 0;
+	if (s->data == IMG_READY) {
+		const int ours = s->data_format == rel->data_format && data_bytes == (int64_t)rel->data.bytes;
+		const int legacy = rel->data_legacy_bytes && s->data_format == rel->data_legacy_format &&
+				   data_bytes >= (int64_t)rel->data_legacy_bytes &&
+				   data_bytes <= (int64_t)rel->data.bytes;
+		if (!ours && legacy) {
+			const uint64_t fs_bytes = data_filesystem_bytes(r->data_path);
+			const int complete = data_bytes == (int64_t)rel->data.bytes;
+			if (fs_bytes == rel->data_legacy_bytes ||
+			    (complete && fs_bytes == rel->data.bytes)) {
+				if (!complete) {
+					grow = rel->data.bytes - (uint64_t)data_bytes;
+					say(r, "data image of format %u, %lld bytes: grown in place to format %u, "
+					       "%llu bytes, keeping what is in it",
+					    s->data_format, (long long)data_bytes, rel->data_format,
+					    (unsigned long long)rel->data.bytes);
+				} else {
+					grown = 1;
+					say(r, "data image of format %u is already %llu bytes; the record is brought up to date",
+					    s->data_format, (unsigned long long)rel->data.bytes);
+				}
+			}
+		}
+		if (!ours && !grown && !grow)
+			return stop(r, INST_E_DATA_FORMAT, 0,
+				    "data image of format %u and %lld bytes; this release uses format %u, %llu bytes",
+				    s->data_format, (long long)data_bytes, rel->data_format,
+				    (unsigned long long)rel->data.bytes);
+	}
 	int need_data = s->data != IMG_READY;
 	int64_t system_bytes = file_size(r->system_path);
 	if (system_bytes == FILE_UNREADABLE)
@@ -1667,7 +1832,7 @@ static enum inst_code ensure(struct run *r)
 	int need_system = !(s->system == IMG_READY && !strcmp(s->version, rel->version) && !strcmp(s->system_sha256, sha) &&
 			    system_bytes == (int64_t)rel->system.bytes);
 	say(r, "release %s: system %s, data %s", rel->version, need_system ? "to install" : "ready",
-	    need_data ? "to make" : "kept");
+	    need_data ? "to make" : (grow || grown) ? "to grow in place" : "kept");
 	/* The system is in place, so no payload feeds anything from here: a data
 	 * image is made from the template the entry carries (install_data). One is
 	 * still there when a tap was cut off between the state file saying
@@ -1701,7 +1866,7 @@ static enum inst_code ensure(struct run *r)
 				say(r, "the system is in place and %d file(s) of this installer were left over; deleted", gone);
 		}
 	}
-	if (!need_system && !need_data) {
+	if (!need_system && !need_data && !grow && !grown) {
 		/* An upgrade whose first start was cut short faces the same compiling
 		 * again, so the screen that says so is shown until a report says a
 		 * start got through it -- not for a fixed number of launches, which is
@@ -1798,7 +1963,7 @@ static enum inst_code ensure(struct run *r)
 		if (remove_file(r, r->part_path))
 			return stop(r, INST_E_IO, errno, "cannot delete the part");
 	}
-	if ((c = check_space(r, need_system, payload, need_data)))
+	if ((c = check_space(r, need_system, payload, need_data, grow)))
 		return c;
 	if (!s->known && write_state(r))	/* from here on the state file says what is on the user store */
 		return stop(r, INST_E_IO, errno, "cannot write the state");
@@ -1856,11 +2021,17 @@ static enum inst_code ensure(struct run *r)
 		return c;
 	if (need_data && (c = install_data(r)))
 		return c;
+	if (grown) {
+		s->data_format = rel->data_format;
+		say(r, "the data image is already this release's size; its record is brought up to date");
+	} else if (grow && (c = grow_data(r, data_bytes)) != INST_READY)
+		return c;
 	if (write_state(r))
 		return stop(r, INST_E_IO, errno, "cannot write the state");
 	if ((c = hand_over(r)) != INST_READY)
 		return c;
 	say(r, "installed %s%s", rel->version,
+	    (grow || grown) ? ", growing the kept data image in place" :
 	    !need_system || need_data ? "" :
 	    r->res->upgraded ? " over a kept data image, whose applications are compiled again"
 			     : " over a kept data image, with the same boot image");

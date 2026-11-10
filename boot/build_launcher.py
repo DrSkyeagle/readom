@@ -318,9 +318,18 @@ def installer_inputs(a, conf, data_path, data_size):
         sys.exit('--installer needs --screens, --system-image, --release-url, --ca-bundle and --zstd-archive')
     lock = json.loads((PORT / 'source-lock.json').read_text())
     manifest = json.loads((a.installer / 'manifest.json').read_text())
-    if manifest['schema'] != 4:
-        sys.exit('the payload manifest is not schema 4: ' + str(a.installer))
+    if manifest['schema'] not in (4, 5):
+        sys.exit('the payload manifest is not schema 4 or 5: ' + str(a.installer))
     system, data = manifest['files']['system'], manifest['files']['data']
+    # The image this release grows in place, if it has one. A schema 4 manifest
+    # predates the field and describes a release that grows nothing.
+    upgrade = manifest.get('data_upgrade') if manifest['schema'] >= 5 else None
+    if upgrade:
+        legacy_format, legacy_bytes = int(upgrade['from_format']), int(upgrade['from_bytes'])
+        if legacy_format >= int(manifest['data_format']) or legacy_bytes >= int(data['unpacked_bytes']):
+            sys.exit('the payload\'s data upgrade is not from an older, smaller image: ' + repr(upgrade))
+    else:
+        legacy_format, legacy_bytes = 0, 0
     values = dict(line.split('=', 1) for line in conf.splitlines())
     if (values['system_path'] != 'android/system.img' or int(values['system_size']) != system['unpacked_bytes'] or
             values['system_sha256'] != system['unpacked_sha256']):
@@ -367,6 +376,7 @@ def installer_inputs(a, conf, data_path, data_size):
     release = ['#include "install.h"', '#include "payload.h"', 'static const struct inst_release pw3_release = {',
                '    .version = %s, .built = %dLL, .data_format = %du,' % (c_string(manifest['version']), manifest['built'],
                                                                       manifest['data_format']),
+               '    .data_legacy_format = %du, .data_legacy_bytes = %dull,' % (legacy_format, legacy_bytes),
                '    .payload_name = %s,' % c_string(system['name']),
                '    .payload_urls = {%s}, .payload_origins = %d,'
                % (', '.join(c_string(u) for u in urls), len(urls)),
@@ -378,6 +388,7 @@ def installer_inputs(a, conf, data_path, data_size):
                '    .build_incremental = %s,' % c_string(incremental),
                '    .ca_bundle = pw3_ca_bundle, .ca_bundle_bytes = %du,' % len(ca), '};']
     receipt = {'version': manifest['version'], 'built_utc': manifest['built_utc'], 'data_format': manifest['data_format'],
+               'data_legacy_format': legacy_format, 'data_legacy_bytes': legacy_bytes,
                'payload_urls': urls, 'payload': {k: system[k] for k in ('name', 'bytes', 'sha256')},
                'data_template_sha256': data['sha256'], 'boot_image_sha256': manifest['boot_image_sha256'],
                'build_incremental': incremental,
@@ -474,8 +485,8 @@ def main():
         # then waits for ever, which only the device would tell us.
         if not re.fullmatch(r'[a-z0-9][a-z0-9-]{0,47}/data\.img', data_path):
             sys.exit('invalid --data: the path must be <directory>/data.img')
-        if not 512 << 20 <= data_size <= 3072 << 20 or data_size % 4096:
-            sys.exit('invalid --data: the size must be 512 MiB to 3 GiB and a whole number of 4 KiB blocks')
+        if not 512 << 20 <= data_size <= 4096 << 20 or data_size % 4096:
+            sys.exit('invalid --data: the size must be 512 MiB to 4 GiB and a whole number of 4 KiB blocks')
     installer_blobs, release_h, installer_receipt = installer_inputs(a, conf, data_path, data_size) if a.installer else ({}, None, None)
     os.umask(0o022)
     out = a.output

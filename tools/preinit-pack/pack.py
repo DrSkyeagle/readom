@@ -25,9 +25,11 @@ MAX_RAMDISK = 96 * 1024 * 1024
 # 2026-10-29, and a ramdisk built from one of them cannot boot against the
 # command line this tree writes. Raising this to V12 added the read-only view
 # of the stock store's root (the preinit binds it beside documents/ and covers
-# its android/ again); it is one edit here and one in TestFileInit.h, and the
-# packer refuses anything that is not it.
-CURRENT_TESTFILE_CONTRACT = b'PW3_TESTFILE_INIT_V12_DM_CLUSTER_EXTENTS_FAT_READONLY_VERIFY_THEN_RW_ANDROID_TMPFS_COVERED_KINDLE_ROOT_VIEW_READ_ONLY_DATA_SIZED_IMAGES_SYSTEM_STAMP_BACKGROUND_RECHECK_FAT_CROSSLINK_OPTIONAL_REPORT_AREA_IMAGE_OWNS_APP_CODE_THREE_KEY_CMDLINE_NO_PARTITIONING'
+# its android/ again); V13 is the private/128gb-storage branch's 3.5 GiB data
+# image: the installer grows a kept image's file in place and the entry grows
+# the filesystem inside it before Android mounts it. It is one edit here and one
+# in TestFileInit.h, and the packer refuses anything that is not it.
+CURRENT_TESTFILE_CONTRACT = b'PW3_TESTFILE_INIT_V13_DM_CLUSTER_EXTENTS_FAT_READONLY_VERIFY_THEN_RW_ANDROID_TMPFS_COVERED_KINDLE_ROOT_VIEW_READ_ONLY_DATA_IMAGE_GROWN_IN_PLACE_DATA_SIZED_IMAGES_SYSTEM_STAMP_BACKGROUND_RECHECK_FAT_CROSSLINK_OPTIONAL_REPORT_AREA_IMAGE_OWNS_APP_CODE_THREE_KEY_CMDLINE_NO_PARTITIONING'
 TESTFILE_CONTRACTS = (CURRENT_TESTFILE_CONTRACT,)
 class Invalid(ValueError): pass
 

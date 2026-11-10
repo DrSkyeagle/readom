@@ -46,44 +46,21 @@ TARGET_COPY_OUT_VENDOR := system/vendor
 # and the Kindle's own volume gets those 64 MiB back for books -- this device
 # goes from 643.0 MiB free to about 707 MiB.
 BOARD_SYSTEMIMAGE_PARTITION_SIZE := 536870912
-# 1792 MiB (1.75 GiB), set on 2026-10-15 and kept on 2026-11-03 after the two
-# sizes were worked out again against what the device reports. Everything below
-# is `df` on the device on 2026-11-03, with the one application that matters
-# installed, logged in and a book downloaded:
-#
-#   the Kindle's own volume   3113.9 MiB, of which 643.0 MiB free
-#   /system (576 MiB image)    566.9 MiB, 445.9 MiB used, 79%
-#   /data   (1792 MiB image)  1763.8 MiB, 748.7 MiB used, 43%
-#
-# What fills /data is downloaded books, so the question is not the 43% but what
-# is left: 1015.1 MiB, which is hundreds of books of text. That is what makes
-# this size sufficient, and it is why 1536 MiB was prepared on 2026-11-02 and
-# turned down by the owner on 2026-11-03: it would have taken 256 MiB from the
-# one thing /data is for, to buy room on a volume that already has 643 MiB
-# free.
-#
-# 2048 MiB was the other candidate -- a power of two, and the two images would
-# then be 2.5 GiB exactly. It was not taken, for two reasons that are both
-# arithmetic: a clean install would need 512 + 2048 + 64 MiB = 2.75 GB of a
-# 3.27 GB volume, so a reader with more than about 465 MB of their own books
-# could not install at all; and 256 MiB more for books that the measurement
-# above says are not needed costs every reader that. The room this version
-# hands back comes out of the system image instead, which is read-only and
-# measured, not guessed: 64 MiB of it, so this device goes from 643.0 MiB free
-# to about 707 MiB.
-#
-# The sizes are 512 MiB and 7 x 256 MiB; together 2304 MiB, which is 9 x 256
-# MiB -- whole steps of a quarter of a GiB, with the read-only one a power of
-# two.
+# 3584 MiB (3.5 GiB) on the private/128gb-storage branch (2026-11-10): twice the
+# 1.75 GiB this device shipped with, and as much as a file on the user FAT can
+# hold while staying under FAT32's 4 GiB file limit -- the system image is a
+# second file on the same volume. The sizing evidence for the 1.75 GiB that
+# preceded it is in this file's history.
 #
 # A size change here has to go with --data-format (installer/build_payload.py),
 # because an installer keeps an existing data image only of its own format and
-# its own size: a device holding the old one is refused with E304, changes no
-# file, and goes on running the version it has until the reader deletes
-# data.img themselves -- which resets their applications and books. That is why
-# this number moves only in a version that is installed clean anyway, and why
-# it did not move here: an upgrade into this version keeps what the reader has.
-BOARD_USERDATAIMAGE_PARTITION_SIZE := 1879048192
+# its own size. This branch does not refuse the old one with E304: an image of
+# the previous format and size is grown in place -- the installer extends the
+# file on the user store (install.c, grow_data) and the entry grows the
+# filesystem inside it before Android mounts it (preinit V13, data image grown
+# in place). Nothing the reader put in /data is lost. An image that cannot be
+# grown is still refused with E304 and the device keeps running what it has.
+BOARD_USERDATAIMAGE_PARTITION_SIZE := 3758096384
 BOARD_FLASH_BLOCK_SIZE := 4096
 # Keep framework and APK dex preparation off the 512 MB target at first boot.
 # The product selects speed compilation only for its core UI applications.

@@ -341,6 +341,26 @@ def zstd(data):
     return subprocess.run(['zstd', '-q', '-c', '-19'], input=data, capture_output=True, check=True).stdout
 
 
+def ext4_image(size, fill=b''):
+    """`size` bytes with an ext4 superblock the installer's own growth test can
+    read: magic, 1 KiB blocks and a block count that fills the image.
+
+    The installer never mounts or checks ext4 (the stock kernel has none); the
+    one thing it reads is the size the filesystem inside the image says it has,
+    which is what tells a kept image of the previous format from a file that is
+    not one (install.c, data_filesystem_bytes). The rest of the image is zeroes,
+    as an empty one would be, with `fill` at the front so two of them differ.
+    """
+    assert size % 1024 == 0 and len(fill) < 1024
+    image = bytearray(size)
+    image[:len(fill)] = fill
+    superblock = 1024
+    image[superblock + 4:superblock + 8] = (size // 1024).to_bytes(4, 'little')
+    image[superblock + 0x18:superblock + 0x1c] = (0).to_bytes(4, 'little')  # 1 KiB blocks
+    image[superblock + 0x38:superblock + 0x3a] = b'\x53\xef'
+    return bytes(image)
+
+
 class Release:
     def __init__(self, tmp, name, system, payload, template, data, **override):
         self.payload_name = 'readom-system-%s.img.zst' % name
@@ -352,6 +372,9 @@ class Release:
                   'payload_sha256': sha(payload), 'system_bytes': len(system), 'system_sha256': sha(system),
                   'template': template_path, 'template_bytes': len(template), 'template_sha256': sha(template),
                   'data_bytes': len(data), 'data_sha256': sha(data),
+                  # The image this release grows in place (install.h, data_legacy_*);
+                  # zero is "no predecessor", which is what a format 1 release has.
+                  'data_legacy_format': 0, 'data_legacy_bytes': 0,
                   # Releases differ in their boot image unless a test says otherwise,
                   # which is what makes an upgrade between two of them compile the
                   # applications in /data again.
@@ -426,7 +449,7 @@ def main():
         shim = store_shim(tmp / 'build')
         sys1 = rnd.randbytes(4 << 20) + bytes(18 << 20) + rnd.randbytes(2 << 20)
         sys2 = rnd.randbytes(4 << 20) + bytes(18 << 20) + rnd.randbytes(2 << 20)
-        data = b'PW3 empty data image' + bytes((20 << 20) - 20)
+        data = ext4_image(20 << 20, b'PW3 empty data image')
         p1, p2, template = zstd(sys1), zstd(sys2), zstd(data)
         v1 = Release(tmp, 'v1', sys1, p1, template, data)
         v2 = Release(tmp, 'v2', sys2, p2, template, data)
@@ -1034,6 +1057,65 @@ def main():
         r = T.run(v2f, u, w)
         T.check('release of another data format: E304, nothing changed', r['code'] == E['format'] and
                 img(u, 'system.img') == sys2 and dpath.read_bytes() == user_data and 'system=ready v2 ' in state(u), r)
+
+        # The one-way data image upgrade of the private/128gb-storage branch
+        # (1.75 GiB -> 3.5 GiB). A kept image of the format and size this release
+        # grows in place is not refused with E304: its file is extended, every
+        # byte that was in it stays at the front, and only the record names the
+        # new format. What is inside -- the ext4 filesystem -- is the entry's job
+        # after the jump; this side has no ext4 and must not write over it.
+        grown_data = ext4_image(40 << 20, b'PW3 grown data image')
+        grown = Release(tmp, 'v1g', sys1, p1, zstd(grown_data), grown_data, data_format=2,
+                        data_legacy_format=1, data_legacy_bytes=len(data))
+        ug, wg = T.store()
+        (ug / 'documents' / v1.payload_name).write_bytes(p1)
+        T.run(v1, ug, wg, 'online=0')
+        gpath = ug / 'android/data.img'
+        with open(gpath, 'r+b') as f:
+            f.seek(1 << 20)
+            f.write(b'user data')
+        kept = gpath.read_bytes()
+        (ug / 'documents' / grown.payload_name).write_bytes(p1)
+        r = T.run(grown, ug, wg, 'online=0')
+        T.check('a kept image of the format this release grows: grown in place, the old bytes kept',
+                r['code'] == 0 and gpath.stat().st_size == len(grown_data) and
+                gpath.read_bytes()[:len(kept)] == kept and
+                gpath.read_bytes()[len(kept):] == bytes(len(grown_data) - len(kept)) and
+                'data=ready 2\n' in state(ug) and 'growing the kept data image in place' in r['out'], r)
+        # A power cut in the middle of that grow: the file is between the two
+        # sizes and still holds the old image at its front, so the next tap
+        # carries on from there instead of refusing a half-grown image.
+        (ug / 'android/state').write_text('schema=1\nsystem=ready v1 %s\ndata=ready 1\n' % sha(sys1) + counts(0))
+        with open(gpath, 'r+b') as f:
+            f.truncate(len(kept) + (10 << 20))
+        (ug / 'documents' / grown.payload_name).write_bytes(p1)
+        r = T.run(grown, ug, wg, 'online=0')
+        T.check('a grow cut off by a power loss: resumed from where it stopped',
+                r['code'] == 0 and gpath.stat().st_size == len(grown_data) and
+                gpath.read_bytes()[:len(kept)] == kept and 'data=ready 2\n' in state(ug), r)
+        # And the same one power cut later: the file is already this release's
+        # size and only the record still names the old format. Nothing is
+        # written; the record is brought up to date.
+        (ug / 'android/state').write_text('schema=1\nsystem=ready v1 %s\ndata=ready 1\n' % sha(sys1) + counts(0))
+        before_grown = gpath.read_bytes()
+        (ug / 'documents' / grown.payload_name).write_bytes(p1)
+        r = T.run(grown, ug, wg, 'online=0')
+        T.check('an image already grown and a record that lags: record corrected, no byte written',
+                r['code'] == 0 and gpath.read_bytes() == before_grown and 'data=ready 2\n' in state(ug), r)
+        # The exception is one file of one size: a file of the format's size that
+        # is not an ext4 image is refused exactly as before, and not written to.
+        ub, wb = T.store()
+        (ub / 'documents' / v1.payload_name).write_bytes(p1)
+        T.run(v1, ub, wb, 'online=0')
+        bpath = ub / 'android/data.img'
+        with open(bpath, 'r+b') as f:
+            f.seek(1024 + 0x38)
+            f.write(b'\x00\x00')
+        broken = bpath.read_bytes()
+        (ub / 'documents' / grown.payload_name).write_bytes(p1)
+        r = T.run(grown, ub, wb, 'online=0')
+        T.check('a kept image of the old size that is not an ext4 image: E304, kept',
+                r['code'] == E['format'] and bpath.read_bytes() == broken, r)
 
         # A state file cut short -- what a flat battery during a write leaves -- still
         # says schema=1, and read_state calls that known. The data image it no longer

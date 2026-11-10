@@ -22,7 +22,19 @@
 #define PW3_TEST_SYSTEM_MIN_BYTES (256ULL << 20)
 #define PW3_TEST_SYSTEM_MAX_BYTES (1024ULL << 20)
 #define PW3_TEST_DATA_MIN_BYTES (512ULL << 20)
-#define PW3_TEST_DATA_MAX_BYTES (3072ULL << 20)
+/* 3.5 GiB on this private branch (2026-11-10), from the 1.75 GiB the release
+ * before it used. The ceiling is 4 GiB because a file on this FAT cannot be
+ * larger; the image a release ships may sit anywhere under it, so the store
+ * this entry is built for states its own number in the configuration.
+ *
+ * A data image may also be a file *larger* than the filesystem in it: the
+ * installer grows a kept 1.75 GiB image in place and cannot change what is
+ * inside it (it runs on the stock system, whose kernel has no ext4). The
+ * entry's job is then to grow that filesystem to the file it is in, before
+ * Android mounts it (TestFileInit.h, testfile_data_grow in PreInit.c). The
+ * other direction -- a filesystem larger than its file -- is still refused,
+ * because there is no cluster of the file to hold it. */
+#define PW3_TEST_DATA_MAX_BYTES (4096ULL << 20)
 // The report area (device/amazon/pw3/report/ReportArea.h) is the third file of
 // the user store this boot maps, and the only one of fixed size: it is made at
 // 64 KiB and never resized, because Android writes it by sector and a file that
