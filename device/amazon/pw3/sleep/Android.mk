@@ -36,3 +36,8 @@ LOCAL_MODULE_STEM := sleep-glyphs.txt
 LOCAL_SRC_FILES := sleep-glyphs.txt
 LOCAL_MODULE_PATH := $(TARGET_OUT)/usr/share/pw3
 include $(BUILD_PREBUILT)
+
+# The default wallpapers live in wallpapers/ with their own Android.mk. This
+# directory already has a makefile, and the build's scan stops at the first one
+# it meets, so wallpapers/ is only seen if it is included from here.
+include $(call all-makefiles-under,$(LOCAL_PATH))
