@@ -779,7 +779,7 @@ static void testfile_kindle_root_view(void) {
                 cover_ro_rc = 0;
             else
                 saved_errno = errno;
-            if (docs_ro_rc == 0 && (!statvfs(docs, &flags) || !(flags.f_flag & ST_RDONLY)))
+            if (docs_ro_rc == 0 && (statvfs(docs, &flags) || !(flags.f_flag & ST_RDONLY)))
                 docs_ro_rc = -1;
         }
         if (cover_rc || rw_rc || cover_ro_rc || docs_ro_rc) {   /* fail closed: withdraw the whole view */
