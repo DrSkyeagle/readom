@@ -31,6 +31,17 @@ diff --git a/packages/SystemUI/res/values/config.xml b/packages/SystemUI/res/val
  
      <bool name="quick_settings_show_full_alarm">false</bool>
  
+diff --git a/packages/SystemUI/res/values-sw372dp/config.xml b/packages/SystemUI/res/values-sw372dp/config.xml
+--- a/packages/SystemUI/res/values-sw372dp/config.xml
++++ b/packages/SystemUI/res/values-sw372dp/config.xml
+@@ -21,5 +21,6 @@
+      for different hardware and product builds. -->
+ <resources>
+     <!-- Nav bar button default ordering/layout -->
+-    <string name="config_navBarLayout" translatable="false">left[.25W],back[.5WC];home;recent[.5WC],right[.25W]</string>
++    <!-- Readom: navlock is the bar's own key (readom_nav_key.xml). -->
++    <string name="config_navBarLayout" translatable="false">left[.25W],back[.5WC];home;recent[.5WC],navlock[1WC],right[.25W]</string>
+ </resources>
 diff --git a/packages/SystemUI/src/com/android/systemui/statusbar/phone/NavigationBarInflaterView.java b/packages/SystemUI/src/com/android/systemui/statusbar/phone/NavigationBarInflaterView.java
 --- a/packages/SystemUI/src/com/android/systemui/statusbar/phone/NavigationBarInflaterView.java
 +++ b/packages/SystemUI/src/com/android/systemui/statusbar/phone/NavigationBarInflaterView.java
