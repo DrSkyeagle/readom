@@ -117,7 +117,7 @@ diff --git a/services/core/java/com/android/server/policy/PhoneWindowManager.jav
          }
          if (updateRotation) {
              updateRotation(true);
-@@ -6625,15 +6668,38 @@
+@@ -6625,6 +6668,19 @@
          }
      };
  
@@ -137,14 +137,9 @@ diff --git a/services/core/java/com/android/server/policy/PhoneWindowManager.jav
      private void requestTransientBars(WindowState swipeTarget) {
          synchronized (mWindowManagerFuncs.getWindowManagerLock()) {
              if (!isUserSetupComplete()) {
-                 // Swipe-up for navigation bar is disabled during setup
+@@ -6632,8 +6688,13 @@
                  return;
              }
-+            if (mReadomNavLock && swipeTarget == mNavigationBar) {
-+                // Readom: the bar is put away; nothing transient brings it back. The swipe up
-+                // from the bottom edge is the reader's way back and it shows the bar for good.
-+                return;
-+            }
              boolean sb = mStatusBarController.checkShowTransientBarLw();
 +            // Readom: the bar is requested below whenever nb is true, no matter which edge was
 +            // swiped -- a swipe down from the top asks for the status bar and the navigation bar
@@ -157,7 +152,7 @@ diff --git a/services/core/java/com/android/server/policy/PhoneWindowManager.jav
              if (sb || nb) {
                  // Don't show status bar when swiping on already visible navigation bar
                  if (!nb && swipeTarget == mNavigationBar) {
-@@ -8086,7 +8152,8 @@
+@@ -8086,7 +8147,8 @@
                          && (hideStatusBarWM || (hideStatusBarSysui && immersiveSticky))));
  
          final boolean transientNavBarAllowed = mNavigationBar != null
