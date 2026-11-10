@@ -150,13 +150,92 @@ bool loadWallpaper(const char* path, int width, int height, Wallpaper* out) {
     return true;
 }
 
+WallpaperLevels levelsOf(const Wallpaper& wallpaper) {
+    WallpaperLevels levels;
+    levels.width = wallpaper.width;
+    levels.height = wallpaper.height;
+    const size_t count = size_t(wallpaper.width) * size_t(wallpaper.height);
+    levels.luma.resize(count);
+    levels.alpha.resize(count);
+    for (size_t i = 0; i < count; ++i) {
+        const uint8_t* const pixel = wallpaper.rgba.data() + i * 4;
+        // The same luma the blend used to take from the RGBA picture, kept as it
+        // is: the picture is premultiplied, so the pixel's luma is the colour
+        // times its alpha and one add of what is behind it is the blend wanted.
+        levels.luma[i] = lumaOf(pixel, false);
+        levels.alpha[i] = pixel[3];
+    }
+    return levels;
+}
+
+int WallpaperSet::load(const char* directory, int width, int height) {
+    clear();
+    int error = 0;
+    const std::vector<std::string> names = wallpapersIn(directory, &error);
+    for (const std::string& name : names) {
+        const std::string path = std::string(directory) + "/" + name;
+        Wallpaper picture;
+        if (!loadWallpaper(path.c_str(), width, height, &picture)) continue;
+        names_.push_back(name);
+        pictures_.push_back(levelsOf(picture));  // 2 bytes a pixel, not 4
+    }
+    return size();
+}
+
+int WallpaperSet::pick(const std::string& previous, uint32_t random) const {
+    int previousIndex = -1;
+    for (size_t i = 0; i < names_.size(); ++i) {
+        if (names_[i] == previous) { previousIndex = int(i); break; }
+    }
+    return pickWallpaper(int(names_.size()), previousIndex, random);
+}
+
+const WallpaperLevels* WallpaperSet::picture(int index) const {
+    if (index < 0 || index >= int(pictures_.size())) return nullptr;
+    return &pictures_[size_t(index)];
+}
+
+const std::string& WallpaperSet::name(int index) const {
+    static const std::string empty;
+    if (index < 0 || index >= int(names_.size())) return empty;
+    return names_[size_t(index)];
+}
+
+void WallpaperSet::clear() {
+    names_.clear();
+    pictures_.clear();
+}
+
 WallpaperPainter::WallpaperPainter(int width, int height, unsigned contrast)
     : width_(width), height_(height), dither_(width, contrast), luma_(size_t(width)) {}
 
 void WallpaperPainter::row(int y, const uint8_t* background, const uint8_t* shown, uint8_t* out) {
     if (!out) return;
     uint8_t* const luma = luma_.data();
-    if (!wallpaper_ || wallpaper_->width != width_ || wallpaper_->height != height_ || y < 0 || y >= height_) {
+    const bool haveLevels = levels_ && levels_->width == width_ && levels_->height == height_;
+    const bool havePicture = wallpaper_ && wallpaper_->width == width_ && wallpaper_->height == height_;
+    if (haveLevels) {
+        // The compact form: the premultiplied luma and the alpha are the two
+        // numbers the blend and the transparent write-back need (levelsOf).
+        const uint8_t* const sourceLuma = levels_->luma.data() + size_t(y) * size_t(width_);
+        const uint8_t* const sourceAlpha = levels_->alpha.data() + size_t(y) * size_t(width_);
+        for (int x = 0; x < width_; ++x) {
+            const unsigned alpha = sourceAlpha[x];
+            if (!background) {
+                luma[x] = uint8_t(std::min(255u, unsigned(sourceLuma[x]) + (255u - alpha)));
+            } else {
+                luma[x] = uint8_t(std::min(255u, unsigned(sourceLuma[x]) +
+                                                divide255(unsigned(background[x]) * (255u - alpha))));
+            }
+        }
+        dither_.row(luma, out);
+        if (!background || !shown) return;
+        for (int x = 0; x < width_; ++x) {
+            if (sourceAlpha[x] == 0) out[x] = shown[x];
+        }
+        return;
+    }
+    if (!havePicture || y < 0 || y >= height_) {
         // No picture to paint: the frame before, or paper. Never reachable from
         // opsSleep, which only constructs a painter around a loaded picture.
         for (int x = 0; x < width_; ++x) luma[x] = background ? background[x] : 255;
