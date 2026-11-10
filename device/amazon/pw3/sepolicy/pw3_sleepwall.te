@@ -47,3 +47,13 @@ type pw3_sleepwall_file, file_type, data_file_type;
 allow surfaceflinger vfat:dir search;
 allow surfaceflinger pw3_sleepwall_file:dir r_dir_perms;
 allow surfaceflinger pw3_sleepwall_file:file r_file_perms;
+# Android reaches the store through the FUSE daemon that vold starts
+# (vold auto-trans: vold, sdcardd_exec, sdcardd). That daemon opens the files on
+# the store itself, so with no allow on this type its stat/readdir fails and
+# Android shows /sdcard/kindle/sleepwall as an unknown 0-byte file instead of a
+# directory (T21). These are the same macros AOSP public/sdcardd.te grants for
+# sdcard_type, so the folder behaves like the rest of the user area: list, put
+# and delete wallpapers from Android. The display HAL keeps only read access and
+# nothing here lets it write.
+allow sdcardd pw3_sleepwall_file:dir create_dir_perms;
+allow sdcardd pw3_sleepwall_file:file create_file_perms;
