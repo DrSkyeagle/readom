@@ -2,9 +2,8 @@ From: PW3 Android port
 Subject: [PW3] The navigation bar gets its own key: one tap puts it away
 
 The reader asked to own the bar's visibility. This patch gives the bar one more key at the
-right-hand end, next to Recents: a chevron pointing down onto a line. A tap toggles the bar
--- patch 0076 owns the state, applies it, and puts the bar back on a swipe up from the
-bottom edge.
+right-hand end: a chevron pointing down onto a line. A tap toggles the bar -- patch 0076
+owns the state, applies it, and puts the bar back on a swipe up from the bottom edge.
 
 The nav bar's layout is a string from SystemUI's own resources -- `config_navBarLayout` in
 `packages/SystemUI/res/values/config.xml` -- and its keys are inflated from it by
@@ -12,96 +11,83 @@ The nav bar's layout is a string from SystemUI's own resources -- `config_navBar
 a change to framework-res: no resource ID that the ART boot image depends on moves. The
 button is a plain `ImageView` rather than a `KeyButtonView`, because it sends no key code.
 
+The layout this patch started with put the fourth key inside the same weighted row as the
+other three, `recent[.5WC],navlock[1WC]`, which is where the keys began to collide on the
+device: the row's middle is a spacer of weight 1 (`addGravitySpacer()`), the weights before
+it (0.25 + 0.5) no longer added up to the weights after it (0.5 + 1 + 0.25), so the spacer
+sat 81.7 dp left of the panel's centre while the home key -- weight 0, 70 dp, centred by
+`center_group` -- stayed on the centre. The home key overlapped the recents key by 59 px,
+and the touch area of the recents key under it went to Home. The layout is now
+
+    ;space[0.25W],back[1WC],home[1WC],recent[1WC],space[0.25W];navlock[0.15W]
+
+which the same inflater reads as: three keys of weight 1 each in the centre group, so their
+centres are 289.1 px apart and `home` lands on the panel's centre 506.0 px; an invisible
+`space` of weight 0.25 at either end of that group, which keeps the three keys' margins
+equal (72 px each side at this density) and therefore the home key on the centre; and
+`navlock` alone in the end group, weight 0.15, which is 132 px of frame -- just over the
+key's 70 dp, so the key fills it. It carries no `C`, and an end-group token without `C` is
+laid out at the frame's end, so the key sits on the right edge itself instead of floating
+in a frame twice its width.
+
+The string starts with `;`, and that is not a typo: `inflateLayout()` splits on `;` into
+three groups and inflates the first into the ends group *before* the gravity spacer of
+weight 1, so a leading `space` there is not the mirror of the trailing one -- it moves the
+spacer and puts `home` 39 px left of the panel's centre. The empty start group makes both
+spaces the centre group's own, one at each end of the three keys.
+
+Measured on this panel (1072 x 1448 px, density 1.875): usable strip 1012 px, key centres
+at 217 / 506 / 795 px, keys 131 px wide (70 dp), navlock's key at 881..1012 px, 20 px clear
+of the recents key. No two keys overlap, which is what the first form of this patch got
+wrong: `home` and `recent` were 59 px into each other, and a tap in the strip they shared
+went to `home`, so that much of the recents key could not be pressed.
+
 The key does not touch Settings itself: it sends the broadcast introduced by patch 0076 and
 the policy side owns the state, so there is one place that decides.
 
-Not run on a device yet when this patch was written; how to run it is in
-`readom-port/reports/t09-nav-impl.md`.
+The icon is a vector declared at 22 dp with a 24-unit viewport, and the key's vertical
+padding is 13 dp, leaving the key's full 22 dp of content: the chevron is drawn at 22 dp,
+41 px on this panel, rather than being scaled down to the 18 dp the other keys' 15 dp of
+padding leaves them. Not run on a device yet: whether the chevron and the line read on
+e-paper is the thing to look at, and a 15 dp padding puts it back with the other three.
 
-diff --git a/packages/SystemUI/res/values/config.xml b/packages/SystemUI/res/values/config.xml
---- a/packages/SystemUI/res/values/config.xml
-+++ b/packages/SystemUI/res/values/config.xml
-@@ -339,7 +339,8 @@
-     <bool name="config_quickSettingsOnFirstPull">false</bool>
- 
-     <!-- Nav bar button default ordering/layout -->
--    <string name="config_navBarLayout" translatable="false">left[.5W],back[1WC];home;recent[1WC],right[.5W]</string>
-+    <!-- Readom: navlock is the bar's own key (readom_nav_key.xml). -->
-+    <string name="config_navBarLayout" translatable="false">left[.5W],back[1WC];home;recent[1WC],navlock[1WC],right[.5W]</string>
- 
-     <bool name="quick_settings_show_full_alarm">false</bool>
- 
-diff --git a/packages/SystemUI/res/values-sw372dp/config.xml b/packages/SystemUI/res/values-sw372dp/config.xml
---- a/packages/SystemUI/res/values-sw372dp/config.xml
-+++ b/packages/SystemUI/res/values-sw372dp/config.xml
-@@ -21,5 +21,6 @@
-      for different hardware and product builds. -->
- <resources>
-     <!-- Nav bar button default ordering/layout -->
--    <string name="config_navBarLayout" translatable="false">left[.25W],back[.5WC];home;recent[.5WC],right[.25W]</string>
-+    <!-- Readom: navlock is the bar's own key (readom_nav_key.xml). -->
-+    <string name="config_navBarLayout" translatable="false">left[.25W],back[.5WC];home;recent[.5WC],navlock[1WC],right[.25W]</string>
- </resources>
-diff --git a/packages/SystemUI/src/com/android/systemui/statusbar/phone/NavigationBarInflaterView.java b/packages/SystemUI/src/com/android/systemui/statusbar/phone/NavigationBarInflaterView.java
---- a/packages/SystemUI/src/com/android/systemui/statusbar/phone/NavigationBarInflaterView.java
-+++ b/packages/SystemUI/src/com/android/systemui/statusbar/phone/NavigationBarInflaterView.java
-@@ -17,6 +17,7 @@
- import android.annotation.Nullable;
- import android.content.Context;
- import android.content.res.Configuration;
-+import android.content.Intent;
- import android.graphics.drawable.Icon;
- import android.util.AttributeSet;
- import android.util.Log;
-@@ -53,6 +54,9 @@
- 
-     private static final String TAG = "NavBarInflater";
- 
-+    // Readom: the navigation bar's own key (patch 0077).
-+    private static final String READOM_NAV_ACTION = "org.readom.policy.TOGGLE_NAV";
+Not run on a device yet when this patch was written; how to run it is in
+`readom-port/reports/research/t34-nav-impl.md`.
+
+diff --git a/packages/SystemUI/res/drawable/readom_ic_sysbar_navhide.xml b/packages/SystemUI/res/drawable/readom_ic_sysbar_navhide.xml
+new file mode 100644
+--- /dev/null
++++ b/packages/SystemUI/res/drawable/readom_ic_sysbar_navhide.xml
+@@ -0,0 +1,29 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- Copyright (C) 2026 The PW3 port authors
 +
-     public static final String NAV_BAR_VIEWS = "sysui_nav_bar";
-     public static final String NAV_BAR_LEFT = "sysui_nav_bar_left";
-     public static final String NAV_BAR_RIGHT = "sysui_nav_bar_right";
-@@ -61,6 +65,7 @@
-     public static final String BACK = "back";
-     public static final String HOME = "home";
-     public static final String RECENT = "recent";
-+    public static final String NAVLOCK = "navlock";
-     public static final String NAVSPACE = "space";
-     public static final String CLIPBOARD = "clipboard";
-     public static final String KEY = "key";
-@@ -307,6 +312,15 @@
-         return v;
-     }
- 
-+    /**
-+     * Readom: asks the policy side (patch 0076) for the other state of the navigation bar. The
-+     * policy owns the setting and the bar; this only says what the reader asked for. Any
-+     * application can send the same broadcast, and all it can do is toggle this bar.
-+     */
-+    private void readomToggleNavBar() {
-+        getContext().sendBroadcast(new Intent(READOM_NAV_ACTION));
-+    }
++     Licensed under the Apache License, Version 2.0 (the "License");
++     you may not use this file except in compliance with the License.
++     You may obtain a copy of the License at
 +
-     private View createView(String buttonSpec, ViewGroup parent, LayoutInflater inflater) {
-         View v = null;
-         String button = extractButton(buttonSpec);
-@@ -328,6 +342,14 @@
-             v = inflater.inflate(R.layout.back, parent, false);
-         } else if (RECENT.equals(button)) {
-             v = inflater.inflate(R.layout.recent_apps, parent, false);
-+        } else if (NAVLOCK.equals(button)) {
-+            v = inflater.inflate(R.layout.readom_nav_key, parent, false);
-+            v.setOnClickListener(new View.OnClickListener() {
-+                @Override
-+                public void onClick(View view) {
-+                    readomToggleNavBar();
-+                }
-+            });
-         } else if (MENU_IME.equals(button)) {
-             v = inflater.inflate(R.layout.menu_ime, parent, false);
-         } else if (NAVSPACE.equals(button)) {
++          http://www.apache.org/licenses/LICENSE-2.0
++
++     Unless required by applicable law or agreed to in writing, software
++     distributed under the License is distributed on an "AS IS" BASIS,
++     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++     See the License for the specific language governing permissions and
++     limitations under the License.
++-->
++<!-- Readom: a chevron pointing down onto a line, "put the bar away". Black, because the
++     navigation bar on this panel is opaque white (patch 0015). -->
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="22dp"
++    android:height="22dp"
++    android:viewportWidth="24"
++    android:viewportHeight="24">
++    <path
++        android:fillColor="#FF000000"
++        android:pathData="M12,16.5L4.5,9l2.1,-2.1L12,12.3l5.4,-5.4L19.5,9z" />
++    <path
++        android:fillColor="#FF000000"
++        android:pathData="M4.5,18.5h15v2.5h-15z" />
++</vector>
 diff --git a/packages/SystemUI/res/layout/readom_nav_key.xml b/packages/SystemUI/res/layout/readom_nav_key.xml
 new file mode 100644
 --- /dev/null
@@ -133,44 +119,106 @@ new file mode 100644
 +    android:layout_weight="0"
 +    android:background="?android:attr/selectableItemBackground"
 +    android:contentDescription="Hide or show the navigation bar"
-+    android:paddingTop="15dp"
-+    android:paddingBottom="15dp"
++    android:paddingTop="13dp"
++    android:paddingBottom="13dp"
 +    android:paddingStart="@dimen/navigation_key_padding"
 +    android:paddingEnd="@dimen/navigation_key_padding"
 +    android:scaleType="fitCenter"
 +    android:src="@drawable/readom_ic_sysbar_navhide"
 +    />
-diff --git a/packages/SystemUI/res/drawable/readom_ic_sysbar_navhide.xml b/packages/SystemUI/res/drawable/readom_ic_sysbar_navhide.xml
-new file mode 100644
---- /dev/null
-+++ b/packages/SystemUI/res/drawable/readom_ic_sysbar_navhide.xml
-@@ -0,0 +1,29 @@
-+<?xml version="1.0" encoding="utf-8"?>
-+<!-- Copyright (C) 2026 The PW3 port authors
+diff --git a/packages/SystemUI/res/values-sw372dp/config.xml b/packages/SystemUI/res/values-sw372dp/config.xml
+--- a/packages/SystemUI/res/values-sw372dp/config.xml
++++ b/packages/SystemUI/res/values-sw372dp/config.xml
+@@ -21,5 +21,12 @@
+      for different hardware and product builds. -->
+ <resources>
+     <!-- Nav bar button default ordering/layout -->
+-    <string name="config_navBarLayout" translatable="false">left[.25W],back[.5WC];home;recent[.5WC],right[.25W]</string>
++    <!-- Readom: navlock is the bar's own key (readom_nav_key.xml). The three navigation keys
++         share the width evenly (weight 1 each, the key centred in its frame), with the same
++         weight of invisible space at either end, so the home key stays on the centre of the
++         panel; navlock takes the right edge alone, without C, which puts the key at the end of
++         its frame. The weight of 0.15 leaves the key its full 70dp. The leading `;` leaves the
++         start group empty on purpose: a token before the first `;` is inflated into the ends
++         group, before the gravity spacer, which would shift the three keys off centre. -->
++    <string name="config_navBarLayout" translatable="false">;space[0.25W],back[1WC],home[1WC],recent[1WC],space[0.25W];navlock[0.15W]</string>
+ </resources>
+diff --git a/packages/SystemUI/res/values/config.xml b/packages/SystemUI/res/values/config.xml
+--- a/packages/SystemUI/res/values/config.xml
++++ b/packages/SystemUI/res/values/config.xml
+@@ -339,7 +339,14 @@
+     <bool name="config_quickSettingsOnFirstPull">false</bool>
+ 
+     <!-- Nav bar button default ordering/layout -->
+-    <string name="config_navBarLayout" translatable="false">left[.5W],back[1WC];home;recent[1WC],right[.5W]</string>
++    <!-- Readom: navlock is the bar's own key (readom_nav_key.xml). The three navigation keys
++         share the width evenly (weight 1 each, the key centred in its frame), with the same
++         weight of invisible space at either end, so the home key stays on the centre of the
++         panel; navlock takes the right edge alone, without C, which puts the key at the end of
++         its frame. The weight of 0.15 leaves the key its full 70dp. The leading `;` leaves the
++         start group empty on purpose: a token before the first `;` is inflated into the ends
++         group, before the gravity spacer, which would shift the three keys off centre. -->
++    <string name="config_navBarLayout" translatable="false">;space[0.25W],back[1WC],home[1WC],recent[1WC],space[0.25W];navlock[0.15W]</string>
+ 
+     <bool name="quick_settings_show_full_alarm">false</bool>
+ 
+diff --git a/packages/SystemUI/src/com/android/systemui/statusbar/phone/NavigationBarInflaterView.java b/packages/SystemUI/src/com/android/systemui/statusbar/phone/NavigationBarInflaterView.java
+--- a/packages/SystemUI/src/com/android/systemui/statusbar/phone/NavigationBarInflaterView.java
++++ b/packages/SystemUI/src/com/android/systemui/statusbar/phone/NavigationBarInflaterView.java
+@@ -17,6 +17,7 @@ package com.android.systemui.statusbar.phone;
+ import android.annotation.Nullable;
+ import android.content.Context;
+ import android.content.res.Configuration;
++import android.content.Intent;
+ import android.graphics.drawable.Icon;
+ import android.util.AttributeSet;
+ import android.util.Log;
+@@ -53,6 +54,9 @@ public class NavigationBarInflaterView extends FrameLayout
+ 
+     private static final String TAG = "NavBarInflater";
+ 
++    // Readom: the navigation bar's own key (patch 0077).
++    private static final String READOM_NAV_ACTION = "org.readom.policy.TOGGLE_NAV";
 +
-+     Licensed under the Apache License, Version 2.0 (the "License");
-+     you may not use this file except in compliance with the License.
-+     You may obtain a copy of the License at
+     public static final String NAV_BAR_VIEWS = "sysui_nav_bar";
+     public static final String NAV_BAR_LEFT = "sysui_nav_bar_left";
+     public static final String NAV_BAR_RIGHT = "sysui_nav_bar_right";
+@@ -61,6 +65,7 @@ public class NavigationBarInflaterView extends FrameLayout
+     public static final String BACK = "back";
+     public static final String HOME = "home";
+     public static final String RECENT = "recent";
++    public static final String NAVLOCK = "navlock";
+     public static final String NAVSPACE = "space";
+     public static final String CLIPBOARD = "clipboard";
+     public static final String KEY = "key";
+@@ -307,6 +312,15 @@ public class NavigationBarInflaterView extends FrameLayout
+         return v;
+     }
+ 
++    /**
++     * Readom: asks the policy side (patch 0076) for the other state of the navigation bar. The
++     * policy owns the setting and the bar; this only says what the reader asked for. Any
++     * application can send the same broadcast, and all it can do is toggle this bar.
++     */
++    private void readomToggleNavBar() {
++        getContext().sendBroadcast(new Intent(READOM_NAV_ACTION));
++    }
 +
-+          http://www.apache.org/licenses/LICENSE-2.0
-+
-+     Unless required by applicable law or agreed to in writing, software
-+     distributed under the License is distributed on an "AS IS" BASIS,
-+     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-+     See the License for the specific language governing permissions and
-+     limitations under the License.
-+-->
-+<!-- Readom: a chevron pointing down onto a line, "put the bar away". Black, because the
-+     navigation bar on this panel is opaque white (patch 0015). -->
-+<vector xmlns:android="http://schemas.android.com/apk/res/android"
-+    android:width="24dp"
-+    android:height="24dp"
-+    android:viewportWidth="24"
-+    android:viewportHeight="24">
-+    <path
-+        android:fillColor="#FF000000"
-+        android:pathData="M12,16.5L4.5,9l2.1,-2.1L12,12.3l5.4,-5.4L19.5,9z" />
-+    <path
-+        android:fillColor="#FF000000"
-+        android:pathData="M4.5,18.5h15v2.5h-15z" />
-+</vector>
+     private View createView(String buttonSpec, ViewGroup parent, LayoutInflater inflater) {
+         View v = null;
+         String button = extractButton(buttonSpec);
+@@ -328,6 +342,14 @@ public class NavigationBarInflaterView extends FrameLayout
+             v = inflater.inflate(R.layout.back, parent, false);
+         } else if (RECENT.equals(button)) {
+             v = inflater.inflate(R.layout.recent_apps, parent, false);
++        } else if (NAVLOCK.equals(button)) {
++            v = inflater.inflate(R.layout.readom_nav_key, parent, false);
++            v.setOnClickListener(new View.OnClickListener() {
++                @Override
++                public void onClick(View view) {
++                    readomToggleNavBar();
++                }
++            });
+         } else if (MENU_IME.equals(button)) {
+             v = inflater.inflate(R.layout.menu_ime, parent, false);
+         } else if (NAVSPACE.equals(button)) {

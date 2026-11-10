@@ -11,33 +11,98 @@ the ART boot image with it, and every application in /data would be recompiled a
 upgrade. Hiding is still `policy_control = immersive.navigation=*`, written by the same
 toggle, so the two settings agree and the state survives a restart.
 
-While the bar is put away, two things must not bring it back:
+Put away means put away. The first form of this patch guarded only the bar's *transient*
+requests, and three reports came back from the device: a WeRead review dialog brought the
+bar out, pulling the shade down brought it out, and a bar that was out could not be put
+away again while either was on screen. Reading the policy end to end (32 paths, the audit
+in `readom-port/reports/research/t32-nav-activation-audit.md`) found that every way the bar
+becomes visible ends in `BarController.setBarShowingLw(true)`, and that only the transient
+one of them was gated. So this patch gates the state in three layers, narrowest first:
 
-  - a swipe down from the top. In AOSP `requestTransientBars()` computes
-    `sb = mStatusBarController.checkShowTransientBarLw()` and
-    `nb = mNavigationBarController.checkShowTransientBarLw()` and shows whichever is true,
-    no matter which edge was swiped -- the top swipe asks for the status bar and the
-    navigation bar came out with it ("the status bar and the navigation bar come out
-    together", the reader's words). One condition is added to `nb`, and the existing guard
-    in `requestTransientBars()` refuses navigation-bar requests outright while the bar is
-    put away;
+  - the policy computation: while the bar is put away `updateSystemUiVisibilityLw()` forces
+    `HIDE_NAVIGATION | IMMERSIVE_STICKY | LAYOUT_HIDE_NAVIGATION` into what the bars are
+    asked to do, whatever the window on top asked for. That covers an application that
+    shows a dialog and stops asking for immersive mode, the see-through-window rule of
+    patch 0056 (which clears `HIDE_NAVIGATION` for a translucent application window so the
+    reader keeps Back and Home -- WeRead's review dialog is exactly that window), and the
+    input method's own clearing for the windows below it. The immersive flag is also what
+    keeps the hidden-navigation input consumer off (`beginLayoutLw()`'s `navAllowedHidden`),
+    so a touch anywhere cannot reach the "show the bar again" receiver, and what leaves the
+    application laid out to the bottom edge -- no black band where the bar used to be;
 
-  - the power-button panic and any other transient request, which go through
-    `transientNavBarAllowed` and are refused while the bar is put away.
+  - the two places that show the window without consulting those flags: an expanded status
+    bar (`finishPostLayoutPolicyLw()` -- the shade, the lock screen, a heads-up
+    notification, all of which make the status bar window `MATCH_PARENT`) no longer shows
+    the bar, and `layoutNavigationBar()` is no longer told that such a status bar may show
+    it. Its own else branch exists for exactly that case ("unless we expanded the status
+    bar"), and it was the one a shade pull-down took;
+
+  - `BarController`: the window is shown and hidden in one place, `setBarShowingLw()`, so
+    that is where the last word is. `setReadomLocked(true)` makes every `show` return
+    without touching the window and makes `showTransient()` ask for nothing. This is the
+    layer that also covers `adjustSystemUiVisibilityLw()`'s unhide flag and the pending
+    show after a hide, which are reached from the window manager's own re-evaluation rather
+    than from the policy's layout pass. Only the navigation bar's controller is ever set.
 
 The reader's way back is `onSwipeFromBottom()`: while the bar is put away it writes 0 (and
 drops `policy_control`), and the bar is simply shown -- no peek, no timer, nothing that
-takes it away again.
+takes it away again. It is the only path left that can show the bar, so it does not ask
+where the bar is: in landscape it is on the right, and the bottom edge is still where the
+hand is. The strip it answers from is the bar's own height (`navigation_bar_height`, 90 px
+on this panel) rather than the status bar's 45 px that the four edges used to share; the
+gesture itself (45 px of travel, 500 ms) is unchanged.
+
+One ordering detail: `updateSettings()` runs once from `init()`, before
+`WindowManagerService` has a `WindowSurfacePlacer`, so the re-evaluation it asks for is
+now guarded by `mSystemReady`. The state itself is still applied that early -- the first
+layout pass reads it -- so a boot with the bar put away never has a frame that treats the
+bar as unlocked.
 
 A boot without this patch ignores `readom_nav_locked` and behaves as it always did.
 
 Not run on a device yet when this patch was written; how to run it is in
-`readom-port/reports/t09-nav-impl.md`.
+`readom-port/reports/research/t34-nav-impl.md`.
 
+diff --git a/services/core/java/com/android/server/policy/BarController.java b/services/core/java/com/android/server/policy/BarController.java
+--- a/services/core/java/com/android/server/policy/BarController.java
++++ b/services/core/java/com/android/server/policy/BarController.java
+@@ -65,6 +65,10 @@ public class BarController {
+     private boolean mShowTransparent;
+     private boolean mSetUnHideFlagWhenNextTransparent;
+     private boolean mNoAnimationOnNextShow;
++    // Readom: the reader owns the navigation bar's visibility (patch 0076). Only the navigation
++    // bar's controller is ever set; while it is set, no path -- a transient request, an unhide
++    // flag the window manager reports, the pending show after a hide -- may show the window.
++    private boolean mReadomLocked;
+ 
+     private OnBarVisibilityChangedListener mVisibilityChangeListener;
+ 
+@@ -92,7 +96,13 @@ public class BarController {
+         }
+     }
+ 
++    /** Readom: only the navigation bar's controller is set, by PhoneWindowManager (patch 0076). */
++    public void setReadomLocked(boolean locked) {
++        mReadomLocked = locked;
++    }
++
+     public void showTransient() {
++        if (mReadomLocked) return;
+         if (mWin != null) {
+             setTransientBarState(TRANSIENT_BAR_SHOW_REQUESTED);
+         }
+@@ -147,6 +157,7 @@ public class BarController {
+ 
+     public boolean setBarShowingLw(final boolean show) {
+         if (mWin == null) return false;
++        if (show && mReadomLocked) return false;
+         if (show && mTransientBarState == TRANSIENT_BAR_HIDING) {
+             mPendingShow = true;
+             return false;
 diff --git a/services/core/java/com/android/server/policy/PhoneWindowManager.java b/services/core/java/com/android/server/policy/PhoneWindowManager.java
 --- a/services/core/java/com/android/server/policy/PhoneWindowManager.java
 +++ b/services/core/java/com/android/server/policy/PhoneWindowManager.java
-@@ -650,6 +650,28 @@
+@@ -650,6 +650,28 @@ public class PhoneWindowManager implements WindowManagerPolicy {
      // If nonzero, a panic gesture was performed at that time in uptime millis and is still pending.
      private long mPendingPanicGestureUptime;
  
@@ -66,7 +131,7 @@ diff --git a/services/core/java/com/android/server/policy/PhoneWindowManager.jav
      InputConsumer mInputConsumer = null;
  
      static final Rect mTmpParentFrame = new Rect();
-@@ -978,6 +1000,9 @@
+@@ -978,6 +1000,9 @@ public class PhoneWindowManager implements WindowManagerPolicy {
              resolver.registerContentObserver(Settings.Global.getUriFor(
                      Settings.Global.POLICY_CONTROL), false, this,
                      UserHandle.USER_ALL);
@@ -76,7 +141,7 @@ diff --git a/services/core/java/com/android/server/policy/PhoneWindowManager.jav
              updateSettings();
          }
  
-@@ -2039,6 +2064,11 @@
+@@ -2039,6 +2064,11 @@ public class PhoneWindowManager implements WindowManagerPolicy {
          filter = new IntentFilter(Intent.ACTION_USER_SWITCHED);
          context.registerReceiver(mMultiuserReceiver, filter);
  
@@ -88,23 +153,26 @@ diff --git a/services/core/java/com/android/server/policy/PhoneWindowManager.jav
          // monitor for system gestures
          mSystemGestures = new SystemGesturesPointerEventListener(context,
                  new SystemGesturesPointerEventListener.Callbacks() {
-@@ -2051,7 +2081,14 @@
+@@ -2050,8 +2080,16 @@ public class PhoneWindowManager implements WindowManagerPolicy {
+                     }
                      @Override
                      public void onSwipeFromBottom() {
-                         if (mNavigationBar != null && mNavigationBarPosition == NAV_BAR_BOTTOM) {
+-                        if (mNavigationBar != null && mNavigationBarPosition == NAV_BAR_BOTTOM) {
 -                            requestTransientBars(mNavigationBar);
-+                            if (mReadomNavLock) {
-+                                // Readom: the reader's way back. The bar is shown for good, not
-+                                // peeked at: the same thing as tapping the bar's key, the other
-+                                // way round, and from here on it stays until they put it away.
-+                                synchronized (mWindowManagerFuncs.getWindowManagerLock()) {
-+                                    readomSetNavLockLw(false);
-+                                }
++                        // Readom: the reader's way back, and the only one. The bar sits at the
++                        // bottom in portrait and on the right in landscape, and the bottom edge
++                        // is where the hand is either way, so the position is not asked here.
++                        if (mNavigationBar != null && mReadomNavLock) {
++                            // Readom: the bar is shown for good, not peeked at: the same thing
++                            // as tapping the bar's key, the other way round, and from here on it
++                            // stays until they put it away.
++                            synchronized (mWindowManagerFuncs.getWindowManagerLock()) {
++                                readomSetNavLockLw(false);
 +                            }
                          }
                      }
                      @Override
-@@ -2367,6 +2404,12 @@
+@@ -2367,6 +2405,18 @@ public class PhoneWindowManager implements WindowManagerPolicy {
          }
          synchronized (mWindowManagerFuncs.getWindowManagerLock()) {
              PolicyControl.reloadFromSetting(mContext);
@@ -112,12 +180,42 @@ diff --git a/services/core/java/com/android/server/policy/PhoneWindowManager.jav
 +                    mContext.getContentResolver(), READOM_NAV_LOCKED, 0) != 0;
 +            if (readomNavLocked != mReadomNavLock) {
 +                mReadomNavLock = readomNavLocked;
-+                mWindowManagerFuncs.reevaluateStatusBarVisibility();
++                mNavigationBarController.setReadomLocked(readomNavLocked);
++                // Readom: updateSettings() runs once from init(), before WindowManagerService
++                // has a WindowSurfacePlacer. The window itself is applied by the first layout
++                // pass, so ask for a re-evaluation only when there is one to ask.
++                if (mSystemReady) {
++                    mWindowManagerFuncs.reevaluateStatusBarVisibility();
++                }
 +            }
          }
          if (updateRotation) {
              updateRotation(true);
-@@ -6625,6 +6668,19 @@
+@@ -4516,9 +4566,11 @@ public class PhoneWindowManager implements WindowManagerPolicy {
+             // then take that into account.
+             navVisible |= !canHideNavigationBar();
+ 
++            // Readom: the last argument is the one that shows the bar for an expanded status
++            // bar (the else branch below); a bar the reader put away is shown by neither.
+             boolean updateSysUiVisibility = layoutNavigationBar(displayWidth, displayHeight,
+                     displayRotation, uiMode, overscanLeft, overscanRight, overscanBottom, dcf, navVisible, navTranslucent,
+-                    navAllowedHidden, statusBarExpandedNotKeyguard);
++                    navAllowedHidden, statusBarExpandedNotKeyguard && !mReadomNavLock);
+             if (DEBUG_LAYOUT) Slog.i(TAG, String.format("mDock rect: (%d,%d - %d,%d)",
+                     mDockLeft, mDockTop, mDockRight, mDockBottom));
+             updateSysUiVisibility |= layoutStatusBar(pf, df, of, vf, dcf, sysui, isKeyguardShowing);
+@@ -5586,7 +5638,9 @@ public class PhoneWindowManager implements WindowManagerPolicy {
+                     mStatusBarController.updateVisibilityLw(false /*transientAllowed*/,
+                             mLastSystemUiFlags, mLastSystemUiFlags);
+                 }
+-                if (statusBarExpanded && mNavigationBar != null) {
++                // Readom: a status bar that covers the screen -- the shade, the lock screen,
++                // a heads-up notification -- does not bring back a bar the reader put away.
++                if (statusBarExpanded && mNavigationBar != null && !mReadomNavLock) {
+                     if (mNavigationBarController.setBarShowingLw(true)) {
+                         changes |= FINISH_LAYOUT_REDO_LAYOUT;
+                     }
+@@ -6625,6 +6679,22 @@ public class PhoneWindowManager implements WindowManagerPolicy {
          }
      };
  
@@ -131,13 +229,16 @@ diff --git a/services/core/java/com/android/server/policy/PhoneWindowManager.jav
 +        Settings.Global.putString(resolver, Settings.Global.POLICY_CONTROL,
 +                hidden ? READOM_NAV_POLICY : null);
 +        mReadomNavLock = hidden;
++        // Readom: the bar's controller is the last word on its window (BarController), so the
++        // gate and the state are set together, before the layout pass below.
++        mNavigationBarController.setReadomLocked(hidden);
 +        mWindowManagerFuncs.reevaluateStatusBarVisibility();
 +    }
 +
      private void requestTransientBars(WindowState swipeTarget) {
          synchronized (mWindowManagerFuncs.getWindowManagerLock()) {
              if (!isUserSetupComplete()) {
-@@ -6632,8 +6688,13 @@
+@@ -6632,8 +6702,13 @@ public class PhoneWindowManager implements WindowManagerPolicy {
                  return;
              }
              boolean sb = mStatusBarController.checkShowTransientBarLw();
@@ -152,7 +253,27 @@ diff --git a/services/core/java/com/android/server/policy/PhoneWindowManager.jav
              if (sb || nb) {
                  // Don't show status bar when swiping on already visible navigation bar
                  if (!nb && swipeTarget == mNavigationBar) {
-@@ -8086,7 +8147,8 @@
+@@ -7923,6 +7998,19 @@ public class PhoneWindowManager implements WindowManagerPolicy {
+         if (mForcingShowNavBar && win.getSurfaceLayer() < mForcingShowNavBarLayer) {
+             tmpVisibility &= ~PolicyControl.adjustClearableFlags(win, View.SYSTEM_UI_CLEARABLE_FLAGS);
+         }
++        if (mReadomNavLock) {
++            // Readom: the reader put the bar away, and there it stays. Whatever this window
++            // asked for -- and whatever a see-through window or the input method cleared just
++            // above -- the policy computes the bar as gone, hidden with the immersive flag:
++            // that is also what keeps the hidden-navigation input consumer off (beginLayoutLw's
++            // navAllowedHidden) and leaves the application laid out to the bottom edge.
++            tmpVisibility |= View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
++                    | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
++                    | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION;
++            tmpVisibility &= ~(View.SYSTEM_UI_FLAG_LAYOUT_STABLE
++                    | View.NAVIGATION_BAR_TRANSLUCENT
++                    | View.NAVIGATION_BAR_TRANSPARENT);
++        }
+ 
+         final int fullscreenVisibility = updateLightStatusBarLw(0 /* vis */,
+                 mTopFullscreenOpaqueWindowState, mTopFullscreenOpaqueOrDimmingWindowState);
+@@ -8086,7 +8174,8 @@ public class PhoneWindowManager implements WindowManagerPolicy {
                          && (hideStatusBarWM || (hideStatusBarSysui && immersiveSticky))));
  
          final boolean transientNavBarAllowed = mNavigationBar != null
@@ -162,3 +283,34 @@ diff --git a/services/core/java/com/android/server/policy/PhoneWindowManager.jav
  
          final long now = SystemClock.uptimeMillis();
          final boolean pendingPanic = mPendingPanicGestureUptime != 0
+diff --git a/services/core/java/com/android/server/policy/SystemGesturesPointerEventListener.java b/services/core/java/com/android/server/policy/SystemGesturesPointerEventListener.java
+--- a/services/core/java/com/android/server/policy/SystemGesturesPointerEventListener.java
++++ b/services/core/java/com/android/server/policy/SystemGesturesPointerEventListener.java
+@@ -48,6 +48,9 @@ public class SystemGesturesPointerEventListener implements PointerEventListener
+     private final Context mContext;
+     private final int mSwipeStartThreshold;
+     private final int mSwipeDistanceThreshold;
++    // Readom: the bottom edge answers from the strip the navigation bar occupies, not from the
++    // status bar's height that the other three edges share -- the bar is the only way back here.
++    private final int mSwipeStartThresholdBottom;
+     private final Callbacks mCallbacks;
+     private final int[] mDownPointerId = new int[MAX_TRACKED_POINTERS];
+     private final float[] mDownX = new float[MAX_TRACKED_POINTERS];
+@@ -71,6 +74,8 @@ public class SystemGesturesPointerEventListener implements PointerEventListener
+         mSwipeStartThreshold = checkNull("context", context).getResources()
+                 .getDimensionPixelSize(com.android.internal.R.dimen.status_bar_height);
+         mSwipeDistanceThreshold = mSwipeStartThreshold;
++        mSwipeStartThresholdBottom = checkNull("context", context).getResources()
++                .getDimensionPixelSize(com.android.internal.R.dimen.navigation_bar_height);
+         if (DEBUG) Slog.d(TAG,  "mSwipeStartThreshold=" + mSwipeStartThreshold
+                 + " mSwipeDistanceThreshold=" + mSwipeDistanceThreshold);
+     }
+@@ -223,7 +228,7 @@ public class SystemGesturesPointerEventListener implements PointerEventListener
+                 && elapsed < SWIPE_TIMEOUT_MS) {
+             return SWIPE_FROM_TOP;
+         }
+-        if (fromY >= screenHeight - mSwipeStartThreshold
++        if (fromY >= screenHeight - mSwipeStartThresholdBottom
+                 && y < fromY - mSwipeDistanceThreshold
+                 && elapsed < SWIPE_TIMEOUT_MS) {
+             return SWIPE_FROM_BOTTOM;

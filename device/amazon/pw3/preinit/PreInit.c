@@ -1030,23 +1030,25 @@ static void preinit_nav_settings(void) {
     }
     data[got] = 0;
 
-    /* The bar is shown by default. policy_control hides it; readom_nav_locked is the reader's
-     * choice and survives a restart, so without a nav= key in readom.conf an existing value is
-     * left alone. nav=show drops the policy and writes 0, nav=hide writes both. */
+    /* The reader's choice is the readom_nav_locked row, and it is the only thing that decides:
+     * once the row exists, neither row is touched here, whatever readom.conf says. `nav=show|
+     * hide` is therefore the value to *start* from -- on the first boot of a data image, and in
+     * the one migration that matters, a database last written by a build that hid the bar
+     * through policy_control without ever recording a choice (v8.8 and earlier). The bar is
+     * shown by default: no nav= key means readom_nav_locked=0 and no policy_control. */
     bool ok = true;
-    bool keep = !from_conf && nav_has_setting(data, (size_t)got, kNavLockedName);
+    bool keep = nav_has_setting(data, (size_t)got, kNavLockedName);
     for (int which = 0; ok && !keep && which < 2; ++which) {
         const char *name;
         const char *value;
         bool remove;
-        if (which == 0) {                       /* policy_control: only for nav=hide */
-            if (!from_conf) continue;           /* shown by default: nothing to write */
+        if (which == 0) {                       /* policy_control: the hiding, for nav=hide */
             name = kNavPolicyName;
             value = kNavPolicyHidden;
             remove = show;
         } else {                                /* readom_nav_locked: 1 = put away */
             name = kNavLockedName;
-            value = (from_conf && !show) ? "1" : "0";
+            value = show ? "0" : "1";
             remove = false;
         }
         char *next = NULL;
@@ -1060,7 +1062,7 @@ static void preinit_nav_settings(void) {
     }
     if (keep) {
         free(data);
-        snprintf(line, sizeof(line), "PW3_NAV nav=keep src=default write=0 rows=-1 locked=-1"
+        snprintf(line, sizeof(line), "PW3_NAV nav=keep src=store write=0 rows=-1 locked=-1"
                  " errno=0");
         report(line);
         return;
