@@ -732,9 +732,10 @@ static void testfile_documents_bind(void) {
  * and a view that is not writable is not what this branch asked for either. */
 #define ROOT_VIEW_MOUNT "/data/media/0/kindle"
 static void testfile_kindle_root_view(void) {
-    char cover[160], line[224];
+    char cover[160], docs[160], line[256];
     struct statvfs flags;
-    int mkdir_rc = -1, bind_rc = -1, cover_rc = -1, rw_rc = -1, cover_ro_rc = -1, saved_errno = 0;
+    int mkdir_rc = -1, bind_rc = -1, cover_rc = -1, rw_rc = -1, cover_ro_rc = -1;
+    int docs_ro_rc = -1, saved_errno = 0;
     if (mkdir_ram(ROOT_VIEW_MOUNT, 0775)) mkdir_rc = 0;
     if (mkdir_rc != 0) {
         saved_errno = errno;
@@ -748,8 +749,25 @@ static void testfile_kindle_root_view(void) {
         } else {
             saved_errno = errno;
         }
-        /* The two properties: the view is writable (this branch's change) and
-         * android/ is still read-only (what the change may not take away). */
+        /* documents/ inside the view must stay read-only as well (the user's
+         * books are not edited from the Android view). The old path
+         * /data/media/0/documents is already a read-only bind of the same
+         * folder; bind that mount over the view's copy and force the per-mount
+         * read-only flag, because a bind of a read-only mount is writable on
+         * its own. */
+        if (cover_rc == 0 &&
+            snprintf(docs, sizeof(docs), "%s/documents", ROOT_VIEW_MOUNT) < (int)sizeof(docs) &&
+            mount("/data/media/0/documents", docs, NULL, MS_BIND, NULL) == 0) {
+            if (mount(NULL, docs, NULL, MS_REMOUNT | MS_BIND | MS_RDONLY, NULL) == 0)
+                docs_ro_rc = 0;
+            else
+                saved_errno = errno;
+        } else {
+            saved_errno = errno;
+        }
+        /* The three properties: the view is writable (this branch's change),
+         * android/ and documents/ are still read-only (what the change may not
+         * take away). */
         if (cover_rc == 0) {
             if (!statvfs(ROOT_VIEW_MOUNT, &flags) && !(flags.f_flag & ST_RDONLY))
                 rw_rc = 0;
@@ -759,16 +777,20 @@ static void testfile_kindle_root_view(void) {
                 cover_ro_rc = 0;
             else
                 saved_errno = errno;
+            if (docs_ro_rc == 0 && (!statvfs(docs, &flags) || !(flags.f_flag & ST_RDONLY)))
+                docs_ro_rc = -1;
         }
-        if (cover_rc || rw_rc || cover_ro_rc) {   /* fail closed: withdraw the whole view */
+        if (cover_rc || rw_rc || cover_ro_rc || docs_ro_rc) {   /* fail closed: withdraw the whole view */
+            if (docs_ro_rc == 0) umount(docs);
             if (cover_rc == 0) umount(cover);
             umount(ROOT_VIEW_MOUNT);
         }
     }
     snprintf(line, sizeof(line),
-             "PW3_STORAGE root_view=%d mkdir=%d bind=%d cover=%d rw=%d cover_ro=%d errno=%d",
-             (mkdir_rc == 0 && bind_rc == 0 && cover_rc == 0 && rw_rc == 0 && cover_ro_rc == 0) ? 0 : -1,
-             mkdir_rc, bind_rc, cover_rc, rw_rc, cover_ro_rc, saved_errno);
+             "PW3_STORAGE root_view=%d mkdir=%d bind=%d cover=%d rw=%d cover_ro=%d docs_ro=%d errno=%d",
+             (mkdir_rc == 0 && bind_rc == 0 && cover_rc == 0 && rw_rc == 0 && cover_ro_rc == 0 &&
+              docs_ro_rc == 0) ? 0 : -1,
+             mkdir_rc, bind_rc, cover_rc, rw_rc, cover_ro_rc, docs_ro_rc, saved_errno);
     report(line);
 }
 
