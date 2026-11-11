@@ -1,19 +1,18 @@
 > **This is a personal fork.**
 >
-> Upstream: [hbyxabc/readom](https://github.com/hbyxabc/readom). This fork carries the **Kindle Voyage (7th gen, firmware 5.13.6)** port in branch `voyage`. Upstream PR [#26](https://github.com/hbyxabc/readom/pull/26) was closed without merging — the rw store mount, the skipped storage check and the shared kernel-patch series would weaken the PW3 safety boundary, and I agree with that call. Merge progress and the plan for smaller PRs are tracked in port Issue [#27](https://github.com/hbyxabc/readom/issues/27).
+> Upstream: [hbyxabc/readom](https://github.com/hbyxabc/readom). This fork carries the **Kindle Voyage (7th gen, firmware 5.13.6)** port and its hardware verification, in branches `voyage` and `feat/v8.9.2-nav`. Upstream PR [#26](https://github.com/hbyxabc/readom/pull/26) was closed without merging — the rw store mount, the skipped storage check and the shared kernel-patch series would weaken the PW3 safety boundary, and I agree with that call. Merge progress and the plan for smaller PRs are tracked in port Issue [#27](https://github.com/hbyxabc/readom/issues/27).
 >
-> Verified on hardware (Voyage / 5.13.6): install → Android 8.1 boots; Wi‑Fi, display and standby OK; WeRead runs; returning to the stock system works. Enabled: **page-turn haptics**, **PagePress zones split top/bottom (previous/next)**, **the stock `documents/` folder appears as Android internal storage** (read-only, no duplicate copy), and the **navigation bar is hidden by default** (swipe up from the very bottom edge inside an app to peek; `nav=show` in `documents/readom.conf` restores it; `keymap=1/2/3` changes the key layout).
+> **Releases (v8.9.2)**: [4G build](https://github.com/DrSkyeagle/readom/releases/tag/voyage-v8.9.2-4g) for stock, unexpanded 4 GB devices · [expanded build](https://github.com/DrSkyeagle/readom/releases/tag/voyage-v8.9.2-expanded) for devices whose user area is at least 4.5 GB. Each zip holds the `Readom.sh` entry, an offline payload, the Chinese install guide and a demo wallpaper pack.
 >
-> **Release package** (installer zip: `Readom.sh` + 190 MB offline payload + Chinese install guide): <https://github.com/DrSkyeagle/readom/releases/tag/voyage-v8.7>
+> Verified on hardware (Voyage / 5.13.6): Android 8.1 boots; Wi‑Fi, display, standby and WeRead work (1.88 recommended); page-turn haptics and PagePress zones are kept; returning to the stock system works.
 >
-> Installation is the same as upstream: put `Readom.sh` and the offline payload into `documents/` and tap **Readom** in the library. Everything below is the upstream documentation, unchanged.
-
-> **Installing third-party APKs**: this Android image has **no package installer UI**, so tapping an APK in a file manager does nothing. Install with adb instead:
+> **Install**: unzip, copy everything into the Kindle's `documents/` folder, then tap **Readom** in the library. No adb, no computer. The first boot is slow and may go dark and restart once — do not cut power. The signing-key change resets system settings; your books and installed apps are untouched. **v8.7 data can be kept**: the 4G build is the same size as v8.7, so the installer reuses it as is; the expanded build grows it from 1.75 GiB to 3.5 GiB in place.
 >
-> 1. In Android, open **Settings → About tablet** and tap **Build number** seven times to unlock developer options;
-> 2. Open **Developer options** and enable **USB debugging**;
-> 3. Connect the Kindle to a computer over USB while it is running Android (not the stock system), with platform-tools installed;
-> 4. Run `adb devices` (accept the prompt on the Kindle, "Always allow"), then `adb install app.apk`.
+> **Installing APKs**: tapping an APK in the file manager opens the installer — PackageInstaller is built in and patched for slow devices, so a long install shows its progress. **adb is not needed day to day**; it is a debugging fallback only.
+>
+> **Since v8.7**: (1) the system image is rebuilt from AOSP 8.1.0_r81 sources instead of repacking an upstream image, and every change is a reviewable patch; (2) **transparent sleep wallpaper** — drop PNGs into `sleepwall/` on the Kindle drive (`kindle/sleepwall` inside internal storage); one is picked at random each time the screen sleeps, and transparent pixels keep the frame that was on the panel before; (3) **the navigation bar is fixed and can be put away** — four keys stay visible, home and recents no longer collide, the fourth key hides the bar and nothing brings it back (shade, review pop-ups, lock screen, immersive apps); a swipe up from the bottom edge is the only way back and it stays, and the choice survives a reboot; (4) **Android and the stock system now see each other** — `Internal storage → kindle` is the Kindle's own drive (its `documents` read-only, `android/` hidden), so books and wallpapers move without switching systems; (5) the expanded build's 3.5 GiB is bounded by FAT32's 4 GiB per-file limit, and stock 4 GB devices use the 4G build.
+>
+> Everything below is the upstream documentation, unchanged.
 
 <h1 align="center">
   <a href="https://readom.app">

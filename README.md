@@ -1,20 +1,20 @@
 > **这是一个个人 fork / This is a personal fork**
 >
-> 上游项目：[hbyxabc/readom](https://github.com/hbyxabc/readom)。本 fork 做 **Kindle Voyage（第 7 代，固件 5.13.6）** 的适配与真机验证，代码在 `voyage` 分支。
+> 上游项目：[hbyxabc/readom](https://github.com/hbyxabc/readom)。本 fork 做 **Kindle Voyage（第 7 代，固件 5.13.6）** 的适配与真机验证，代码在 `voyage` 与 `feat/v8.9.2-nav` 分支。
 >
 > - 上游 PR [#26](https://github.com/hbyxabc/readom/pull/26) 已被维护者关闭（未合并）：rw 挂载原厂盘、跳过存储检查、共用内核补丁序列这三处会削弱 PW3 的安全边界，我认同这个判断。合并进度与后续小 PR 计划见 **移植 Issue [#27](https://github.com/hbyxabc/readom/issues/27)**。
-> - **发行包**（安装器 zip：`Readom.sh` + 190 MB 离线载荷 + 中文安装说明）：[voyage-v8.7](https://github.com/DrSkyeagle/readom/releases/tag/voyage-v8.7)
+> - **发行包（v8.9.2）**：[4G 版本](https://github.com/DrSkyeagle/readom/releases/tag/voyage-v8.9.2-4g)（普通未扩容的 4 GB 机器）· [扩容版本](https://github.com/DrSkyeagle/readom/releases/tag/voyage-v8.9.2-expanded)（用户区 ≥4.5 GB）。zip 里是入口 `Readom.sh` + 离线载荷 + 中文安装说明 + 演示壁纸包。
 >
-> 真机已验证（KV 第 7 代 / 5.13.6）：安装后进入 Android 8.1；Wi‑Fi、显示、待机正常；微信读书可用（建议 1.88 版）；可正常回原厂系统。已启用：**翻页振动**、**PagePress 上下分区翻页**、**原厂 `documents/` 以只读形式出现在 Android「内部存储」**（不占双份空间）、**导航栏默认隐藏**（应用内从屏幕最底边上划可临时唤出；`documents/readom.conf` 写 `nav=show` 后重启永久恢复，同文件 `keymap=1/2/3` 可切换键位）。
+> 真机已验证（KV 第 7 代 / 5.13.6）：装后进入 Android 8.1；Wi‑Fi、显示、待机正常；微信读书可用（建议 1.88 版）；翻页键的振动与 PagePress 上下分区翻页保留；随时可回原厂系统。
 >
-> 安装方式与上游一致：把 `documents/Readom.sh` 和离线载荷放进 `documents/`，书库点 **Readom**。以下内容均为上游原文档，未作修改。
+> **安装**：解压 zip，把里面的文件全部放进 Kindle 盘 `documents/`，书库点 **Readom**。不需要 adb、不需要电脑。首次启动较慢（可能黑屏重启一次），别断电；换签名会让系统设置回默认，书和已装应用不受影响。**v8.7 用户的数据可以保留**：4G 版与 v8.7 同尺寸，安装器直接复用、不清空；扩容版把 1.75 GiB 原地扩到 3.5 GiB。
+>
+> **装 APK**：在文件管理器里点 APK 就会弹出安装界面——系统已内置 PackageInstaller，并针对慢速设备打过补丁（长时间的安装会显示进度）。**日常不需要 adb**，adb 只作为调试备用。
+>
+> **自 v8.7 以来的主要变化**：① 系统底座从"重打包上游镜像"改为 **AOSP 8.1.0_r81 源码重建**，每处改动都是可审补丁；② **熄屏透明壁纸**——把 PNG 放进 Kindle 盘 `sleepwall/`（Android 里是 `内部存储/kindle/sleepwall`），每次熄屏随机显示，透明处透出熄屏前那一屏；③ **导航栏修好且可隐藏**——四键常显、home 与最近任务不再挤压，点第 4 键收起后，下拉通知栏、书评浮层、锁屏、全屏应用交互都不会再把它带出来，底边上滑是唯一唤回方式且不自动收回，重启保持；④ **Android 与原生系统打通**——`内部存储 → kindle` 就是 Kindle 原生盘（`documents` 只读、`android/` 隐藏），不用切系统就能放书、换壁纸；⑤ 扩容版 3.5 GiB 受 FAT32 单文件 4 GiB 上限约束，普通 4 GB 机器用 4G 版。
+>
+> 以下内容均为上游原文档，未作修改。
 
-> **安装第三方应用（APK）的说明**：这套 Android 系统**没有内置应用安装器**（PackageInstaller 界面），在文件管理器里点 APK 不会弹出安装界面。可以改用 adb 安装：
->
-> 1. 在 Android 里打开 **设置 → 关于平板电脑**，连点“版本号”7 次开启开发者选项；
-> 2. 进入 **开发者选项**，打开 **USB 调试**；
-> 3. 用数据线把 Kindle 连到电脑（Kindle 需处于 Android 系统，不是原厂系统），电脑上装好 platform-tools；
-> 4. 电脑执行 `adb devices`（Kindle 上弹出授权时勾选“始终允许”），然后 `adb install 应用.apk`。
 <h1 align="center">
   <a href="https://readom.app">
     <picture>
