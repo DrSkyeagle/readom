@@ -6,7 +6,7 @@
 >
 > Verified on hardware (Voyage / 5.13.6): Android 8.1 boots; Wi‑Fi, display, standby and WeRead work (1.88 recommended); page-turn haptics and PagePress zones are kept; returning to the stock system works.
 >
-> **Install**: unzip, copy everything into the Kindle's `documents/` folder, then tap **Readom** in the library. No adb, no computer. The first boot is slow and may go dark and restart once — do not cut power. The signing-key change resets system settings; your books and installed apps are untouched. **v8.7 data can be kept**: the 4G build is the same size as v8.7, so the installer reuses it as is; the expanded build grows it from 1.75 GiB to 3.5 GiB in place.
+> **Install**: unzip, copy everything into the Kindle's `documents/` folder, then tap **Readom** in the library. No adb, no computer. The first boot is slow and may go dark and restart once — do not cut power. The signing-key change resets system settings; your books and installed apps are untouched. **v8.7 data can be kept**: the 4G build is the same size as v8.7, so the installer reuses it as is; the expanded build grows it from 1.75 GiB to 3.5 GiB in place. **Back up `android/data.img` before upgrading** (copy it off the Kindle drive while the device is off).
 >
 > **Installing APKs**: tapping an APK in the file manager opens the installer — PackageInstaller is built in and patched for slow devices, so a long install shows its progress. **adb is not needed day to day**; it is a debugging fallback only.
 >
